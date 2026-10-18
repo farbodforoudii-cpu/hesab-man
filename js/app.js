@@ -8,7 +8,7 @@ import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
-  view: 'entry', amount: '', dayBack: 0,
+  view: 'entry', amount: '', dayBack: 0, step: 'amount', dir: 'out', what: '',
   month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, budgetMode: 'week', budgetHover: null,
 };
 const $app = document.getElementById('app');
@@ -35,6 +35,7 @@ async function boot() {
   S.history = history || null;
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
+  S.step = 'amount';
   render();
   requestPersistence();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -114,18 +115,28 @@ function toast(text, undo) {
 }
 
 // ---------- render ----------
+const isWide = () => window.innerWidth >= 820;
+
 function render() {
   const n = pendingList().length;
-  const tabs = [['entry', 'add', 'ثبت'], ['list', 'list', 'تراکنش‌ها'], ['dash', 'chart', 'خلاصه'], ['settings', 'gear', 'تنظیمات']];
-  $tabs.innerHTML = `<div class="inner">${tabs.map(([v, ic, l]) =>
+  const entry = S.view === 'entry' || !S.settings.startDate;
+  document.body.classList.toggle('no-tabs', entry);
+  const tabs = [['dash', 'chart', 'خلاصه'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
+  $tabs.innerHTML = entry ? '' : `<div class="inner">${tabs.map(([v, ic, l]) =>
     `<button data-act="tab" data-v="${v}" class="${S.view === v ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
   const views = { entry: viewEntry, list: viewList, dash: viewDash, settings: viewSettings };
   $app.innerHTML = views[S.view]();
   if (S.view === 'list') bindList();
   if (S.view === 'dash') bindBudget();
+  if (S.view === 'entry' && S.step === 'what') bindWhat();
 }
 
-// ----- Entry -----
+// Page header with a quick way back to entry (entry itself is not a tab).
+function pageHead(title, extra = '') {
+  return `<div class="page-head"><h1 class="large">${title}</h1><div class="row">${extra}<button class="add-pill" data-act="go-entry">${ICON.add}<span>ثبت</span></button></div></div>`;
+}
+
+// ----- Entry: «چقدر؟» then «برای چی؟» -----
 function viewEntry() {
   if (!S.settings.startDate) {
     return `<div class="view">
@@ -140,21 +151,95 @@ function viewEntry() {
   }
   const amt = Number(S.amount || 0);
   const dayTxt = S.dayBack === 0 ? 'امروز' : S.dayBack === 1 ? 'دیروز' : dayLabel(entryDate());
-  const sugs = amt && S.settings.showSuggestions ? suggest(S.tpl, amt, entryDate(), { limit: 3 }) : [];
-  return `<div class="view entry">
-    <div class="entry-top"><button class="link" data-act="day">${esc(dayTxt)}</button></div>
-    <div class="amount-box" data-act="clear">
-      <div class="amount ${amt ? '' : 'empty'}">${amt ? fmt(amt) : '۰'}</div>
-      <div class="words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
-    </div>
-    <div class="sugs">${sugs.map(r => `<button class="sug" data-act="use" data-key="${esc(r.t.key)}"><span>${esc(r.t.desc)}</span><small>${esc(subtitle(r.t))}</small></button>`).join('')}</div>
-    <div class="dir-btns">
-      <button class="cap in" data-act="manual" data-dir="in">دریافت</button>
-      <button class="cap out" data-act="manual" data-dir="out">پرداخت</button>
+  const top = `<div class="entry-top">
+      <button class="chip-btn" data-act="day">${esc(dayTxt)}</button>
+      <button class="icon-round" data-act="tab" data-v="${isWide() ? 'dash' : 'dash'}" aria-label="خلاصه">${ICON.chart}</button>
+    </div>`;
+  if (S.step === 'what') {
+    return `<div class="view entry">${top}
+      <div class="hero-amt small" data-act="back"><div class="stripes"></div><span class="b-pill" id="what-dir">${guess(S.what, S.dir).dir === 'in' ? 'دریافت' : 'پرداخت'}</span><div class="hero-num">${fmt(amt)}</div></div>
+      <h2 class="ask">برای چی؟</h2>
+      <div class="what-box"><input id="what" class="what-input" placeholder="مثلاً سوپرمارکت، Pouyan، بنزین" autocomplete="off" enterkeyhint="done" value="${esc(S.what)}"></div>
+      <div id="what-guess">${guessHtml()}</div>
+      <button class="btn-big what-save" data-act="save-what">ثبت</button>
+      <div id="what-ac"></div>
+    </div>`;
+  }
+  return `<div class="view entry">${top}
+    <div class="hero-amt" data-act="clear">
+      <div class="stripes"></div>
+      <span class="b-pill">چقدر؟</span>
+      <div class="hero-num ${amt ? '' : 'empty'}">${amt ? fmt(amt) : '۰'}</div>
+      <div class="hero-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
     </div>
     <div class="keypad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'del'].map(k =>
       `<button data-k="${k}">${k === 'del' ? ICON.del : faDigits(k)}</button>`).join('')}</div>
+    <div class="entry-actions">
+      <button class="btn-side" data-act="next" data-dir="in" ${amt ? '' : 'disabled'}>دریافت</button>
+      <button class="btn-big" data-act="next" data-dir="out" ${amt ? '' : 'disabled'}>ادامه</button>
+    </div>
   </div>`;
+}
+
+// Work out what a short description means, using learned patterns first, then keywords.
+function guess(text, dirHint) {
+  const t = text.trim();
+  if (!t) return { dir: dirHint, type: dirHint === 'out' ? 'expense' : null, cat: null, ctx: 'personal', cp: '', desc: '', sure: false };
+  for (const dir of [dirHint, dirHint === 'out' ? 'in' : 'out']) {
+    const m = bestTemplateForText(S.tpl, t, dir);
+    if (m) return { dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc, sure: true };
+  }
+  const ac = complete(S.tpl, t, dirHint).concat(complete(S.tpl, t, dirHint === 'out' ? 'in' : 'out'));
+  if (ac.length === 1 || (ac.length && norm(ac[0].desc).startsWith(norm(t)) && t.length >= 3)) {
+    const m = ac[0];
+    return { dir: m.dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc, sure: true };
+  }
+  const rIn = inferFromText(t, 'in'), rOut = inferFromText(t, 'out');
+  if (dirHint === 'in' || (rIn.type && !(rOut.type === 'expense' && rOut.cat))) {
+    return { dir: 'in', type: rIn.type, cat: null, ctx: rIn.ctx, cp: rIn.type ? t : '', desc: t, sure: !!rIn.type };
+  }
+  return { dir: 'out', type: rOut.type || 'expense', cat: rOut.cat, ctx: rOut.ctx, cp: '', desc: t, sure: rOut.type !== 'expense' || !!rOut.cat };
+}
+
+function guessHtml() {
+  const g = guess(S.what, S.dir);
+  if (!S.what.trim()) return '<p class="hint-line">بنویس و «ثبت» را بزن. اپ خودش دسته را پیدا می‌کند.</p>';
+  const what = g.type === 'expense' ? (g.cat ? CATEGORIES[g.cat].label : 'بعداً دسته‌بندی می‌شود') : g.type ? TYPES[g.type].label : 'بعداً بررسی می‌شود';
+  return `<div class="guess ${g.sure ? '' : 'unsure'}"><i class="dot" style="background:${g.type === 'expense' && g.cat ? CATEGORIES[g.cat].color : g.dir === 'in' ? '#34c759' : '#c7c7cc'}"></i>
+    <span>${g.dir === 'in' ? 'دریافت' : 'پرداخت'} · ${esc(what)}</span>
+    <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
+}
+
+function bindWhat() {
+  const input = document.getElementById('what');
+  if (!input) return;
+  input.focus();
+  input.addEventListener('input', () => {
+    S.what = input.value;
+    document.getElementById('what-guess').innerHTML = guessHtml();
+    document.getElementById('what-dir').textContent = guess(S.what, S.dir).dir === 'in' ? 'دریافت' : 'پرداخت';
+    const ac = S.what.trim() ? complete(S.tpl, S.what, S.dir).concat(complete(S.tpl, S.what, S.dir === 'out' ? 'in' : 'out')).slice(0, 4) : [];
+    document.getElementById('what-ac').innerHTML = ac.length ? `<div class="group">${ac.map(m =>
+      `<button class="cell" data-act="pick-what" data-key="${esc(m.key)}"><span>${esc(m.desc)}</span><small>${esc(subtitle(m))}</small></button>`).join('')}</div>` : '';
+  });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveWhat(); } });
+}
+
+async function saveWhat(m) {
+  const amount = Number(S.amount || 0);
+  if (!amount) return;
+  const g = m ? { dir: m.dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc } : guess(S.what, S.dir);
+  const ts = entryDate();
+  if (g.dir === 'in' && g.ctx === 'seenzhin') { S.step = 'amount'; S.what = ''; return seenzhinChoice(amount, ts); }
+  const desc = g.desc || (g.type === 'expense' && g.cat ? CATEGORIES[g.cat].label : 'بدون توضیح');
+  const tx = {
+    id: newId(), ts: ts.toISOString(), dir: g.dir, amount, desc, cp: g.cp || '', type: g.type,
+    cat: g.type === 'expense' ? g.cat : null, ctx: g.ctx || 'personal', src: 'manual', created: new Date().toISOString(),
+  };
+  tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
+  S.step = 'amount';
+  S.what = '';
+  await commitNew(tx);
 }
 
 async function commitNew(tx) {
@@ -355,13 +440,31 @@ function viewList() {
   const n = pendingList().length;
   const pend = S.listFilter === 'pending';
   return `<div class="view">
-    <h1 class="large">تراکنش‌ها</h1>
+    ${pageHead('تراکنش‌ها')}
+    ${listBento()}
     <input class="search" id="q" placeholder="جستجو" value="${esc(S.listQuery)}">
-    ${n || pend ? `<div class="group"><button class="cell" data-act="lf" data-v="${pend ? 'all' : 'pending'}"><span>${pend ? 'نمایش همه' : 'نیاز به بررسی'}</span><span class="row">${pend ? '' : `<b class="count">${faDigits(n)}</b>`}${ICON.chevL}</span></button></div>` : ''}
     ${pend ? '' : `<div class="segmented">${[['all', 'همه'], ['in', 'دریافت'], ['out', 'پرداخت']].map(([k, l]) =>
       `<button data-act="lf" data-v="${k}" class="${S.listFilter === k ? 'on' : ''}">${l}</button>`).join('')}</div>`}
     <div id="list-body">${listBody()}</div>
   </div>`;
+}
+
+function listBento() {
+  const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const week0 = new Date(day0); week0.setDate(week0.getDate() - 6);
+  let today = 0, week = 0;
+  for (const t of scoped()) {
+    if (t.type !== 'expense') continue;
+    const d = new Date(t.ts);
+    if (d >= day0) today += t.amount;
+    if (d >= week0) week += t.amount;
+  }
+  const n = pendingList().length;
+  return `<section class="mini-bento">
+    <div class="mb-tile dark"><div class="stripes"></div><p class="b-label">خرج امروز</p><p class="mb-num">${fmtShort(today)}</p></div>
+    <div class="mb-tile"><p class="b-label">۷ روز اخیر</p><p class="mb-num">${fmtShort(week)}</p></div>
+    <button class="mb-tile muted" data-act="lf" data-v="${S.listFilter === 'pending' ? 'all' : 'pending'}"><p class="b-label">${S.listFilter === 'pending' ? 'نمایش همه' : 'نیاز به بررسی'}</p><p class="mb-num">${faDigits(n)}</p></button>
+  </section>`;
 }
 
 function listBody() {
@@ -419,8 +522,7 @@ function viewDash() {
     ...Object.entries(b.assets),
   ];
   return `<div class="view wide">
-    <div class="dash-head"><h1 class="large">خلاصه</h1>
-      <div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div></div>
+    ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
 
     <section class="bento">
       <div class="b-primary">
@@ -587,7 +689,7 @@ function viewSettings() {
   const stale = !st.lastBackup || Date.now() - new Date(st.lastBackup) > 7 * 864e5;
   const toggle = (k, label) => `<button class="cell" data-act="toggle" data-v="${k}"><span>${label}</span><i class="switch ${st[k] ? 'on' : ''}"></i></button>`;
   return `<div class="view">
-    <h1 class="large">تنظیمات</h1>
+    ${pageHead('تنظیمات')}
     <div class="section-title">پشتیبان</div>
     <div class="group">
       <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>
@@ -604,7 +706,6 @@ function viewSettings() {
 
     <div class="section-title">نمایش</div>
     <div class="group">
-      ${toggle('showSuggestions', 'پیشنهاد در صفحهٔ ثبت')}
       ${toggle('showHistory', 'نمایش اطلاعات قبل از شروع')}
     </div>
 
@@ -709,6 +810,12 @@ document.addEventListener('click', async e => {
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
+    else if (a === 'go-entry') { S.view = 'entry'; S.step = 'amount'; render(); window.scrollTo(0, 0); }
+    else if (a === 'next') { if (!Number(S.amount)) return; S.dir = b.dataset.dir; S.step = 'what'; S.what = ''; render(); }
+    else if (a === 'back') { S.step = 'amount'; render(); }
+    else if (a === 'flip-dir') { S.dir = guess(S.what, S.dir).dir === 'in' ? 'out' : 'in'; render(); }
+    else if (a === 'save-what') await saveWhat();
+    else if (a === 'pick-what') { const m = S.tpl.find(t => t.key === b.dataset.key); if (m) await saveWhat(m); }
     else if (a === 'day') { S.dayBack = (S.dayBack + 1) % 4; render(); }
     else if (a === 'use') await useTemplate(b.dataset.key, Number(S.amount), entryDate());
     else if (a === 'manual') openTxSheet({ dir: b.dataset.dir, amount: Number(S.amount || 0) });
@@ -774,7 +881,8 @@ function key(k) {
 }
 
 document.addEventListener('keydown', e => {
-  if (S.view !== 'entry' || $ov.innerHTML || e.target.matches('input, textarea')) return;
+  if (S.view !== 'entry' || S.step !== 'amount' || $ov.innerHTML || e.target.matches('input, textarea')) return;
+  if (e.key === 'Enter' && Number(S.amount)) { S.dir = 'out'; S.step = 'what'; S.what = ''; render(); return; }
   const d = toAscii(e.key);
   if (/^\d$/.test(d)) key(d);
   else if (e.key === 'Backspace') key('del');
