@@ -2,14 +2,14 @@ import { db, requestPersistence } from './db.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
-import { monthSummary, balanceAt, bankCheck, balances, trend, claudePack } from './stats.js';
+import { monthSummary, balanceAt, bankCheck, balances, claudePack } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
   view: 'entry', amount: '', dayBack: 0,
-  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, chartMode: 'month',
+  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, budgetMode: 'week', budgetHover: null,
 };
 const $app = document.getElementById('app');
 const $tabs = document.getElementById('tabs');
@@ -122,6 +122,7 @@ function render() {
   const views = { entry: viewEntry, list: viewList, dash: viewDash, settings: viewSettings };
   $app.innerHTML = views[S.view]();
   if (S.view === 'list') bindList();
+  if (S.view === 'dash') bindBudget();
 }
 
 // ----- Entry -----
@@ -397,26 +398,20 @@ function bindList() {
 }
 
 // ----- Summary -----
+// Layout follows the "StatsBento" + "BudgetCard" references, rebuilt without React/Tailwind.
+const WEEKDAY_SHORT = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش'];
+
 function viewDash() {
   const T = scoped();
   const key = S.month;
   const s = monthSummary(T, key);
-  const prev = monthSummary(T, shiftMonth(key, -1));
   const bal = balanceAt(S.tx, S.settings);
   const chk = bankCheck(S.tx, S.settings);
   const b = balances(T);
-  const left = s.work + s.family + s.sale + s.otherIn - s.expense - s.inventory;
-  const cmp = (cur, p) => {
-    if (!p) return '';
-    const pct = Math.round((cur - p) / p * 100);
-    return pct ? `${faDigits(Math.abs(pct))}٪ ${pct > 0 ? 'بیشتر' : 'کمتر'} از ماه قبل` : 'مثل ماه قبل';
-  };
+  const cov = s.expense ? Math.round(s.work / s.expense * 100) : null;
   const cats = Object.entries(s.byCat).sort((x, y) => y[1] - x[1]);
   const sources = Object.entries(s.bySource).sort((x, y) => y[1] - x[1]);
   if (s.sale) sources.push(['فروش', s.sale]);
-  const extras = [
-    ['پس‌انداز این ماه', s.asset], ['قسط', s.loanPay], ['صندوق', s.fundIn], ['پرداخت برای دیگران', s.onBehalf], ['پس گرفته', s.reimburse],
-  ].filter(r => r[1]);
   const held = [
     ...(b.seenzhin > 0 ? [['طلب از Seenzhin', b.seenzhin]] : []),
     ...(b.fund ? [['صندوق مریم', b.fund]] : []),
@@ -426,32 +421,148 @@ function viewDash() {
   return `<div class="view wide">
     <div class="dash-head"><h1 class="large">خلاصه</h1>
       <div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div></div>
+
+    <section class="bento">
+      <div class="b-primary">
+        <div class="stripes"></div>
+        <div><span class="b-pill">موجودی بلو</span><h3 class="b-hero">${fmt(bal)}</h3></div>
+        <p class="b-note">${chk ? (Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است.' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی.`) : 'تومان، بر اساس ثبت‌های تو از روز شروع.'}</p>
+      </div>
+      <div class="b-growth">
+        <div><p class="b-label">درآمد ${monthLabel(key).split(' ')[0]}</p><p class="b-value">${fmtShort(s.work)}</p>
+          <p class="b-sub">${s.family ? `و ${fmtShort(s.family)} از خانواده` : '&nbsp;'}</p></div>
+        <div class="b-bars">${incomeBars(T, key)}</div>
+      </div>
+      <div class="b-count"><p class="b-num">${faDigits(s.count)}</p><p class="b-label">تراکنش</p></div>
+      <div class="b-rating">
+        <div class="b-badge">٪</div>
+        <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج با درآمد پوشش داده شد</p></div>
+      </div>
+    </section>
+
     <div class="dash">
-      <div class="tile span-6">
-        <div class="tile-label">موجودی</div>
-        <div class="big">${fmt(bal)} <small>تومان</small></div>
-        <div class="foot">${chk ? (Math.abs(chk.diff) <= 1000 ? 'با حساب بلو یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با بانک`) : 'حساب بلو'}</div>
-      </div>
-      <div class="tile span-6 trio">
-        <div><div class="tile-label">درآمد</div><div class="mid green">${fmtShort(s.work)}</div><div class="foot">${cmp(s.work, prev.work)}</div></div>
-        <div><div class="tile-label">خرج</div><div class="mid">${fmtShort(s.expense)}</div><div class="foot">${cmp(s.expense, prev.expense)}</div></div>
-        <div><div class="tile-label">باقی‌مانده</div><div class="mid ${left < 0 ? 'red' : ''}">${fmtShort(left)}</div><div class="foot">${s.family ? `با ${fmtShort(s.family)} از خانواده` : ''}</div></div>
-      </div>
-      <div class="tile span-12">
-        <div class="row"><div class="tile-label">${S.chartMode === 'month' ? 'از اول ماه' : 'ماه‌های اخیر'}</div><span class="spacer"></span>
-          <div class="segmented sm">${[['month', 'این ماه'], ['months', 'ماه‌ها']].map(([k, l]) => `<button data-act="cmode" data-v="${k}" class="${S.chartMode === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-        ${S.chartMode === 'month' ? dailyChart(T, key) : monthlyChart(T, key)}
-        <div class="legend"><span><i style="background:#34c759"></i>درآمد</span><span><i style="background:var(--tint)"></i>خرج</span></div>
-      </div>
-      <div class="span-6"><div class="section-title">خرج‌ها</div>
-        <div class="group">${cats.length ? cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${(CATEGORIES[c] || CATEGORIES.other).color}"></i><span class="grow">${(CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (s.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">خرجی ثبت نشده</span></div>'}</div></div>
-      <div class="span-6"><div class="section-title">درآمدها</div>
-        <div class="group">${sources.length ? sources.map(([k, v]) => `<div class="cell"><span class="grow">${esc(k)}</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">درآمدی ثبت نشده</span></div>'}
-        ${s.family ? `<div class="cell"><span class="grow sec">از خانواده</span><b class="sec">${fmtShort(s.family)}</b></div>` : ''}</div>
-        ${extras.length ? `<div class="section-title">سایر جابه‌جایی‌ها</div><div class="group">${extras.map(([l, v]) => `<div class="cell"><span class="grow">${l}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
+      <div class="span-6" id="budget">${budgetCard(T)}</div>
+      <div class="span-6">
+        <div class="section-title">خرج‌ها</div>
+        <div class="group">${cats.length ? cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${(CATEGORIES[c] || CATEGORIES.other).color}"></i><span class="grow">${(CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (s.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">خرجی ثبت نشده</span></div>'}</div>
+        <div class="section-title">درآمدها</div>
+        <div class="group">${sources.length ? sources.map(([k, v]) => `<div class="cell"><span class="grow">${esc(k)}</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">درآمدی ثبت نشده</span></div>'}</div>
         ${held.length ? `<div class="section-title">پس‌انداز و طلب</div><div class="group">${held.map(([l, v]) => `<div class="cell"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
       </div>
     </div></div>`;
+}
+
+// Eleven bars of cumulative income through the month, like the bento "growth" tile.
+function incomeBars(T, key) {
+  const { start, end } = monthRange(key);
+  const [jy, jm] = key.split('-').map(Number);
+  const len = monthLength(jy, jm), daily = Array(len).fill(0);
+  for (const t of T) {
+    const d = new Date(t.ts);
+    if (t.type === 'income_work' && d >= start && d < end) daily[toJalali(d).jd - 1] += t.amount;
+  }
+  for (let i = 1; i < len; i++) daily[i] += daily[i - 1];
+  const pts = Array.from({ length: 11 }, (_, i) => daily[Math.round(i * (len - 1) / 10)]);
+  const max = Math.max(1, ...pts);
+  return pts.map(v => `<i style="height:${Math.max(8, v / max * 100).toFixed(0)}%"></i>`).join('');
+}
+
+// Spending per day for the last 7 days (week) or this month (month).
+function spendSeries(T) {
+  const today = new Date();
+  const days = S.budgetMode === 'month' ? toJalali(today).jd : 7;
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    out.push({ d, label: S.budgetMode === 'month' ? faDigits(toJalali(d).jd) : WEEKDAY_SHORT[d.getDay()], value: 0 });
+  }
+  const first = out[0].d;
+  for (const t of T) {
+    if (t.type !== 'expense') continue;
+    const d = new Date(t.ts);
+    if (d < first) continue;
+    const idx = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - first) / 864e5);
+    if (idx >= 0 && idx < out.length) out[idx].value += t.amount;
+  }
+  return out;
+}
+
+function budgetCard(T) {
+  const data = spendSeries(T);
+  const total = data.reduce((x, y) => x + y.value, 0);
+  const prevStart = new Date(data[0].d); prevStart.setDate(prevStart.getDate() - data.length);
+  let prev = 0;
+  for (const t of T) { const d = new Date(t.ts); if (t.type === 'expense' && d >= prevStart && d < data[0].d) prev += t.amount; }
+  const diff = total - prev;
+  const W = 360, H = 160, pad = { top: 40, bottom: 35, left: 12, right: 12 };
+  const max = Math.max(...data.map(d => d.value)), min = Math.min(...data.map(d => d.value));
+  const range = max - min || 1;
+  const n = data.length;
+  const X = i => pad.left + (n === 1 ? 0 : i / (n - 1)) * (W - pad.left - pad.right);
+  const Y = v => H - pad.bottom - (v - min) / range * (H - pad.top - pad.bottom);
+  const pts = data.map((d, i) => [X(i), Y(d.value)]);
+  const line = smooth(pts);
+  const hi = S.budgetHover == null || S.budgetHover >= n ? n - 1 : S.budgetHover;
+  const step = Math.ceil(n / 8);
+  const tipX = X(hi) / W * 100;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="bc-chart" id="bc-svg">
+    <defs><linearGradient id="bcArea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--tint)" stop-opacity=".32"/><stop offset="55%" stop-color="var(--tint)" stop-opacity=".12"/><stop offset="100%" stop-color="var(--tint)" stop-opacity=".02"/></linearGradient></defs>
+    ${data.map((_, i) => (n <= 8 || i % step === 0) ? `<line x1="${X(i)}" y1="${pad.top}" x2="${X(i)}" y2="${H - pad.bottom}" class="bc-grid" opacity="${i === hi ? .9 : .5}"/>` : '').join('')}
+    <path d="${line} L ${X(n - 1)} ${H - pad.bottom} L ${X(0)} ${H - pad.bottom} Z" fill="url(#bcArea)"/>
+    <path d="${line}" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="12" fill="#fff" opacity=".6"/>
+    <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="7" fill="#fff" stroke="var(--tint)" stroke-width="3"/>
+    ${data.map((d, i) => (i % step === 0 || i === n - 1) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day">${d.label}</text>` : '').join('')}
+  </svg>`;
+  return `<div class="bc-shell"><div class="bc">
+    <div class="bc-head">
+      <div>
+        <div class="row"><p class="bc-label">${S.budgetMode === 'month' ? 'خرج این ماه' : 'خرج ۷ روز اخیر'}</p></div>
+        <h2 class="bc-total">${fmtShort(total)}</h2>
+        <div class="bc-pill"><span>${diff > 0 ? '+' : diff < 0 ? '−' : ''} ${fmtShort(Math.abs(diff))}</span>
+          <svg viewBox="0 0 16 16" class="${diff > 0 ? '' : 'down'}"><path d="M2 11L6 7L9 10L14 4"/><path d="M10 4H14V8"/></svg></div>
+      </div>
+      <div class="bc-money">${moneyIllustration()}</div>
+    </div>
+    <div class="bc-wrap">${svg}
+      <div class="bc-tip" style="left:${tipX.toFixed(2)}%;top:${(Y(data[hi].value) / H * 100).toFixed(2)}%;--tx:${tipX > 80 ? -86 : tipX < 20 ? -14 : -50}%;--ax:${tipX > 80 ? 86 : tipX < 20 ? 14 : 50}%"><span>${fmtShort(data[hi].value)}</span><i></i></div>
+    </div>
+    <div class="segmented sm bc-seg">${[['week', 'هفته'], ['month', 'ماه']].map(([k, l]) => `<button data-act="bmode" data-v="${k}" class="${(S.budgetMode || 'week') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+
+  </div></div>`;
+}
+
+function moneyIllustration() {
+  const bill = (tx, ty, rot, fill, sh) => `<g transform="translate(${tx}, ${ty}) rotate(${rot}, 40, 25)" filter="url(#${sh})">
+      <rect width="80" height="48" rx="6" fill="${fill}"/><circle cx="62" cy="14" r="7" fill="#d9d9de"/><circle cx="62" cy="34" r="5" fill="#d9d9de"/></g>`;
+  return `<svg viewBox="0 0 130 110">
+    <defs>
+      <linearGradient id="bl1" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e5e5ea"/></linearGradient>
+      <linearGradient id="bl2" x1="0" y1="0" x2=".2" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ececf0"/></linearGradient>
+      <linearGradient id="bl3" x1="0" y1="0" x2=".1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#f2f2f5"/></linearGradient>
+      <filter id="bs1" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="6" stdDeviation="4" flood-opacity=".06"/></filter>
+      <filter id="bs2" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity=".1"/></filter>
+      <filter id="bs3" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".09"/></filter>
+    </defs>
+    ${bill(8, 12, -20, 'url(#bl1)', 'bs1')}${bill(22, 28, -10, 'url(#bl2)', 'bs2')}${bill(38, 44, -2, 'url(#bl3)', 'bs3')}
+  </svg>`;
+}
+
+function bindBudget() {
+  const el = document.getElementById('budget');
+  if (!el) return;
+  const onMove = e => {
+    const svg = document.getElementById('bc-svg');
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    const n = spendSeries(scoped()).length;
+    const rel = (e.clientX - r.left) / r.width;
+    const idx = Math.max(0, Math.min(n - 1, Math.round(((rel * 360) - 12) / (336 / Math.max(1, n - 1)))));
+    if (idx !== S.budgetHover) { S.budgetHover = idx; el.innerHTML = budgetCard(scoped()); }
+  };
+  el.addEventListener('pointermove', onMove);
+  el.addEventListener('pointerdown', onMove);
 }
 
 // Smooth path through points (Catmull-Rom converted to cubic Béziers).
@@ -460,67 +571,13 @@ function smooth(pts) {
   let d = `M${pts[0][0]},${pts[0][1]}`;
   for (let i = 0; i < pts.length - 1; i++) {
     const p0 = pts[i - 1] || pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] || p2;
-    // Clamp control points between neighbours so the curve never overshoots (no dips below zero).
+    // Clamp control points between neighbours so the curve never overshoots.
     const lo = Math.min(p1[1], p2[1]), hi = Math.max(p1[1], p2[1]);
     const c1 = [p1[0] + (p2[0] - p0[0]) / 6, Math.min(hi, Math.max(lo, p1[1] + (p2[1] - p0[1]) / 6))];
     const c2 = [p2[0] - (p3[0] - p1[0]) / 6, Math.min(hi, Math.max(lo, p2[1] - (p3[1] - p1[1]) / 6))];
     d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
   }
   return d;
-}
-
-function lineChart(series, labels) {
-  const W = 700, H = 210, padL = 44, padB = 24, padT = 22;
-  const max = Math.max(1, ...series.flatMap(s => s.values));
-  const n = labels.length;
-  const x = i => padL + (n === 1 ? 0 : i * (W - padL - 6) / (n - 1));
-  const y = v => padT + (H - padB - padT) * (1 - v / max);
-  const unit = max >= 1e6 ? 1e6 : 1e3;
-  let out = `<svg viewBox="0 0 ${W} ${H}" width="100%" class="chart">`;
-  for (let i = 0; i <= 2; i++) {
-    const yy = y(max * i / 2), v = max * i / 2 / unit;
-    out += `<line x1="${padL}" x2="${W}" y1="${yy}" y2="${yy}" class="grid"/><text x="${padL - 6}" y="${yy + 4}" class="axis" text-anchor="end">${faDigits(v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1))}</text>`;
-  }
-  out += `<text x="${padL - 6}" y="${padT - 10}" class="axis" text-anchor="end">${unit === 1e6 ? 'میلیون' : 'هزار'}</text>`;
-  series.forEach((s, si) => {
-    const pts = s.values.map((v, i) => [x(i), y(v)]);
-    if (s.area) out += `<defs><linearGradient id="g${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity=".16"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient></defs>
-      <path d="${smooth(pts)} L${x(n - 1)},${y(0)} L${x(0)},${y(0)} Z" fill="url(#g${si})"/>`;
-    out += `<path d="${smooth(pts)}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linecap="round"/>`;
-  });
-  const step = Math.ceil(n / 7);
-  labels.forEach((l, i) => { if (i % step === 0 || i === n - 1) out += `<text x="${x(i)}" y="${H - 6}" class="axis" text-anchor="middle">${esc(l)}</text>`; });
-  return out + '</svg>';
-}
-
-function dailyChart(T, key) {
-  const { start, end } = monthRange(key);
-  const [jy, jm] = key.split('-').map(Number);
-  const now = new Date();
-  const days = now >= start && now < end ? toJalali(now).jd : monthLength(jy, jm);
-  const inc = Array(days).fill(0), exp = Array(days).fill(0);
-  for (const t of T) {
-    const d = new Date(t.ts);
-    if (d < start || d >= end) continue;
-    const i = toJalali(d).jd - 1;
-    if (i >= days) continue;
-    if (t.type === 'income_work') inc[i] += t.amount;
-    if (t.type === 'expense') exp[i] += t.amount;
-  }
-  for (let i = 1; i < days; i++) { inc[i] += inc[i - 1]; exp[i] += exp[i - 1]; }
-  return lineChart([{ values: exp, color: 'var(--tint)', area: true }, { values: inc, color: '#34c759' }], inc.map((_, i) => faDigits(i + 1)));
-}
-
-function monthlyChart(T, key) {
-  let n = 6;
-  if (!S.settings.showHistory && S.settings.startDate) {
-    const start = monthKey(new Date(S.settings.startDate));
-    n = 1;
-    while (n < 6 && shiftMonth(key, -n) >= start) n++;
-    n = Math.max(n, 3);
-  }
-  const tr = trend(T, key, n);
-  return lineChart([{ values: tr.map(m => m.expense), color: 'var(--tint)', area: true }, { values: tr.map(m => m.work), color: '#34c759' }], tr.map(m => m.label));
 }
 
 // ----- Settings -----
@@ -659,7 +716,7 @@ document.addEventListener('click', async e => {
     else if (a === 'lf') { S.listFilter = b.dataset.v; S.listLimit = 60; render(); }
     else if (a === 'more') { S.listLimit += 100; document.getElementById('list-body').innerHTML = listBody(); }
     else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); render(); }
-    else if (a === 'cmode') { S.chartMode = b.dataset.v; render(); }
+    else if (a === 'bmode') { S.budgetMode = b.dataset.v; S.budgetHover = null; render(); }
     else if (a === 'toggle') { S.settings[b.dataset.v] = !S.settings[b.dataset.v]; await saveSettings(); render(); }
     else if (a === 'pack') {
       const text = claudePack(scoped(), S.settings, S.month);
