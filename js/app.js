@@ -38,10 +38,26 @@ async function boot() {
   S.step = 'amount';
   render();
   requestPersistence();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  setupUpdates();
 }
 
 function refresh() { S.tpl = buildTemplates(S.tx); }
+
+// Self-updating: whenever the app is opened or comes back online, look for a new version and
+// switch to it automatically (only while nothing is being typed).
+function setupUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+  let reloading = false;
+  const idle = () => !$ov.innerHTML && !Number(S.amount) && !(S.what || '').trim();
+  const swap = () => { if (reloading) return; if (idle()) { reloading = true; location.reload(); } else setTimeout(swap, 4000); };
+  if (navigator.serviceWorker.controller) navigator.serviceWorker.addEventListener('controllerchange', swap);
+  navigator.serviceWorker.register('sw.js').then(reg => {
+    const check = () => { if (navigator.onLine) reg.update().catch(() => {}); };
+    window.addEventListener('online', check);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+    check();
+  }).catch(() => {});
+}
 
 async function putTx(list) {
   list = [].concat(list);
@@ -143,18 +159,16 @@ function viewEntry() {
     return `<div class="view">
       <h1 class="large">شروع</h1>
       <div class="group"><div class="cell col">
-        <p class="foot" style="margin:0 0 10px">از چه روزی شروع می‌کنی و موجودی بلو در آن روز چقدر است؟ ثبت‌های قبل از این روز حساب نمی‌شوند.</p>
-        <input class="field" id="start-date" inputmode="numeric" value="${faDigits(defaultStart())}">
-        <input class="field" style="margin-top:8px" id="start-bal" inputmode="numeric" placeholder="موجودی بلو در آن روز (تومان)">
+        <p class="foot" style="margin:0 0 10px">حساب از ${new Date() < startDay() ? 'اول آبان' : 'همین حالا'} شروع می‌شود. فقط موجودی فعلی بلو را بنویس.</p>
+        <input class="field" id="start-bal" inputmode="numeric" placeholder="موجودی بلو (تومان)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
       <button class="btn-plain" data-act="go-settings">وارد کردن فایل</button>
     </div>`;
   }
   const amt = Number(S.amount || 0);
-  const dayTxt = S.dayBack === 0 ? 'امروز' : S.dayBack === 1 ? 'دیروز' : dayLabel(entryDate());
   const top = `<div class="entry-top">
-      <button class="chip-btn" data-act="day">${esc(dayTxt)}</button>
+      <span class="today">${esc(dayLabel(new Date()).replace('امروز · ', ''))}</span>
       <button class="icon-round" data-act="tab" data-v="${isWide() ? 'dash' : 'dash'}" aria-label="خلاصه">${ICON.chart}</button>
     </div>`;
   if (S.step === 'what') {
@@ -211,11 +225,10 @@ function guessHtml() {
     <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
 }
 
-function defaultStart() {
+// The account starts on 1 Aban 1405, or right now if that day has passed.
+function startDay() {
   const aban = fromJalali(1405, 8, 1);
-  const d = new Date() < aban ? aban : new Date();
-  const j = toJalali(d);
-  return `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`;
+  return new Date() < aban ? aban : new Date();
 }
 
 function bindAmount() {
@@ -892,10 +905,8 @@ document.addEventListener('click', async e => {
     else if (a === 'go-settings') { S.view = 'settings'; render(); }
     else if (a === 'start') {
       const v = parseAmount(document.getElementById('start-bal').value);
-      const dm = toAscii(document.getElementById('start-date').value).match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
-      if (!dm) return toast('تاریخ را مثل ۱۴۰۵/۰۸/۰۱ بنویس');
       if (!v) return toast('موجودی بلو را وارد کن');
-      const d = fromJalali(+dm[1], +dm[2], +dm[3]).toISOString();
+      const d = startDay().toISOString();
       Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
       S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));
       await saveSettings();

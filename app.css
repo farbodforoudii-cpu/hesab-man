@@ -293,3 +293,4 @@ body.no-tabs nav.tabs { display: none; }
 .amt-input { position: relative; width: 100%; border: 0; outline: 0; background: none; color: #fff; caret-color: #fff; font: inherit; font-size: 54px; font-weight: 600; letter-spacing: -.03em; direction: ltr; text-align: right; font-variant-numeric: tabular-nums; padding: 0; }
 .amt-input::placeholder { color: rgba(255, 255, 255, .35); }
 label.hero-amt { cursor: text; }
+.today { font-size: 15px; font-weight: 600; color: var(--sec); }

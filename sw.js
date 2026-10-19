@@ -1,5 +1,5 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v7';
+const VERSION = 'v8';
 const SHELL = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js',
@@ -8,7 +8,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // Bypass the browser HTTP cache so a new version never installs stale files.
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
