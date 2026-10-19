@@ -1,9 +1,15 @@
-/* Persian digits from Vazirmatn (round zero); letters stay in the iPhone system font. */
+/* Estedad (SIL OFL) for all text: geometric, bold-friendly Persian with round digits. */
 @font-face {
-  font-family: 'FaDigits';
-  src: url('fonts/Vazirmatn.woff2') format('woff2');
-  font-weight: 100 900;
-  unicode-range: U+06F0-06F9, U+066B, U+066C;
+  font-family: 'Estedad';
+  src: url('fonts/Estedad-arabic.woff2') format('woff2');
+  font-weight: 100 900; font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+204F, U+FB50-FDFF, U+FE70-FEFC;
+}
+@font-face {
+  font-family: 'Estedad';
+  src: url('fonts/Estedad-latin.woff2') format('woff2');
+  font-weight: 100 900; font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
   font-family: 'Vazirmatn';
@@ -35,7 +41,7 @@ html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
   color: var(--label);
-  font-family: FaDigits, -apple-system, 'SF Arabic', 'SF Pro Text', system-ui, Vazirmatn, Tahoma, sans-serif;
+  font-family: Estedad, -apple-system, 'SF Arabic', 'SF Pro Text', system-ui, Vazirmatn, Tahoma, sans-serif;
   font-size: 17px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
@@ -173,7 +179,7 @@ nav.tabs button.on { color: var(--tint); }
 .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .chart { display: block; margin-top: 10px; width: 100%; height: auto; stroke: none; stroke-width: 1; }
 .chart .grid { stroke: var(--sep); }
-.chart .axis { font-size: 11px; fill: var(--sec); font-family: FaDigits, -apple-system, system-ui, Vazirmatn, sans-serif; }
+.chart .axis { font-size: 11px; fill: var(--sec); font-family: Estedad, -apple-system, system-ui, Vazirmatn, sans-serif; }
 .legend { display: flex; gap: 16px; font-size: 12px; color: var(--sec); margin-top: 6px; }
 .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 5px; }
 .dash .section-title { margin-top: 12px; }
@@ -303,3 +309,69 @@ label.hero-amt { cursor: text; }
 .today { font-size: 15px; font-weight: 600; color: var(--sec); }
 
 .b-bars i.zero { opacity: .15; }
+
+/* ---- Typography (Estedad) ---- */
+h1.large { font-weight: 800; letter-spacing: -.01em; }
+.ask { font-weight: 800; }
+.b-hero, .hero-num, .amt-input, .bc-total, .b-value, .b-num, .mb-num { font-weight: 700; }
+
+/* ---- Motion ---- */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(14px); } }
+@keyframes grow { from { transform: scaleY(0); } }
+@keyframes drawLine { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes pop { 0% { opacity: 0; transform: scale(.6); } 60% { opacity: 1; transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-24px); background: var(--accent-soft, #f6e7eb); } 60% { background: #f6e7eb; } }
+@keyframes wordIn { from { opacity: 0; transform: translateY(60%); } }
+
+/* Cards come in one after another */
+.anim .bento > *, .anim .mini-bento > *, .anim .dash > *, .anim .group, .anim .hero-amt, .anim .section-title {
+  animation: fadeUp .5s cubic-bezier(.2, .8, .2, 1) both;
+}
+.anim .bento > :nth-child(2), .anim .mini-bento > :nth-child(2), .anim .dash > :nth-child(1) { animation-delay: .06s; }
+.anim .bento > :nth-child(3), .anim .mini-bento > :nth-child(3), .anim .dash > :nth-child(2) { animation-delay: .12s; }
+.anim .bento > :nth-child(4) { animation-delay: .18s; }
+.anim .group:nth-of-type(2) { animation-delay: .08s; }
+.anim .group:nth-of-type(3) { animation-delay: .14s; }
+
+/* Bars grow, chart line draws itself */
+.b-bars i { transform-origin: bottom; }
+.anim .b-bars i { animation: grow .6s cubic-bezier(.2, .8, .2, 1) both; }
+.anim .b-bars i:nth-child(2) { animation-delay: .04s; } .anim .b-bars i:nth-child(3) { animation-delay: .08s; }
+.anim .b-bars i:nth-child(4) { animation-delay: .12s; } .anim .b-bars i:nth-child(5) { animation-delay: .16s; }
+.anim .b-bars i:nth-child(6) { animation-delay: .2s; } .anim .b-bars i:nth-child(7) { animation-delay: .24s; }
+.anim .b-bars i:nth-child(8) { animation-delay: .28s; } .anim .b-bars i:nth-child(9) { animation-delay: .32s; }
+.anim .b-bars i:nth-child(10) { animation-delay: .36s; } .anim .b-bars i:nth-child(11) { animation-delay: .4s; }
+.anim path.draw { stroke-dasharray: 1; animation: drawLine 1s cubic-bezier(.4, 0, .2, 1) .15s both; }
+
+/* Balance odometer */
+.odo { display: inline-block; height: 1.1em; overflow: hidden; vertical-align: bottom; line-height: 1.1em; }
+.odo-strip { display: block; transition: transform .9s cubic-bezier(.2, .8, .2, 1); }
+.odo-strip > span { display: block; height: 1.1em; }
+
+/* Saved tick on the amount card */
+.saved-badge { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: rgba(138, 28, 46, .92); border-radius: inherit; animation: fadeOut 1.3s ease both; pointer-events: none; z-index: 2; }
+.saved-badge svg { width: 64px; height: 64px; stroke: #fff; stroke-width: 3.5; fill: none; animation: pop .45s cubic-bezier(.2, .8, .2, 1) both; }
+.saved-badge circle, .saved-badge path { stroke-dasharray: 1; animation: drawLine .5s ease .05s both; }
+.saved-badge path { animation-delay: .25s; }
+.saved-badge span { color: #fff; font-weight: 700; font-size: 18px; animation: fadeUp .35s ease .2s both; }
+@keyframes fadeOut { 0%, 75% { opacity: 1; } 100% { opacity: 0; } }
+
+/* New row slides into the list */
+.cell.tx.new { animation: slideIn .7s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* Rotating examples inside «برای چی؟» */
+.what-box { position: relative; }
+.rot { position: absolute; inset: 0 16px; display: flex; align-items: center; pointer-events: none; color: var(--ter); font-size: 20px; overflow: hidden; }
+.rot::before { content: 'مثلاً '; white-space: pre; }
+.rot span { display: inline-block; }
+.rot span.in { animation: wordIn .35s cubic-bezier(.2, .8, .2, 1) both; }
+.what-box.has .rot { display: none; }
+.what-input { position: relative; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+.bc-total, .b-value, .b-hero, .mb-num, .b-num { white-space: nowrap; }
+.bc-total { font-size: 34px; }
+.bc-head > div:first-child { min-width: 0; }

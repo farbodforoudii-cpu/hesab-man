@@ -136,6 +136,36 @@ function toast(text, undo) {
   toastTimer = setTimeout(() => el.remove(), undo ? 5000 : 2500);
 }
 
+// ---------- motion ----------
+const REDUCED = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+let animTimer = null;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+// Count numbers up from zero; roll the balance digits like an odometer.
+function animateNumbers(root) {
+  root.querySelectorAll('[data-cu]').forEach(el => {
+    const to = Number(el.dataset.cu), f = el.dataset.f;
+    if (!to) return;
+    const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : fmtShort(v); };
+    const t0 = performance.now(), dur = 700;
+    const step = now => { const k = Math.min(1, (now - t0) / dur); show(to * easeOut(k)); if (k < 1) requestAnimationFrame(step); };
+    show(0); requestAnimationFrame(step);
+  });
+  root.querySelectorAll('[data-odo]').forEach(el => {
+    const text = fmt(Number(el.dataset.odo));
+    const digits = '۰۱۲۳۴۵۶۷۸۹';
+    el.innerHTML = [...text].map(ch => digits.includes(ch)
+      ? `<span class="odo"><span class="odo-strip" data-d="${digits.indexOf(ch)}">${[...digits].map(d => `<span>${d}</span>`).join('')}</span></span>`
+      : `<span>${ch}</span>`).join('');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      el.querySelectorAll('.odo-strip').forEach((st, i) => {
+        st.style.transitionDelay = `${i * 45}ms`;
+        st.style.transform = `translateY(${-st.dataset.d * 10}%)`;
+      });
+    }));
+  });
+}
+
 // ---------- render ----------
 const isWide = () => window.innerWidth >= 820;
 
@@ -147,7 +177,15 @@ function render() {
   $tabs.innerHTML = entry ? '' : `<div class="inner">${tabs.map(([v, ic, l]) =>
     `<button data-act="tab" data-v="${v}" class="${S.view === v ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
   const views = { entry: viewEntry, list: viewList, dash: viewDash, settings: viewSettings };
+  const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
+  S.shownView = S.view; S.shownMonth = S.month;
   $app.innerHTML = views[S.view]();
+  if (fresh && !REDUCED()) {
+    $app.classList.remove('anim'); void $app.offsetWidth; $app.classList.add('anim');
+    clearTimeout(animTimer); animTimer = setTimeout(() => $app.classList.remove('anim'), 1400);
+    animateNumbers($app);
+  }
+  if (S.view === 'list') setTimeout(() => { S.lastId = null; }, 1500);
   if (S.view === 'list') bindList();
   if (S.view === 'dash') bindBudget();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
@@ -181,7 +219,7 @@ function viewEntry() {
     return `<div class="view entry">${top}
       <div class="hero-amt small" data-act="back"><div class="stripes"></div><span class="b-pill" id="what-dir">${guess(S.what, S.dir).dir === 'in' ? 'دریافت' : 'پرداخت'}</span><div class="hero-num">${fmt(amt)}</div></div>
       <h2 class="ask">برای چی؟</h2>
-      <div class="what-box"><input id="what" class="what-input" placeholder="مثلاً سوپرمارکت، Pouyan، بنزین" autocomplete="off" enterkeyhint="done" value="${esc(S.what)}"></div>
+      <div class="what-box ${S.what ? 'has' : ''}"><span class="rot" aria-hidden="true"><span id="rot-word">سوپرمارکت</span></span><input id="what" class="what-input" aria-label="برای چی؟" autocomplete="off" enterkeyhint="done" value="${esc(S.what)}"></div>
       <div id="what-guess">${guessHtml()}</div>
       <button class="btn-big what-save" data-act="save-what">ثبت</button>
       <div id="what-ac"></div>
@@ -254,12 +292,30 @@ function goWhat(dir) {
   render();
 }
 
+const EXAMPLES = ['سوپرمارکت', 'بنزین', 'ناهار', 'کلاس', 'اجاره', 'قهوه', 'هدیه'];
+let rotTimer = null;
+function startRotate() {
+  clearInterval(rotTimer);
+  let i = 0;
+  rotTimer = setInterval(() => {
+    const el = document.getElementById('rot-word');
+    if (!el) return clearInterval(rotTimer);
+    i = (i + 1) % EXAMPLES.length;
+    el.classList.remove('in');
+    void el.offsetWidth;
+    el.textContent = EXAMPLES[i];
+    el.classList.add('in');
+  }, 1800);
+}
+
 function bindWhat() {
   const input = document.getElementById('what');
   if (!input) return;
   input.focus();
+  startRotate();
   input.addEventListener('input', () => {
     S.what = input.value;
+    input.parentElement.classList.toggle('has', !!S.what);
     document.getElementById('what-guess').innerHTML = guessHtml();
     document.getElementById('what-dir').textContent = guess(S.what, S.dir).dir === 'in' ? 'دریافت' : 'پرداخت';
     const ac = S.what.trim() ? complete(S.tpl, S.what, S.dir).concat(complete(S.tpl, S.what, S.dir === 'out' ? 'in' : 'out')).slice(0, 4) : [];
@@ -282,9 +338,22 @@ async function saveWhat(m) {
   };
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
   S.step = 'amount'; S.what = ''; S.amount = ''; S.dayBack = 0;
+  S.lastId = tx.id;
   render();
+  flashSaved();
   await putTx(tx);
   toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
+}
+
+// A short tick over the amount card so it is obvious the entry was saved (keyboard stays open).
+function flashSaved() {
+  const hero = document.querySelector('.hero-amt');
+  if (!hero) return;
+  const b = document.createElement('div');
+  b.className = 'saved-badge';
+  b.innerHTML = '<svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" pathLength="1"/><path d="M15 27l7 7 15-16" pathLength="1"/></svg><span>ثبت شد</span>';
+  hero.appendChild(b);
+  setTimeout(() => b.remove(), 1300);
 }
 
 async function commitNew(tx) {
@@ -539,7 +608,7 @@ function listBody() {
 function itemHtml(t) {
   const d = new Date(t.ts);
   const time = faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
-  return `<button class="cell tx" data-act="edit" data-id="${t.id}">
+  return `<button class="cell tx ${t.id === S.lastId ? 'new' : ''}" data-act="edit" data-id="${t.id}">
     <i class="dot" style="background:${dotColor(t)}"></i>
     <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))} · ${time}</span></span>
     ${amountHtml(t)}</button>`;
@@ -579,11 +648,11 @@ function viewHistory(key) {
     <p class="hist-note">قبل از شروع · فقط خلاصهٔ ماه، بدون نام و جزئیات${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
     <section class="bento">
       <div class="b-primary"><div class="stripes"></div>
-        <div><span class="b-pill">باقی‌مانده بعد از خرج</span><h3 class="b-hero">${fmtShort(left)}</h3></div>
+        <div><span class="b-pill">باقی‌مانده بعد از خرج</span><h3 class="b-hero" data-cu="${left}" data-f="short">${fmtShort(left)}</h3></div>
         <p class="b-note">${h.family ? `بدون ${fmtShort(h.family)} کمک خانواده: ${fmtShort(left - h.family)}` : ''}</p></div>
-      <div class="b-growth"><div><p class="b-label">درآمد کاری</p><p class="b-value">${fmtShort(h.work)}</p><p class="b-sub">خرج: ${fmtShort(h.expense)}</p></div>
+      <div class="b-growth"><div><p class="b-label">درآمد کاری</p><p class="b-value" data-cu="${h.work}" data-f="short">${fmtShort(h.work)}</p><p class="b-sub">خرج: ${fmtShort(h.expense)}</p></div>
         <div class="b-bars">${bars.map(k => `<i style="height:${Math.max(8, H[k].work / maxW * 100).toFixed(0)}%;${k === key ? '' : 'opacity:.35'}"></i>`).join('')}</div></div>
-      <div class="b-count"><p class="b-num">${faDigits(h.sourceCount)}</p><p class="b-label">منبع درآمد</p></div>
+      <div class="b-count"><p class="b-num" data-cu="${h.sourceCount}" data-f="int">${faDigits(h.sourceCount)}</p><p class="b-label">منبع درآمد</p></div>
       <div class="b-rating"><div class="b-badge">٪</div><div><p class="b-strong">${faDigits(cov)}٪</p><p class="b-label">از خرج با درآمد کاری پوشش داده شد</p></div></div>
     </section>
     <div class="dash">
@@ -639,15 +708,15 @@ function viewDash() {
     <section class="bento">
       <div class="b-primary">
         <div class="stripes"></div>
-        <div><span class="b-pill">موجودی بلو</span><h3 class="b-hero">${fmt(bal)}</h3></div>
+        <div><span class="b-pill">موجودی بلو</span><h3 class="b-hero" data-odo="${Math.round(bal)}">${fmt(bal)}</h3></div>
         <p class="b-note">${chk ? (Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است.' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی.`) : 'تومان، بر اساس ثبت‌های تو از روز شروع.'}</p>
       </div>
       <div class="b-growth">
-        <div><p class="b-label">درآمد ${monthLabel(key).split(' ')[0]}</p><p class="b-value">${fmtShort(s.work)}</p>
+        <div><p class="b-label">درآمد ${monthLabel(key).split(' ')[0]}</p><p class="b-value" data-cu="${s.work}" data-f="short">${fmtShort(s.work)}</p>
           <p class="b-sub">${s.family ? `و ${fmtShort(s.family)} از خانواده` : '&nbsp;'}</p></div>
         <div class="b-bars">${incomeBars(T, key)}</div>
       </div>
-      <div class="b-count"><p class="b-num">${faDigits(s.count)}</p><p class="b-label">تراکنش</p></div>
+      <div class="b-count"><p class="b-num" data-cu="${s.count}" data-f="int">${faDigits(s.count)}</p><p class="b-label">تراکنش</p></div>
       <div class="b-rating">
         <div class="b-badge">٪</div>
         <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج با درآمد پوشش داده شد</p></div>
@@ -724,7 +793,7 @@ function budgetCard(T) {
       <stop offset="0%" stop-color="var(--tint)" stop-opacity=".32"/><stop offset="55%" stop-color="var(--tint)" stop-opacity=".12"/><stop offset="100%" stop-color="var(--tint)" stop-opacity=".02"/></linearGradient></defs>
     ${data.map((_, i) => (n <= 8 || i % step === 0) ? `<line x1="${X(i)}" y1="${pad.top}" x2="${X(i)}" y2="${H - pad.bottom}" class="bc-grid" opacity="${i === hi ? .9 : .5}"/>` : '').join('')}
     <path d="${line} L ${X(n - 1)} ${H - pad.bottom} L ${X(0)} ${H - pad.bottom} Z" fill="url(#bcArea)"/>
-    <path d="${line}" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="${line}" pathLength="1" class="draw" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
     <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="12" fill="#fff" opacity=".6"/>
     <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="7" fill="#fff" stroke="var(--tint)" stroke-width="3"/>
     ${data.map((d, i) => (i % step === 0 || i === n - 1) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day">${d.label}</text>` : '').join('')}
@@ -733,7 +802,7 @@ function budgetCard(T) {
     <div class="bc-head">
       <div>
         <div class="row"><p class="bc-label">${S.budgetMode === 'month' ? 'خرج این ماه' : 'خرج ۷ روز اخیر'}</p></div>
-        <h2 class="bc-total">${fmtShort(total)}</h2>
+        <h2 class="bc-total" data-cu="${total}" data-f="short">${fmtShort(total)}</h2>
         <div class="bc-pill"><span>${diff > 0 ? '+' : diff < 0 ? '−' : ''} ${fmtShort(Math.abs(diff))}</span>
           <svg viewBox="0 0 16 16" class="${diff > 0 ? '' : 'down'}"><path d="M2 11L6 7L9 10L14 4"/><path d="M10 4H14V8"/></svg></div>
       </div>
