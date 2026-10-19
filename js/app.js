@@ -239,6 +239,7 @@ function bindAmount() {
     const v = parseAmount(input.value);
     S.amount = v ? String(Math.min(v, 9e12)) : '';
     input.value = v ? fmt(v) : '';
+    input.setSelectionRange(input.value.length, input.value.length);
     document.getElementById('amt-words').textContent = v ? tomanWords(v) : 'تومان';
   });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goWhat('out'); } });
@@ -369,7 +370,12 @@ const catGrid = () => F.type === 'expense' ? `<div class="cats">${PICKABLE_CATS.
 
 function bindTxSheet(root) {
   const amt = root.querySelector('#f-amt');
-  amt.addEventListener('input', () => { F.amount = parseAmount(amt.value); root.querySelector('#f-words').textContent = tomanWords(F.amount); });
+  amt.addEventListener('input', () => {
+    F.amount = parseAmount(amt.value);
+    amt.value = F.amount ? fmt(F.amount) : '';
+    amt.setSelectionRange(amt.value.length, amt.value.length);
+    root.querySelector('#f-words').textContent = tomanWords(F.amount);
+  });
   amt.addEventListener('blur', () => { if (F.amount) amt.value = fmt(F.amount); });
   const desc = root.querySelector('#f-desc');
   desc.addEventListener('input', () => {

@@ -37,8 +37,11 @@ export function tomanWords(n) {
   return n ? `${numberToWords(n)} تومان` : '';
 }
 
+// Whole toman with thousand separators, e.g. 28000000 -> ۲۸,۰۰۰,۰۰۰
 export function fmt(n) {
-  return faDigits(Math.round(n).toLocaleString('en-US'));
+  const v = Math.round(n), neg = v < 0;
+  const g = String(Math.abs(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return faDigits((neg ? '-' : '') + g);
 }
 
 // Compact: 28,000,000 -> "۲۸ م" ; 1,250,000 -> "۱٫۳ م" ; 850,000 -> "۸۵۰ ه"
