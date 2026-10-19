@@ -1,3 +1,10 @@
+/* Persian digits from Vazirmatn (round zero); letters stay in the iPhone system font. */
+@font-face {
+  font-family: 'FaDigits';
+  src: url('fonts/Vazirmatn.woff2') format('woff2');
+  font-weight: 100 900;
+  unicode-range: U+06F0-06F9, U+066B, U+066C;
+}
 @font-face {
   font-family: 'Vazirmatn';
   src: url('fonts/Vazirmatn.woff2') format('woff2');
@@ -28,7 +35,7 @@ html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
   color: var(--label);
-  font-family: -apple-system, 'SF Arabic', 'SF Pro Text', system-ui, Vazirmatn, Tahoma, sans-serif;
+  font-family: FaDigits, -apple-system, 'SF Arabic', 'SF Pro Text', system-ui, Vazirmatn, Tahoma, sans-serif;
   font-size: 17px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
@@ -166,7 +173,7 @@ nav.tabs button.on { color: var(--tint); }
 .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .chart { display: block; margin-top: 10px; width: 100%; height: auto; stroke: none; stroke-width: 1; }
 .chart .grid { stroke: var(--sep); }
-.chart .axis { font-size: 11px; fill: var(--sec); font-family: -apple-system, system-ui, Vazirmatn, sans-serif; }
+.chart .axis { font-size: 11px; fill: var(--sec); font-family: FaDigits, -apple-system, system-ui, Vazirmatn, sans-serif; }
 .legend { display: flex; gap: 16px; font-size: 12px; color: var(--sec); margin-top: 6px; }
 .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 5px; }
 .dash .section-title { margin-top: 12px; }
@@ -294,3 +301,5 @@ body.no-tabs nav.tabs { display: none; }
 .amt-input::placeholder { color: rgba(255, 255, 255, .35); }
 label.hero-amt { cursor: text; }
 .today { font-size: 15px; font-weight: 600; color: var(--sec); }
+
+.b-bars i.zero { opacity: .15; }

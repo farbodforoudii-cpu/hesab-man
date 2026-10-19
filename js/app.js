@@ -33,6 +33,12 @@ async function boot() {
   S.settings = settings || {};
   S.rules = rules || { parties: {}, overrides: [] };
   S.history = history || null;
+  if (S.settings.startDate && new Date(S.settings.startDate) > new Date()) {
+    const firsts = S.tx.filter(t => t.src === 'manual').map(t => +new Date(t.ts));
+    const d = new Date(firsts.length ? Math.min(...firsts) - 60000 : Date.now()).toISOString();
+    Object.assign(S.settings, { startDate: d, openingDate: d });
+    await saveSettings();
+  }
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
@@ -159,7 +165,7 @@ function viewEntry() {
     return `<div class="view">
       <h1 class="large">شروع</h1>
       <div class="group"><div class="cell col">
-        <p class="foot" style="margin:0 0 10px">حساب از ${new Date() < startDay() ? 'اول آبان' : 'همین حالا'} شروع می‌شود. فقط موجودی فعلی بلو را بنویس.</p>
+        <p class="foot" style="margin:0 0 10px">حساب از همین حالا شروع می‌شود. فقط موجودی فعلی بلو را بنویس.</p>
         <input class="field" id="start-bal" inputmode="numeric" placeholder="موجودی بلو (تومان)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
@@ -188,7 +194,6 @@ function viewEntry() {
       <input id="amt" class="amt-input" inputmode="numeric" enterkeyhint="next" autocomplete="off" placeholder="۰" value="${amt ? fmt(amt) : ''}">
       <div class="hero-words" id="amt-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
     </label>
-    ${new Date() < new Date(S.settings.startDate) ? `<p class="hint-line">حساب از ${formatJalali(new Date(S.settings.startDate))} شروع می‌شود.</p>` : ''}
     <div class="entry-actions">
       <button class="btn-side" data-act="next" data-dir="in">دریافت</button>
       <button class="btn-big" data-act="next" data-dir="out">ادامه</button>
@@ -225,11 +230,8 @@ function guessHtml() {
     <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
 }
 
-// The account starts on 1 Aban 1405, or right now if that day has passed.
-function startDay() {
-  const aban = fromJalali(1405, 8, 1);
-  return new Date() < aban ? aban : new Date();
-}
+// The account starts the moment the balance is entered.
+function startDay() { return new Date(); }
 
 function bindAmount() {
   const input = document.getElementById('amt');
@@ -676,7 +678,7 @@ function incomeBars(T, key) {
   for (let i = 1; i < len; i++) daily[i] += daily[i - 1];
   const pts = Array.from({ length: 11 }, (_, i) => daily[Math.round(i * (len - 1) / 10)]);
   const max = Math.max(1, ...pts);
-  return pts.map(v => `<i style="height:${Math.max(8, v / max * 100).toFixed(0)}%"></i>`).join('');
+  return pts.map(v => `<i class="${v ? '' : 'zero'}" style="height:${Math.max(8, v / max * 100).toFixed(0)}%"></i>`).join('');
 }
 
 // Spending per day for the last 7 days (week) or this month (month).
