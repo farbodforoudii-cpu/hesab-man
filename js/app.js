@@ -129,6 +129,7 @@ function render() {
   if (S.view === 'list') bindList();
   if (S.view === 'dash') bindBudget();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
+  if (S.view === 'entry' && S.step === 'amount') bindAmount();
 }
 
 // Page header with a quick way back to entry (entry itself is not a tab).
@@ -142,11 +143,12 @@ function viewEntry() {
     return `<div class="view">
       <h1 class="large">شروع</h1>
       <div class="group"><div class="cell col">
-        <p class="foot" style="margin:0 0 10px">موجودی فعلی حساب بلو را وارد کن. از همین لحظه، هر چیزی ثبت کنی حساب می‌شود.</p>
-        <input class="field" id="start-bal" inputmode="numeric" placeholder="مبلغ به تومان">
+        <p class="foot" style="margin:0 0 10px">از چه روزی شروع می‌کنی و موجودی بلو در آن روز چقدر است؟ ثبت‌های قبل از این روز حساب نمی‌شوند.</p>
+        <input class="field" id="start-date" inputmode="numeric" value="${faDigits(defaultStart())}">
+        <input class="field" style="margin-top:8px" id="start-bal" inputmode="numeric" placeholder="موجودی بلو در آن روز (تومان)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
-      ${S.tx.length ? '' : '<button class="btn-plain" data-act="go-settings">وارد کردن فایل قبلی</button>'}
+      <button class="btn-plain" data-act="go-settings">وارد کردن فایل</button>
     </div>`;
   }
   const amt = Number(S.amount || 0);
@@ -166,17 +168,16 @@ function viewEntry() {
     </div>`;
   }
   return `<div class="view entry">${top}
-    <div class="hero-amt" data-act="clear">
+    <label class="hero-amt" for="amt">
       <div class="stripes"></div>
       <span class="b-pill">چقدر؟</span>
-      <div class="hero-num ${amt ? '' : 'empty'}">${amt ? fmt(amt) : '۰'}</div>
-      <div class="hero-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
-    </div>
-    <div class="keypad">${['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'del'].map(k =>
-      `<button data-k="${k}">${k === 'del' ? ICON.del : faDigits(k)}</button>`).join('')}</div>
+      <input id="amt" class="amt-input" inputmode="numeric" enterkeyhint="next" autocomplete="off" placeholder="۰" value="${amt ? fmt(amt) : ''}">
+      <div class="hero-words" id="amt-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
+    </label>
+    ${new Date() < new Date(S.settings.startDate) ? `<p class="hint-line">حساب از ${formatJalali(new Date(S.settings.startDate))} شروع می‌شود.</p>` : ''}
     <div class="entry-actions">
-      <button class="btn-side" data-act="next" data-dir="in" ${amt ? '' : 'disabled'}>دریافت</button>
-      <button class="btn-big" data-act="next" data-dir="out" ${amt ? '' : 'disabled'}>ادامه</button>
+      <button class="btn-side" data-act="next" data-dir="in">دریافت</button>
+      <button class="btn-big" data-act="next" data-dir="out">ادامه</button>
     </div>
   </div>`;
 }
@@ -210,6 +211,33 @@ function guessHtml() {
     <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
 }
 
+function defaultStart() {
+  const aban = fromJalali(1405, 8, 1);
+  const d = new Date() < aban ? aban : new Date();
+  const j = toJalali(d);
+  return `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`;
+}
+
+function bindAmount() {
+  const input = document.getElementById('amt');
+  if (!input) return;
+  input.focus();
+  input.addEventListener('input', () => {
+    const v = parseAmount(input.value);
+    S.amount = v ? String(Math.min(v, 9e12)) : '';
+    input.value = v ? fmt(v) : '';
+    document.getElementById('amt-words').textContent = v ? tomanWords(v) : 'تومان';
+  });
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); goWhat('out'); } });
+}
+
+// Called from a tap or key press, so iOS keeps the keyboard open while focus moves.
+function goWhat(dir) {
+  if (!Number(S.amount)) { document.getElementById('amt')?.focus(); return; }
+  S.dir = dir; S.step = 'what'; S.what = '';
+  render();
+}
+
 function bindWhat() {
   const input = document.getElementById('what');
   if (!input) return;
@@ -237,9 +265,10 @@ async function saveWhat(m) {
     cat: g.type === 'expense' ? g.cat : null, ctx: g.ctx || 'personal', src: 'manual', created: new Date().toISOString(),
   };
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
-  S.step = 'amount';
-  S.what = '';
-  await commitNew(tx);
+  S.step = 'amount'; S.what = ''; S.amount = ''; S.dayBack = 0;
+  render();
+  await putTx(tx);
+  toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
 }
 
 async function commitNew(tx) {
@@ -504,9 +533,71 @@ function bindList() {
 // Layout follows the "StatsBento" + "BudgetCard" references, rebuilt without React/Tailwind.
 const WEEKDAY_SHORT = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش'];
 
+// Months before the start date come from an anonymised monthly summary file (no names, no transactions).
+const HIST_LABELS = { people: 'کارت‌به‌کارت بدون توضیح' };
+
+function viewHistory(key) {
+  const H = S.history.months;
+  const h = H[key];
+  const keys = Object.keys(H).sort();
+  const left = h.work + h.family + h.sale + h.otherIn - h.expense - h.inventory;
+  const cov = h.expense ? Math.round(h.work / h.expense * 100) : 0;
+  const upto = keys.filter(k => k <= key);
+  const bars = upto.slice(-11);
+  const maxW = Math.max(1, ...bars.map(k => H[k].work));
+  const cats = Object.entries(h.byCat).sort((x, y) => y[1] - x[1]);
+  const flows = [['پس‌انداز (دلار، نقره، …)', h.asset], ['دریافت وام', h.loanIn], ['قسط', h.loanPay], ['صندوق', h.fundIn], ['پرداخت برای دیگران', h.onBehalf], ['پس گرفته', h.reimburse]].filter(r => r[1]);
+  const W = 360, Hh = 150, pad = 20, n = keys.length;
+  const max = Math.max(...keys.map(k => Math.max(H[k].expense, H[k].work + H[k].family)));
+  const X = i => pad + (n === 1 ? 0 : i * (W - 2 * pad) / (n - 1));
+  const Y = v => 14 + (Hh - 40) * (1 - v / max);
+  const line = f => smooth(keys.map((k, i) => [X(i), Y(f(H[k]))]));
+  const cur = keys.indexOf(key);
+  return `<div class="view wide">
+    ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
+    <p class="hist-note">قبل از شروع · فقط خلاصهٔ ماه، بدون نام و جزئیات${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
+    <section class="bento">
+      <div class="b-primary"><div class="stripes"></div>
+        <div><span class="b-pill">باقی‌مانده بعد از خرج</span><h3 class="b-hero">${fmtShort(left)}</h3></div>
+        <p class="b-note">${h.family ? `بدون ${fmtShort(h.family)} کمک خانواده: ${fmtShort(left - h.family)}` : ''}</p></div>
+      <div class="b-growth"><div><p class="b-label">درآمد کاری</p><p class="b-value">${fmtShort(h.work)}</p><p class="b-sub">خرج: ${fmtShort(h.expense)}</p></div>
+        <div class="b-bars">${bars.map(k => `<i style="height:${Math.max(8, H[k].work / maxW * 100).toFixed(0)}%;${k === key ? '' : 'opacity:.35'}"></i>`).join('')}</div></div>
+      <div class="b-count"><p class="b-num">${faDigits(h.sourceCount)}</p><p class="b-label">منبع درآمد</p></div>
+      <div class="b-rating"><div class="b-badge">٪</div><div><p class="b-strong">${faDigits(cov)}٪</p><p class="b-label">از خرج با درآمد کاری پوشش داده شد</p></div></div>
+    </section>
+    <div class="dash">
+      <div class="span-6"><div class="bc-shell"><div class="bc">
+        <p class="bc-label">${faDigits(n)} ماه</p>
+        <svg viewBox="0 0 ${W} ${Hh}" class="bc-chart">
+          <defs><linearGradient id="hA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--tint)" stop-opacity=".25"/><stop offset="1" stop-color="var(--tint)" stop-opacity="0"/></linearGradient></defs>
+          <path d="${line(m => m.expense)} L${X(n - 1)},${Hh - 26} L${X(0)},${Hh - 26} Z" fill="url(#hA)"/>
+          <path d="${line(m => m.expense)}" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="${line(m => m.work)}" fill="none" stroke="#34c759" stroke-width="2.5" stroke-linecap="round"/>
+          <path d="${line(m => m.work + m.family)}" fill="none" stroke="#34c759" stroke-width="1.5" stroke-dasharray="4 5" opacity=".7"/>
+          ${cur >= 0 ? `<line x1="${X(cur)}" x2="${X(cur)}" y1="10" y2="${Hh - 26}" class="bc-grid"/>` : ''}
+          ${keys.map((k, i) => `<text x="${X(i)}" y="${Hh - 6}" text-anchor="middle" class="bc-day">${esc(monthLabel(k).split(' ')[0])}</text>`).join('')}
+        </svg>
+        <div class="legend"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:#34c759;opacity:.5"></i>با کمک خانواده</span><span><i style="background:var(--tint)"></i>خرج</span></div>
+      </div></div></div>
+      <div class="span-6">
+        <div class="section-title">خرج‌ها</div>
+        <div class="group">${cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${CATEGORIES[c] ? CATEGORIES[c].color : '#c7c7cc'}"></i><span class="grow">${HIST_LABELS[c] || (CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (h.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('')}</div>
+        <div class="section-title">ورودی‌ها</div>
+        <div class="group">
+          <div class="cell"><span class="grow">درآمد کاری</span><b>${fmtShort(h.work)}</b></div>
+          ${h.sale ? `<div class="cell"><span class="grow">فروش مکمل</span><b>${fmtShort(h.sale)}</b></div>` : ''}
+          <div class="cell"><span class="grow sec">از خانواده</span><b class="sec">${fmtShort(h.family)}</b></div>
+        </div>
+        ${flows.length ? `<div class="section-title">پس‌انداز و جابه‌جایی</div><div class="group">${flows.map(([l, v]) => `<div class="cell"><span class="grow">${l}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
+      </div>
+    </div></div>`;
+}
+
 function viewDash() {
   const T = scoped();
   const key = S.month;
+  const startKey = S.settings.startDate ? monthKey(new Date(S.settings.startDate)) : '';
+  if (S.history && S.history.months && S.history.months[key] && (!startKey || key < startKey || !T.some(t => monthKey(new Date(t.ts)) === key))) return viewHistory(key);
   const s = monthSummary(T, key);
   const bal = balanceAt(S.tx, S.settings);
   const chk = bankCheck(S.tx, S.settings);
@@ -768,7 +859,7 @@ async function importBackup(file) {
     S.rules.overrides = [...(S.rules.overrides || []), ...(data.rules.overrides || []).filter(o => !keys.has(o.key))];
     await saveRules();
   }
-  if (data.numbersHistory && !S.history) { S.history = data.numbersHistory; await db.set('history', S.history); }
+  if (data.history && data.history.months) { S.history = data.history; await db.set('history', S.history); }
   if (add.length) {
     for (const t of add) { const i = S.tx.findIndex(x => x.id === t.id); if (i >= 0) S.tx[i] = t; else S.tx.push(t); }
     await db.putManyTx(add);
@@ -793,8 +884,6 @@ async function importXlsx(file) {
 // ---------- events ----------
 document.addEventListener('click', async e => {
   if (e.target.closest('#overlay')) return;
-  const k = e.target.closest('[data-k]');
-  if (k && S.view === 'entry') return key(k.dataset.k);
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const a = b.dataset.act;
@@ -803,15 +892,18 @@ document.addEventListener('click', async e => {
     else if (a === 'go-settings') { S.view = 'settings'; render(); }
     else if (a === 'start') {
       const v = parseAmount(document.getElementById('start-bal').value);
-      if (!v) return toast('موجودی فعلی را وارد کن');
-      const now = new Date().toISOString();
-      Object.assign(S.settings, { startDate: now, openingBalance: v, openingDate: now });
+      const dm = toAscii(document.getElementById('start-date').value).match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+      if (!dm) return toast('تاریخ را مثل ۱۴۰۵/۰۸/۰۱ بنویس');
+      if (!v) return toast('موجودی بلو را وارد کن');
+      const d = fromJalali(+dm[1], +dm[2], +dm[3]).toISOString();
+      Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
+      S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));
       await saveSettings();
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
     else if (a === 'go-entry') { S.view = 'entry'; S.step = 'amount'; render(); window.scrollTo(0, 0); }
-    else if (a === 'next') { if (!Number(S.amount)) return; S.dir = b.dataset.dir; S.step = 'what'; S.what = ''; render(); }
+    else if (a === 'next') goWhat(b.dataset.dir);
     else if (a === 'back') { S.step = 'amount'; render(); }
     else if (a === 'flip-dir') { S.dir = guess(S.what, S.dir).dir === 'in' ? 'out' : 'in'; render(); }
     else if (a === 'save-what') await saveWhat();
@@ -859,7 +951,7 @@ document.addEventListener('change', async e => {
     if (e.target.id === 'file-json') {
       const n = await importBackup(f);
       render();
-      toast(`${faDigits(n)} مورد وارد شد`);
+      toast(n ? `${faDigits(n)} مورد وارد شد` : S.history ? 'خلاصهٔ ماه‌های قبل وارد شد' : 'چیز جدیدی نبود');
     } else if (e.target.id === 'file-xlsx') {
       const r = await importXlsx(f);
       if (r.pending) { S.view = 'list'; S.listFilter = 'pending'; }
@@ -870,22 +962,6 @@ document.addEventListener('change', async e => {
     toast(err.message || String(err));
   }
   e.target.value = '';
-});
-
-function key(k) {
-  let s = S.amount;
-  if (k === 'del') s = s.slice(0, -1);
-  else if (s.length < 13) s = (s + k).replace(/^0+/, '');
-  S.amount = s;
-  render();
-}
-
-document.addEventListener('keydown', e => {
-  if (S.view !== 'entry' || S.step !== 'amount' || $ov.innerHTML || e.target.matches('input, textarea')) return;
-  if (e.key === 'Enter' && Number(S.amount)) { S.dir = 'out'; S.step = 'what'; S.what = ''; render(); return; }
-  const d = toAscii(e.key);
-  if (/^\d$/.test(d)) key(d);
-  else if (e.key === 'Backspace') key('del');
 });
 
 boot();

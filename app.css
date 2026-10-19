@@ -289,3 +289,7 @@ body.no-tabs #app { padding-bottom: calc(var(--safe-b) + 16px); }
 body.no-tabs nav.tabs { display: none; }
 .what-save { display: block; width: 100%; margin-top: 14px; flex: 0 0 auto !important; }
 .cell:has(input) > span:first-child { flex: 0 0 auto; white-space: nowrap; } .bare.end { flex: 1; min-width: 0; }
+.hist-note { display: inline-block; background: var(--muted); color: var(--sec); font-size: 13px; padding: 5px 12px; border-radius: 999px; margin: 0 0 12px; }
+.amt-input { position: relative; width: 100%; border: 0; outline: 0; background: none; color: #fff; caret-color: #fff; font: inherit; font-size: 54px; font-weight: 600; letter-spacing: -.03em; direction: ltr; text-align: right; font-variant-numeric: tabular-nums; padding: 0; }
+.amt-input::placeholder { color: rgba(255, 255, 255, .35); }
+label.hero-amt { cursor: text; }
