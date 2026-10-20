@@ -906,7 +906,7 @@ function viewSettings() {
 }
 
 async function exportBackup() {
-  const data = { app: 'finance-os', version: 1, exported: new Date().toISOString(), settings: S.settings, rules: S.rules, numbersHistory: S.history, tx: S.tx };
+  const data = { app: 'finance-os', version: 1, exported: new Date().toISOString(), settings: S.settings, rules: S.rules, history: S.history, tx: S.tx };
   const j = toJalali(new Date());
   const name = `hesab-${j.jy}-${String(j.jm).padStart(2, '0')}-${String(j.jd).padStart(2, '0')}.json`;
   const file = new File([JSON.stringify(data)], name, { type: 'application/json' });
