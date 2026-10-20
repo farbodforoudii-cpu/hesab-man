@@ -205,6 +205,8 @@ function viewEntry() {
       <div class="group"><div class="cell col">
         <p class="foot" style="margin:0 0 10px">حساب از همین حالا شروع می‌شود. فقط موجودی فعلی بلو را بنویس.</p>
         <input class="field" id="start-bal" inputmode="numeric" placeholder="موجودی بلو (تومان)">
+      </div><div class="cell col">
+        <input class="field" id="start-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی (اختیاری)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
       <button class="btn-plain" data-act="go-settings">وارد کردن فایل</button>
@@ -928,7 +930,22 @@ async function exportBackup() {
 }
 
 async function importBackup(file) {
-  const data = JSON.parse(await file.text());
+  return importBackupData(JSON.parse(await file.text()));
+}
+
+// Encrypted bundle of past monthly totals shipped with the app (AES-GCM, PBKDF2 key).
+async function loadBundle(pw) {
+  const b = await (await fetch('data/hesab.enc.json', { cache: 'no-cache' })).json();
+  const bin = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: bin(b.salt), iterations: b.iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+  let plain;
+  try { plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bin(b.iv) }, key, bin(b.ct)); }
+  catch { throw new Error('رمز درست نیست'); }
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function importBackupData(data) {
   if (data.app !== 'finance-os' || !Array.isArray(data.tx)) throw new Error('این فایل پشتیبان این اپ نیست');
   const byId = new Map(S.tx.map(t => [t.id, t]));
   const bankKeys = new Set(S.tx.filter(t => t.bank).map(t => t.bank.key));
@@ -983,6 +1000,8 @@ document.addEventListener('click', async e => {
     else if (a === 'start') {
       const v = parseAmount(document.getElementById('start-bal').value);
       if (!v) return toast('موجودی بلو را وارد کن');
+      const pw = norm(document.getElementById('start-pw').value).toLowerCase().replace(/[^a-z]/g, '');
+      if (pw) await importBackupData(await loadBundle(pw.replace(/(.{4})(?=.)/g, '$1-')));
       const d = startDay().toISOString();
       Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
       S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));

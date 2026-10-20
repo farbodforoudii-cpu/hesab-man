@@ -1,10 +1,10 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v12';
+const VERSION = 'v13';
 const SHELL = [
   './', 'index.html', 'app.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js',
   'vendor/xlsx.mini.min.js', 'fonts/Vazirmatn.woff2', 'fonts/Estedad-arabic.woff2', 'fonts/Estedad-latin.woff2',
-  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'data/hesab.enc.json',
 ];
 
 self.addEventListener('install', e => {
