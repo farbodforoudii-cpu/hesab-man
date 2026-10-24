@@ -23,6 +23,7 @@ const ICON = {
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 16L16 4l4 4L8 20z"/><path d="M8 12l2 2M11 9l2 2M14 6l2 2"/></svg>',
   layers: '<svg viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/></svg>',
   share: '<svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg>',
+  back: '<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 010 10h-3"/></svg>',
   arrow: '<svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></svg>',
   ok: '<svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg>',
   spark: '<svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg>',
@@ -46,6 +47,7 @@ async function boot() {
     Object.assign(S.settings, { startDate: d, openingDate: d });
     await saveSettings();
   }
+  await fixAban1();
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
@@ -54,10 +56,34 @@ async function boot() {
   setupUpdates();
 }
 
+// One-off (1405/08/02): eight purchases from 1 Aban were typed on the evening of 2 Aban.
+// Move them back to their bank times. Matches by amount, runs once per device.
+async function fixAban1() {
+  if (S.settings.fixAban1) return;
+  const times = { 1363000: [11, 41], 495000: [12, 15], 1200000: [12, 17], 300000: [13, 26], 20000: [14, 3], 5335000: [15, 38], 420000: [15, 50], 230000: [17, 56] };
+  const moved = [];
+  for (const t of S.tx) {
+    const d = new Date(t.ts), j = toJalali(d);
+    const hm = times[t.amount];
+    if (!hm || t.src !== 'manual' || t.dir !== 'out' || j.jy !== 1405 || j.jm !== 8 || j.jd !== 2 || d.getHours() < 20) continue;
+    t.ts = fromJalali(1405, 8, 1, hm[0], hm[1]).toISOString();
+    t.updated = new Date().toISOString();
+    delete times[t.amount];
+    moved.push(t);
+  }
+  if (moved.length) await db.putManyTx(moved);
+  S.settings.fixAban1 = true;
+  await saveSettings();
+}
+
 function refresh() { S.tpl = buildTemplates(S.tx); }
 
 // Self-updating: whenever the app is opened or comes back online, look for a new version and
 // switch to it automatically (only while nothing is being typed).
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && S.dayBack) { S.dayBack = 0; if (S.view === 'entry') render(); }
+});
+
 function setupUpdates() {
   if (!('serviceWorker' in navigator)) return;
   let reloading = false;
@@ -232,7 +258,7 @@ function viewEntry() {
   }
   const amt = Number(S.amount || 0);
   const top = `<div class="entry-top">
-      <span class="today">${esc(dayLabel(new Date()).replace('امروز · ', ''))}</span>
+      <button class="today${S.dayBack ? ' back' : ''}" data-act="day">${S.dayBack ? ICON.back : ''}<span>${esc(dayLabel(entryDate()).replace('امروز · ', ''))}</span></button>
       <button class="icon-round" data-act="tab" data-v="${isWide() ? 'dash' : 'dash'}" aria-label="خلاصه">${ICON.chart}</button>
     </div>`;
   if (S.step === 'what') {
@@ -357,7 +383,7 @@ async function saveWhat(m) {
     cat: g.type === 'expense' ? g.cat : null, ctx: g.ctx || 'personal', src: 'manual', created: new Date().toISOString(),
   };
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
-  S.step = 'amount'; S.what = ''; S.amount = ''; S.dayBack = 0;
+  S.step = 'amount'; S.what = ''; S.amount = '';
   S.lastId = tx.id;
   render();
   flashSaved();
@@ -1236,7 +1262,7 @@ document.addEventListener('click', async e => {
     else if (a === 'flip-dir') { S.dir = guess(S.what, S.dir).dir === 'in' ? 'out' : 'in'; render(); }
     else if (a === 'save-what') await saveWhat();
     else if (a === 'pick-what') { const m = S.tpl.find(t => t.key === b.dataset.key); if (m) await saveWhat(m); }
-    else if (a === 'day') { S.dayBack = (S.dayBack + 1) % 4; render(); }
+    else if (a === 'day') { S.dayBack = (S.dayBack + 1) % 7; render(); }
     else if (a === 'use') await useTemplate(b.dataset.key, Number(S.amount), entryDate());
     else if (a === 'manual') openTxSheet({ dir: b.dataset.dir, amount: Number(S.amount || 0) });
     else if (a === 'edit') { const t = S.tx.find(x => x.id === b.dataset.id); if (t) openTxSheet({ ...t }); }

@@ -565,3 +565,6 @@ nav.tabs button.on svg { color: var(--tint); }
 .an-share { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 22px; }
 .an-share svg { width: 18px; height: 18px; }
 .mb-tile .b-sub { margin-top: 2px; }
+.today { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255, 255, 255, .03); }
+.today.back { color: var(--label); border-color: rgba(196, 60, 82, .6); background: rgba(196, 60, 82, .16); }
+.today svg { width: 15px; height: 15px; color: var(--tint); }
