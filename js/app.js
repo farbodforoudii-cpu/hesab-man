@@ -53,10 +53,25 @@ async function boot() {
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
+  openLink();
   render();
   requestPersistence();
   setupUpdates();
 }
+
+// Links from other apps (e.g. Life OS after a coaching session):
+//   …/hesab-man/#add?amount=3500000&what=جلسه پویان&dir=in&period=1405-08
+// opens «برای چی؟» prefilled; nothing is saved until the user taps «ثبت».
+function openLink() {
+  const m = location.hash.match(/^#\/?add\?(.*)$/);
+  if (!m || !S.settings.startDate) return;
+  const q = new URLSearchParams(m[1]), amount = parseAmount(q.get('amount') || '');
+  history.replaceState(null, '', location.pathname);
+  if (!amount) return;
+  Object.assign(S, { view: 'entry', step: 'what', amount: String(amount), dir: q.get('dir') === 'in' ? 'in' : 'out', what: q.get('what') || '' });
+  S.linkPeriod = /^\d{4}-\d{2}$/.test(q.get('period') || '') ? q.get('period') : null;
+}
+window.addEventListener('hashchange', () => { if (/^#\/?add\?/.test(location.hash)) { openLink(); render(); } });
 
 // One-off (1405/08/02): eight purchases from 1 Aban were typed on the evening of 2 Aban.
 // Move them back to their bank times. Matches by amount, runs once per device.
@@ -443,6 +458,8 @@ async function saveWhat(m) {
     cat: g.type === 'expense' ? g.cat : null, ctx: g.ctx || 'personal', src: 'manual', created: new Date().toISOString(),
   };
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
+  if (S.linkPeriod && S.linkPeriod !== monthKey(ts)) tx.period = S.linkPeriod;
+  S.linkPeriod = null;
   S.step = 'amount'; S.what = ''; S.amount = '';
   S.lastId = tx.id;
   render();
@@ -1200,6 +1217,8 @@ function liveLines(T, chk) {
   lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)} · ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
   const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
   if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
+  const lb = S.settings.lastBackup;
+  if (!lb || Date.now() - new Date(lb) > 7 * 864e5) lines.push(`${lb ? 'یه هفته‌ست' : 'هنوز'} پشتیبان نگرفتی؛ تنظیمات ← ذخیرهٔ پشتیبان`);
   if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
   return lines;
 }
