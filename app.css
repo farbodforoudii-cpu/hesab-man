@@ -579,3 +579,39 @@ nav.tabs button.on svg { color: var(--tint); }
 .bar.in { background: var(--green); } .bar.out { background: var(--tint); } .bar.day { background: rgba(255, 255, 255, .45); }
 .tr-axis.tr-axis-on { fill: #0b0c0e; font-weight: 700; }
 .bc-day.tight { font-size: 10px; }
+
+/* TradingView-style chart */
+.tv { background: #0e0f12; border: 1px solid var(--border); border-radius: 22px; padding: 14px 12px 12px; margin-top: 6px; }
+.tv-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tv-field { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; padding: 6px 12px; border-radius: 10px; background: rgba(255, 255, 255, .05); border: 1px solid var(--border); }
+.tv-field i { width: 9px; height: 9px; border-radius: 50%; }
+.tv-tools { display: flex; gap: 6px; }
+.tv-ico { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--border); color: var(--sec); background: rgba(255, 255, 255, .03); }
+.tv-ico svg { width: 18px; height: 18px; }
+.tv-ico.on { color: var(--label); background: var(--card-hi); border-color: rgba(255, 255, 255, .18); }
+.tv-frames { display: flex; gap: 2px; margin: 12px 0 4px; background: rgba(255, 255, 255, .04); border-radius: 10px; padding: 3px; }
+.tv-frames button { flex: 1; padding: 6px 0; border-radius: 8px; font-size: 13px; color: var(--sec); text-align: center; }
+.tv-frames button.on { background: var(--card-hi); color: var(--label); font-weight: 700; }
+.tv-legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 10px 4px 4px; }
+.tv-legend b { font-size: 26px; font-weight: 600; letter-spacing: -.01em; }
+.tv-legend .tr-delta { margin-top: 0; }
+.tv-cmp { font-size: 13px; color: var(--sec); }
+.tv-cmp i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 5px; }
+.tv-chart { width: 100%; overflow: hidden; margin-top: 4px; touch-action: pan-y; }
+.tv-svg { display: block; width: 100%; height: auto; direction: ltr; stroke: none; font-family: Estedad, system-ui, sans-serif; }
+.tv-grid { stroke: rgba(255, 255, 255, .07); }
+.tv-grid.v { stroke: rgba(255, 255, 255, .035); }
+.tv-axis { stroke: rgba(255, 255, 255, .18); }
+.tv-scale { font-size: 12px; fill: rgba(235, 235, 245, .72); font-weight: 500; }
+.tv-unit { font-size: 10px; fill: rgba(235, 235, 245, .5); }
+.tv-time { font-size: 11.5px; fill: rgba(235, 235, 245, .7); }
+.tv-val { font-size: 11.5px; fill: rgba(235, 235, 245, .82); font-weight: 600; paint-order: stroke; stroke: #0e0f12; stroke-width: 4px; stroke-linejoin: round; }
+.tv-val.on { fill: #fff; font-size: 13px; }
+.tv-tag { font-size: 12px; font-weight: 700; }
+.tv-note { font-size: 11px; fill: rgba(235, 235, 245, .6); paint-order: stroke; stroke: #0e0f12; stroke-width: 4px; }
+.tv-avg { stroke: rgba(255, 255, 255, .4); stroke-dasharray: 6 5; }
+.tv-cross { stroke: rgba(255, 255, 255, .5); stroke-dasharray: 4 4; }
+.tv-hint { margin: 8px 4px 0; font-size: 12px; color: var(--ter); }
+.month-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255, 255, 255, .04); color: var(--label); font-size: 15px; font-weight: 600; }
+.month-btn span { color: var(--sec); font-size: 11px; }
+.tv-cmp i.dash { width: 14px; height: 0; border-radius: 0; border-top: 1.5px dashed rgba(255,255,255,.55); vertical-align: 3px; }

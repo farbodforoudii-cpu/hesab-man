@@ -721,7 +721,15 @@ function viewHistory(key) {
     </div></div>`;
 }
 
-const monthNav = key => `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`;
+const monthNav = key => `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><button class="month-btn" data-act="month-pick">${monthLabel(key)}<span>▾</span></button><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`;
+
+// Every month from the first history month to now, newest first, with what was left that month.
+function openMonthPicker() {
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate).slice().reverse();
+  openSheet(`<div class="sheet-nav"><span></span><b>کدام ماه؟</b><button class="link" data-close>بستن</button></div>
+    <div class="group">${series.map(m => `<button class="cell" data-act="pick" data-v="${m.key}"><span class="grow">${monthLabel(m.key)}${m.running ? ' <small>· در جریان</small>' : ''}</span><small>خرج ${fmtShort(m.expense || 0)}</small>${m.key === S.month ? ICON.ok : ''}</button>`).join('')}</div>`,
+    { pick: v => { closeSheet(); S.month = v; S.tr.hover = null; S.view = 'dash'; render(); window.scrollTo(0, 0); } });
+}
 
 // Asks once for the password when the shipped history is newer than the one on this device.
 function histUnlock() {
@@ -737,18 +745,23 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true }) {
   const sum = arr => arr.reduce((a, x) => a + x[1], 0);
   const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
   const name = monthLabel(key).split(' ')[0];
-  const big = [...outs, ...(days || [])].sort((a, b) => b[1] - a[1]);
-  const assets = outs.filter(x => /دلار|نقره|طلا|دوچرخه|سکه|پس‌انداز|باکس/.test(x[0]));
+  // Money that only passed through (paid for others / Seenzhin, then paid back) and savings are told apart from spending.
+  const passRe = /Seenzhin|برای دیگران/, assetRe = /دلار|نقره|طلا|دوچرخه|سکه|پس‌انداز|باکس|رند/;
+  const pass = outs.filter(x => passRe.test(x[0])), assets = outs.filter(x => assetRe.test(x[0]));
+  const back = ins.filter(x => /پس گرفتن/.test(x[0]));
+  const big = [...outs.filter(x => !passRe.test(x[0]) && !assetRe.test(x[0])), ...(days || [])].sort((a, b) => b[1] - a[1]);
   const lines = [];
-  lines.push(h.work ? `درآمد کاری‌ات ${fmtShort(h.work)} بود${h.expense ? `؛ یعنی ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرج‌های زندگی‌ات.` : '.'}` : 'این ماه درآمد کاری نداشتی.');
+  if (!h.work) lines.push('این ماه درآمد کاری نداشتی.');
+  else lines.push(`درآمد کاری‌ات ${fmtShort(h.work)} بود و خرج زندگی‌ات ${fmtShort(h.expense)}؛ ${h.work >= h.expense ? 'درآمد کاری خرج را پوشاند' : `درآمد کاری ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرج را پوشاند`}.`);
   if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ خرج‌ها با همین و موجودی حساب گذشت'}.`);
-  if (big.length) lines.push(`بزرگ‌ترین‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
+  if (big.length) lines.push(`بزرگ‌ترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
   if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، دارایی شد: ${assets.map(x => x[0]).join('، ')}.`);
+  if (pass.length) lines.push(`${fmtShort(sum(pass))} برای دیگران و Seenzhin پرداختی${back.length ? ` و ${fmtShort(sum(back))} پس گرفتی` : ''}؛ این‌ها خرج خودت نیستند.`);
   lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از پولی که آمد، رفت.` : `در کل ${fmtShort(net)} بیشتر از پولی که رفت، آمد.`);
   if (bank) {
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} به ${fmtShort(bank[1])} رسید.`);
     const gap = (bank[1] - bank[0]) - net;
-    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً خرج‌هایی ثبت نشده.` : `بانک ${fmtShort(gap)} کمتر از جدولت کم شده.`);
+    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `در بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند خرج ثبت نشده.` : `بانک ${fmtShort(gap)} از جدولت بهتر است؛ شاید ورودی‌ای جا افتاده یا خرجی در ماه دیگر ثبت شده.`);
   }
   const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<div class="cell bar-row"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b><i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></div>`).join(''); };
   return `${hero ? `<section class="bento an-hero">
@@ -915,7 +928,7 @@ function viewDash() {
     ...Object.entries(b.assets),
   ];
   return `<div class="view wide">
-    ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
+    ${pageHead('خلاصه', monthNav(key))}
 
     <section class="bento">
       <div class="b-primary">
@@ -1040,86 +1053,103 @@ function trendPoints(field, frame) {
   });
 }
 
-const axisNum = v => v >= 1e6 ? faDigits(String(Math.round(v / 1e5) / 10).replace('.', '٫')) : v >= 1e3 ? faDigits(Math.round(v / 1e3)) + 'ه' : faDigits(Math.round(v));
+// Price-scale style ticks: a round step (1, 2, 2.5, 5 × 10^k) and a top that is a multiple of it.
+function niceScale(max) {
+  const raw = max / 4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+  return { step, top: Math.ceil(max / step) * step };
+}
 
 function trendCard() {
   const tr = S.tr;
   const pts = trendPoints(tr.field, tr.frame);
   const cmp = tr.cmp ? trendPoints(tr.cmp, tr.frame) : null;
   const n = pts.length;
-  const W = 360, H = 210, pad = { t: 18, b: 28, l: 8, r: 40 };
-  const vals = [...pts.map(p => p.value), ...pts.map(p => p.proj || 0), ...(cmp ? cmp.map(p => p.value) : [])];
-  const top = Math.max(1, ...vals) * 1.12;
-  const X = i => pad.l + (n === 1 ? (W - pad.l - pad.r) / 2 : i * (W - pad.l - pad.r) / (n - 1));
-  const Y = v => pad.t + (H - pad.t - pad.b) * (1 - v / top);
-  const line = arr => smooth(arr.map((p, i) => [X(i), Y(p.value)]));
-  const done = pts.filter(p => !p.running);
-  const avg = done.length ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
-  // Without a finger on the chart, show the month open in «خلاصه».
+  const W = Math.max(300, Math.round(S.trW || 340)), H = 300;
+  const pad = { t: 28, b: 36, l: 8, r: 62 }, inset = 18;
+  const PW = W - pad.l - pad.r, PH = H - pad.t - pad.b;
+  const vals = [...pts.map(p => Math.max(p.value, p.proj || 0)), ...(cmp ? cmp.map(p => p.value) : [])];
+  const { step, top } = niceScale(Math.max(1, ...vals));
+  const unit = top >= 2e6 ? 1e6 : 1e3, unitName = unit === 1e6 ? 'میلیون تومان' : 'هزار تومان';
+  const num = v => faDigits(String(Math.round(v / unit * 10) / 10).replace('.', '٫'));
+  const X = i => pad.l + inset + (n === 1 ? (PW - 2 * inset) / 2 : i * (PW - 2 * inset) / (n - 1));
+  const Y = v => pad.t + PH * (1 - v / top);
+  const path = arr => arr.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ');
   const focus = pts.findIndex(p => p.key === S.month);
   const hi = tr.hover == null || tr.hover >= n ? (focus >= 0 ? focus : n - 1) : tr.hover;
-  const cur = pts[hi], prev = pts[hi - 1];
+  const cur = pts[hi], prev = pts[hi - 1], last = pts[n - 1];
   const daily = tr.frame === '1w' || tr.frame === '1m';
-  // A month still running is compared by its projection, not by its partial total.
   const curV = cur.running && cur.proj ? cur.proj : cur.value;
   const delta = prev && prev.value && !(cur.running && !cur.proj && !daily) ? (curV - prev.value) / prev.value : null;
-  const prevName = daily ? 'روز قبل' : prev ? prev.label : '';
   const good = delta == null ? null : (delta > 0) === upGood(tr.field);
-  const grid = [0, .25, .5, .75, 1].map(k => top / 1.12 * k);
-  const last = pts[n - 1];
+  const done = pts.filter(p => !p.running);
+  const avg = done.length > 1 ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
   const col = trColor(tr.field);
-  // Measure tool: two pinned points and the change between them.
   const A = tr.a != null && tr.a < n ? tr.a : null, B = tr.b != null && tr.b < n ? tr.b : null;
   let measure = '';
+  tr.mText = '';
   if (A != null && B != null) {
     const [i, j] = A < B ? [A, B] : [B, A], va = pts[i].value, vb = pts[j].value, ch = va ? (vb - va) / va : null;
-    const g = ch == null ? null : (ch > 0) === upGood(tr.field);
-    measure = `<rect x="${X(i)}" y="${pad.t}" width="${X(j) - X(i)}" height="${H - pad.t - pad.b}" class="tr-measure ${g === null ? '' : g ? 'up' : 'down'}"/>`;
+    tr.mGood = ch == null ? null : (ch > 0) === upGood(tr.field);
+    measure = `<rect x="${X(i)}" y="${pad.t}" width="${X(j) - X(i)}" height="${PH}" class="tr-measure ${tr.mGood === null ? '' : tr.mGood ? 'up' : 'down'}"/>`;
     tr.mText = `از ${pts[i].label} تا ${pts[j].label}: ${ch == null ? '' : `${ch > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(ch * 100)))}٪ · `}${vb >= va ? '+' : '−'}${fmtShort(Math.abs(vb - va))}`;
-    tr.mGood = g;
-  } else tr.mText = A != null ? `${pts[A].label} انتخاب شد؛ نقطهٔ دوم را بزن` : '';
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="tr-svg" id="tr-svg">
-    <defs><linearGradient id="trA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
-    ${grid.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" class="tr-grid"/><text x="${W - pad.r + 6}" y="${Y(v) + 3}" class="tr-axis">${axisNum(v)}</text>`).join('')}
+  } else if (A != null) tr.mText = `${pts[A].label} انتخاب شد. نقطهٔ دوم را بزن.`;
+  const ticks = []; for (let v = 0; v <= top + 1; v += step) ticks.push(v);
+  const showVal = i => n <= 8 || i % Math.ceil(n / 8) === 0 || i === n - 1 || i === hi;
+  // Time labels: keep the newest, then walk back and drop any label that would touch its neighbour.
+  const tw = i => pts[i].label.length * 6.4 + 8;
+  const timeKeep = new Set();
+  for (let i = n - 1, lastX = Infinity, lastW = 0; i >= 0; i--) {
+    if (lastX - X(i) >= (tw(i) + lastW) / 2) { timeKeep.add(i); lastX = X(i); lastW = tw(i); }
+  }
+  const showTime = i => timeKeep.has(i) && Math.abs(X(i) - X(hi)) >= (tw(i) + 68) / 2;
+  const tag = (y, text, fill, ink) => `<rect x="${W - pad.r + 2}" y="${(y - 10).toFixed(1)}" width="${pad.r - 4}" height="20" rx="4" fill="${fill}"/><text x="${W - pad.r / 2}" y="${(y + 4).toFixed(1)}" text-anchor="middle" class="tv-tag" fill="${ink}">${text}</text>`;
+  const timeTag = `<rect x="${(X(hi) - 34).toFixed(1)}" y="${H - pad.b + 5}" width="68" height="20" rx="4" fill="#e9e9ee"/><text x="${X(hi).toFixed(1)}" y="${H - pad.b + 19}" text-anchor="middle" class="tv-tag" fill="#0b0c0e">${esc(cur.label)}</text>`;
+  const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="tv-svg" id="tr-svg">
+    <defs><linearGradient id="tvA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <text x="${W - pad.r + 6}" y="14" class="tv-unit">${unitName}</text>
+    ${ticks.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" class="tv-grid"/><text x="${W - pad.r + 8}" y="${Y(v) + 4}" class="tv-scale">${num(v)}</text>`).join('')}
+    ${pts.map((_, i) => `<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${H - pad.b}" class="tv-grid v"/>`).join('')}
+    <line x1="${W - pad.r}" x2="${W - pad.r}" y1="${pad.t - 8}" y2="${H - pad.b}" class="tv-axis"/>
+    <line x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}" class="tv-axis"/>
     ${measure}
-    ${avg ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(avg)}" y2="${Y(avg)}" class="bc-avg"/>` : ''}
-    <path d="${line(pts)} L${X(n - 1)},${H - pad.b} L${X(0)},${H - pad.b} Z" fill="url(#trA)"/>
-    ${cmp ? `<path d="${line(cmp)}" fill="none" stroke="${trColor(tr.cmp)}" stroke-width="1.6" stroke-dasharray="1 0" opacity=".85" stroke-linecap="round"/>` : ''}
-    <path d="${line(pts)}" pathLength="1" class="draw" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    ${last.proj ? `<line x1="${X(n - 1)}" y1="${Y(last.value)}" x2="${X(n - 1)}" y2="${Y(last.proj)}" stroke="${col}" stroke-width="1.5" stroke-dasharray="2 4" opacity=".7"/><circle cx="${X(n - 1)}" cy="${Y(last.proj)}" r="3.5" fill="none" stroke="${col}" stroke-width="1.5"/>` : ''}
-    <line x1="${X(hi)}" x2="${X(hi)}" y1="${pad.t}" y2="${H - pad.b}" class="tr-cross"/>
-    <line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(cur.value)}" y2="${Y(cur.value)}" class="tr-cross"/>
-    <rect x="${W - pad.r + 1}" y="${Y(cur.value) - 8}" width="${pad.r - 2}" height="16" rx="4" fill="${col}"/><text x="${W - pad.r + 6}" y="${Y(cur.value) + 4}" class="tr-axis tr-axis-on">${axisNum(cur.value)}</text>
-    ${[A, B].filter(x => x != null).map(i => `<circle cx="${X(i)}" cy="${Y(pts[i].value)}" r="5" fill="#0b0c0e" stroke="#fff" stroke-width="2"/>`).join('')}
-    ${last.running ? `<circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}"/><circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}" class="tr-pulse"/>` : ''}
-    <circle cx="${X(hi)}" cy="${Y(cur.value)}" r="5" fill="#fff"/>
-    ${pts.map((p, i) => (n <= 9 || (n - 1 - i) % Math.ceil(n / 8) === 0) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day${n > 6 ? ' tight' : ''}">${p.label}</text>` : '').join('')}
+    ${avg ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(avg)}" y2="${Y(avg)}" class="tv-avg"/>` : ''}
+    <path d="${path(pts)} L${X(n - 1)},${H - pad.b} L${X(0)},${H - pad.b} Z" fill="url(#tvA)"/>
+    ${cmp ? `<path d="${path(cmp)}" fill="none" stroke="${trColor(tr.cmp)}" stroke-width="2" stroke-linejoin="round"/>${cmp.map((p, i) => `<circle cx="${X(i)}" cy="${Y(p.value)}" r="2.5" fill="${trColor(tr.cmp)}"/>`).join('')}` : ''}
+    <path d="${path(pts)}" pathLength="1" class="draw" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    ${last.proj ? `<line x1="${X(n - 1)}" y1="${Y(last.value)}" x2="${X(n - 1)}" y2="${Y(last.proj)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="3 4"/><circle cx="${X(n - 1)}" cy="${Y(last.proj)}" r="4" fill="#0b0c0e" stroke="${col}" stroke-width="1.6"/><text x="${X(n - 1) - 8}" y="${Y(last.proj) + 4}" text-anchor="end" class="tv-note">پیش‌بینی ${num(last.proj)}</text>` : ''}
+    ${pts.map((p, i) => `<circle cx="${X(i)}" cy="${Y(p.value)}" r="${i === hi ? 5 : 3}" fill="${i === hi ? '#fff' : col}" stroke="#0b0c0e" stroke-width="1.5"/>${showVal(i) ? `<text x="${X(i)}" y="${Y(p.value) - 10}" text-anchor="middle" class="tv-val${i === hi ? ' on' : ''}">${num(p.value)}</text>` : ''}`).join('')}
+    ${last.running ? `<circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}" class="tr-pulse"/>` : ''}
+    ${[A, B].filter(x => x != null).map(i => `<circle cx="${X(i)}" cy="${Y(pts[i].value)}" r="7" fill="none" stroke="#fff" stroke-width="2"/>`).join('')}
+    <line x1="${X(hi)}" x2="${X(hi)}" y1="${pad.t}" y2="${H - pad.b}" class="tv-cross"/>
+    <line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(cur.value)}" y2="${Y(cur.value)}" class="tv-cross"/>
+    ${pts.map((p, i) => showTime(i) ? `<text x="${X(i)}" y="${H - pad.b + 19}" text-anchor="middle" class="tv-time">${esc(p.label)}</text>` : '').join('')}
+    ${hi !== n - 1 ? tag(Y(last.value), num(last.value), 'none', col).replace('fill="none"', `fill="#0b0c0e" stroke="${col}"`) : ''}
+    ${tag(Y(cur.value), num(cur.value), col, '#0b0c0e')}
+    ${timeTag}
   </svg>`;
-  const chips = (list, on, act) => list.map(([k, l]) => `<button data-act="${act}" data-v="${k}" class="${on === k ? 'on' : ''}">${act !== 'tr-frame' ? `<i style="background:${trColor(k)}"></i>` : ''}${l}</button>`).join('');
-  return `<div class="bc-shell"><div class="bc tr">
-    <div class="tr-fields">${chips(TR_FIELDS, tr.field, 'tr-field')}</div>
-    <div class="bc-head">
-      <div>
-        <p class="bc-label">${esc(trLabel(tr.field))} · ${esc(cur.full)}${cur.running ? ' <span class="live-dot"></span><span class="sec">تا الان</span>' : ''}</p>
-        <h2 class="bc-total">${fmtShort(cur.value)}</h2>
-        <div class="row" style="flex-wrap:wrap">
-          ${delta != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(delta * 100)))}٪ ${cur.running && cur.proj ? 'پیش‌بینی' : ''} نسبت به ${esc(prevName)}</span>` : ''}
-          ${cur.proj ? `<span class="tr-delta">پیش‌بینی آخر ماه: ${fmtShort(cur.proj)}</span>` : ''}
-        </div>
+  const frames = TR_FRAMES.map(([k, l]) => `<button data-act="tr-frame" data-v="${k}" class="${tr.frame === k ? 'on' : ''}">${l}</button>`).join('');
+  return `<div class="tv">
+    <div class="tv-bar">
+      <button class="tv-field" data-act="tr-pick"><i style="background:${col}"></i>${esc(trLabel(tr.field))}<span class="sec">▾</span></button>
+      <div class="tv-tools">
+        <button class="tv-ico ${tr.cmp || tr.picking ? 'on' : ''}" data-act="tr-cmp" aria-label="مقایسه">${ICON.layers}</button>
+        <button class="tv-ico ${tr.measure ? 'on' : ''}" data-act="tr-measure" aria-label="اندازه‌گیری">${ICON.ruler}</button>
       </div>
     </div>
-    <div class="bc-wrap" id="tr-wrap">${svg}</div>
-    <div class="tr-foot">
-      <div class="segmented sm tr-frames">${chips(TR_FRAMES, tr.frame, 'tr-frame')}</div>
-      <div class="row tr-tools">
-        <button class="tr-tool ${tr.measure ? 'on' : ''}" data-act="tr-measure">${ICON.ruler}<span>اندازه‌گیری</span></button>
-        <button class="tr-tool ${tr.picking || tr.cmp ? 'on' : ''}" data-act="tr-cmp">${ICON.layers}<span>${tr.cmp ? `مقایسه با ${esc(trLabel(tr.cmp))}` : 'مقایسه'}</span></button>
-      </div>
+    <div class="tv-frames">${frames}</div>
+    <div class="tv-legend">
+      <span class="sec">${esc(cur.full)}${cur.running ? ' · <span class="live-dot"></span>تا الان' : ''}</span>
+      <b>${fmtShort(cur.value)}</b>
+      ${delta != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(delta * 100)))}٪ ${cur.running && cur.proj ? 'پیش‌بینی ' : ''}نسبت به ${esc(daily ? 'روز قبل' : prev.label)}</span>` : ''}
+      ${avg ? `<span class="tv-cmp"><i class="dash"></i>میانگین ${fmtShort(avg)}</span>` : ''}
+      ${cmp ? `<span class="tv-cmp"><i style="background:${trColor(tr.cmp)}"></i>${esc(trLabel(tr.cmp))}: ${fmtShort(cmp[hi] ? cmp[hi].value : 0)}</span>` : ''}
     </div>
-    ${tr.picking ? `<div class="tr-fields tr-cmp">${chips(TR_FIELDS.filter(x => x[0] !== tr.field), tr.cmp, 'tr-cmpf')}</div>` : ''}
+    <div class="tv-chart" id="tr-wrap">${svg}</div>
+    ${tr.picking ? `<div class="tr-fields tr-cmp">${TR_FIELDS.filter(x => x[0] !== tr.field).map(([k, l]) => `<button data-act="tr-cmpf" data-v="${k}" class="${tr.cmp === k ? 'on' : ''}"><i style="background:${trColor(k)}"></i>${l}</button>`).join('')}</div>` : ''}
     ${tr.mText ? `<p class="tr-mtext ${tr.mGood === true ? 'good' : tr.mGood === false ? 'bad' : ''}">${esc(tr.mText)}</p>` : ''}
-    <p class="tr-legend"><span><i style="background:${col}"></i>${esc(trLabel(tr.field))}</span>${cmp ? `<span><i style="background:${trColor(tr.cmp)}"></i>${esc(trLabel(tr.cmp))}</span>` : ''}${avg ? '<span><i class="dash"></i>میانگین</span>' : ''}${last.proj ? '<span><i class="ring"></i>پیش‌بینی</span>' : ''}</p>
-  </div></div>`;
+    <p class="tv-hint">${tr.measure ? 'اندازه‌گیری: روی دو نقطه بزن.' : 'انگشتت را روی نمودار بکش تا عدد هر نقطه را ببینی.'}</p>
+  </div>`;
 }
 
 function redrawTrend() { const el = document.getElementById('trend'); if (el) el.innerHTML = trendCard(); }
@@ -1127,28 +1157,28 @@ function redrawTrend() { const el = document.getElementById('trend'); if (el) el
 function bindTrend() {
   const el = document.getElementById('trend');
   if (!el) return;
+  const box = el.querySelector('.tv-chart');
+  if (box && Math.abs(box.clientWidth - (S.trW || 0)) > 4) { S.trW = box.clientWidth; redrawTrend(); }
   const idxAt = e => {
     const svg = document.getElementById('tr-svg');
     if (!svg) return null;
     const r = svg.getBoundingClientRect(), n = trendPoints(S.tr.field, S.tr.frame).length;
-    const x = (e.clientX - r.left) / r.width * 360;
-    return Math.max(0, Math.min(n - 1, Math.round((x - 8) / ((360 - 48) / Math.max(1, n - 1)))));
+    const W = Math.max(300, Math.round(S.trW || 340)), span = W - 8 - 62 - 36;
+    const x = (e.clientX - r.left) / r.width * W - 8 - 18;
+    return Math.max(0, Math.min(n - 1, Math.round(x / (span / Math.max(1, n - 1)))));
   };
-  const redraw = () => { el.innerHTML = trendCard(); };
   el.addEventListener('pointermove', e => {
     if (!e.target.closest('#tr-wrap')) return;
     const i = idxAt(e);
-    if (i != null && i !== S.tr.hover) { S.tr.hover = i; redraw(); }
+    if (i != null && i !== S.tr.hover) { S.tr.hover = i; redrawTrend(); }
   });
   el.addEventListener('pointerdown', e => {
     if (!e.target.closest('#tr-wrap')) return;
     const i = idxAt(e);
     if (i == null) return;
     S.tr.hover = i;
-    if (S.tr.measure) {
-      if (S.tr.a == null || S.tr.b != null) { S.tr.a = i; S.tr.b = null; } else S.tr.b = i;
-    }
-    redraw();
+    if (S.tr.measure) { if (S.tr.a == null || S.tr.b != null) { S.tr.a = i; S.tr.b = null; } else S.tr.b = i; }
+    redrawTrend();
   });
 }
 
@@ -1339,6 +1369,10 @@ document.addEventListener('click', async e => {
       toast('تاریخچه بارگذاری شد'); render();
     }
     else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); S.tr.hover = null; render(); }
+    else if (a === 'tr-pick') openSheet(`<div class="sheet-nav"><span></span><b>نمودارِ چه چیزی؟</b><button class="link" data-close>بستن</button></div>
+      <div class="group">${TR_FIELDS.map(([k, l]) => `<button class="cell" data-act="pick" data-v="${k}"><i class="dot" style="background:${trColor(k)}"></i><span class="grow">${l}</span>${S.tr.field === k ? ICON.ok : ''}</button>`).join('')}</div>`,
+      { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, a: null, b: null, cmp: S.tr.cmp === v ? null : S.tr.cmp }); redrawTrend(); } });
+    else if (a === 'month-pick') openMonthPicker();
     else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
     else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null, a: null, b: null }); redrawTrend(); }
     else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }
