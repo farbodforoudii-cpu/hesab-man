@@ -690,7 +690,7 @@ function viewHistory(key) {
 
 // ----- Analysis: the long view from the first month on -----
 // Bump when the encrypted history bundle is rebuilt so devices offer to reload it.
-const HIST_REV = 2;
+const HIST_REV = 3;
 function viewAnalysis() {
   const head = pageHead('تحلیل');
   const fresh = S.history && S.history.source === 'numbers' && (S.history.rev || 1) >= HIST_REV;
