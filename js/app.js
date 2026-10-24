@@ -689,9 +689,11 @@ function viewHistory(key) {
 }
 
 // ----- Analysis: the long view from the first month on -----
+// Bump when the encrypted history bundle is rebuilt so devices offer to reload it.
+const HIST_REV = 2;
 function viewAnalysis() {
   const head = pageHead('تحلیل');
-  const fresh = S.history && S.history.source === 'numbers';
+  const fresh = S.history && S.history.source === 'numbers' && (S.history.rev || 1) >= HIST_REV;
   const unlock = fresh ? '' : `<div class="group"><div class="cell col">
       <p class="foot" style="margin:0 0 10px">${S.history ? 'تاریخچهٔ دقیق‌تر (از جدول‌های Numbers) آماده است.' : 'تاریخچهٔ ماه‌های قبل هنوز وارد نشده.'} رمز را بزن تا بارگذاری شود.</p>
       <input class="field" id="an-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی">
