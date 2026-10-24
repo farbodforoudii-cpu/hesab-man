@@ -49,6 +49,7 @@ async function boot() {
   }
   await fixAban1();
   await fixLateMehr();
+  await forgiveSeenzhin();
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
@@ -75,6 +76,14 @@ async function fixAban1() {
   if (moved.length) await db.putManyTx(moved);
   S.settings.fixAban1 = true;
   await saveSettings();
+}
+
+// One-off (1405/08/03): what Seenzhin still owed at the end of Mehr was let go as help.
+// Needs the history bundle that separates Seenzhin money (rev 5+), so it also runs after loading it.
+async function forgiveSeenzhin() {
+  if (S.settings.szForgive || !S.history || (S.history.rev || 1) < 5 || !S.history.months['1405-07']) return;
+  const left = Math.round(seenzhinOwed('1405-07'));
+  if (left > 0) { S.settings.szForgive = { '1405-07': left }; await saveSettings(); }
 }
 
 // One-off (1405/08/02): two coaching payments that arrived on 2 Aban belong to Mehr.
@@ -785,6 +794,8 @@ function seenzhinOwed(key) {
     if (t.type === 'on_behalf') owed += t.amount;
     if (t.type === 'reimburse') owed -= t.amount;
   }
+  // Amounts you chose to let go of (counted as help to Seenzhin, not as a debt).
+  for (const [k, v] of Object.entries(S.settings.szForgive || {})) if (k <= key) owed -= v;
   return owed;
 }
 
@@ -807,7 +818,8 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, l
   const szOut = sum(pass.filter(x => /Seenzhin/.test(x[0]))), szIn = sum(back.filter(x => /Seenzhin/.test(x[0])));
   if (szOut || szIn) {
     const owed = seenzhinOwed(key);
-    lines.push(`Seenzhin: این ماه ${szOut ? `${fmtShort(szOut)} بهش دادی` : 'چیزی بهش ندادی'}${szIn ? ` و ${fmtShort(szIn)} ازش گرفتی` : ''}${szIn > szOut ? ' (تسویهٔ پول‌هایی که ماه قبل داده بودی هم توشه)' : ''}. ${Math.abs(owed) < 5e5 ? 'حسابت باهاش صافه.' : owed > 0 ? `تا آخر این ماه هنوز حدود ${fmtShort(owed)} بهت بدهکاره.` : `تا آخر این ماه حدود ${fmtShort(-owed)} بیشتر ازش گرفتی.`} اینا خرج و درآمد زندگی‌ت حساب نشدن.`);
+    const forgiven = (S.settings.szForgive || {})[key];
+    lines.push(`Seenzhin: این ماه ${szOut ? `${fmtShort(szOut)} بهش دادی` : 'چیزی بهش ندادی'}${szIn ? ` و ${fmtShort(szIn)} ازش گرفتی` : ''}${szIn > szOut ? ' (تسویهٔ پول‌هایی که ماه قبل داده بودی هم توشه)' : ''}. ${forgiven ? `${fmtShort(forgiven)} که هنوز بدهکار بود رو بخشیدی، به‌عنوان کمک؛ حسابت باهاش صافه.` : Math.abs(owed) < 5e5 ? 'حسابت باهاش صافه.' : owed > 0 ? `تا آخر این ماه هنوز حدود ${fmtShort(owed)} بهت بدهکاره.` : `تا آخر این ماه حدود ${fmtShort(-owed)} بیشتر ازش گرفتی.`} اینا خرج و درآمد زندگی‌ت حساب نشدن.`);
   }
   const prOut = sum(pass.filter(x => !/Seenzhin/.test(x[0]))), prIn = sum(back.filter(x => !/Seenzhin/.test(x[0])));
   if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} دادی` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} گرفتی` : ''}؛ جدا از خرج و درآمد حساب شدن.`);
@@ -1633,7 +1645,7 @@ document.addEventListener('click', async e => {
       if (day > new Date()) return toast('تاریخ شروع نمی‌تواند در آینده باشد');
       const d = (formatJalali(day) === formatJalali(new Date()) ? startDay() : day).toISOString();
       const pw = toAscii(document.getElementById('start-pw').value).toLowerCase().replace(/\s/g, '');
-      if (pw) await importBackupData(await loadBundle(pw));
+      if (pw) { await importBackupData(await loadBundle(pw)); await forgiveSeenzhin(); }
       Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
       S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));
       await saveSettings();
@@ -1658,6 +1670,7 @@ document.addEventListener('click', async e => {
       const pw = toAscii(document.getElementById('an-pw').value).toLowerCase().replace(/\s/g, '');
       if (!pw) return toast('رمز را بنویس');
       await importBackupData(await loadBundle(pw));
+      await forgiveSeenzhin();
       toast('تاریخچه بارگذاری شد'); render();
     }
     else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); S.tr.hover = null; render(); }
