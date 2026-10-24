@@ -203,9 +203,10 @@ function viewEntry() {
     return `<div class="view">
       <h1 class="large">شروع</h1>
       <div class="group"><div class="cell col">
-        <p class="foot" style="margin:0 0 10px">حساب از همین حالا شروع می‌شود. فقط موجودی فعلی بلو را بنویس.</p>
+        <p class="foot" style="margin:0 0 10px">موجودی بلو را در لحظهٔ شروع بنویس. برای روزی قبل از امروز، موجودی آخر شب قبلش.</p>
         <input class="field" id="start-bal" inputmode="numeric" placeholder="موجودی بلو (تومان)">
       </div><div class="cell col">
+        <div class="cell" style="padding:0 0 10px"><span>از تاریخ</span><input class="bare end" id="start-date" inputmode="numeric" value="${formatJalali(new Date())}"></div>
         <input class="field" id="start-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی (اختیاری)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
@@ -1000,9 +1001,14 @@ document.addEventListener('click', async e => {
     else if (a === 'start') {
       const v = parseAmount(document.getElementById('start-bal').value);
       if (!v) return toast('موجودی بلو را وارد کن');
+      const dm = toAscii(document.getElementById('start-date').value).match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
+      if (!dm) return toast('تاریخ را مثل ۱۴۰۵/۰۸/۰۱ بنویس');
+      // Today means "from this moment"; an earlier day starts at its first minute.
+      const day = fromJalali(+dm[1], +dm[2], +dm[3]);
+      if (day > new Date()) return toast('تاریخ شروع نمی‌تواند در آینده باشد');
+      const d = (formatJalali(day) === formatJalali(new Date()) ? startDay() : day).toISOString();
       const pw = norm(document.getElementById('start-pw').value).toLowerCase().replace(/[^a-z]/g, '');
       if (pw) await importBackupData(await loadBundle(pw.replace(/(.{4})(?=.)/g, '$1-')));
-      const d = startDay().toISOString();
       Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
       S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));
       await saveSettings();
