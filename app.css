@@ -568,3 +568,14 @@ nav.tabs button.on svg { color: var(--tint); }
 .today { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255, 255, 255, .03); }
 .today.back { color: var(--label); border-color: rgba(196, 60, 82, .6); background: rgba(196, 60, 82, .16); }
 .today svg { width: 15px; height: 15px; color: var(--tint); }
+
+/* Month story */
+.story .cell { font-size: 16px; line-height: 1.6; padding-top: 12px; padding-bottom: 12px; }
+.story .cell::after { content: ''; position: absolute; right: 6px; top: 22px; width: 4px; height: 4px; border-radius: 50%; background: var(--tint); }
+.story-io { font-size: 16px !important; font-weight: 600; }
+.story-io .green { color: var(--green); } .story-io .red { color: #ff6b61; }
+.bar-row { overflow: hidden; }
+.bar-row .bar { position: absolute; bottom: 0; right: 0; height: 3px; border-radius: 2px; opacity: .9; }
+.bar.in { background: var(--green); } .bar.out { background: var(--tint); } .bar.day { background: rgba(255, 255, 255, .45); }
+.tr-axis.tr-axis-on { fill: #0b0c0e; font-weight: 700; }
+.bc-day.tight { font-size: 10px; }

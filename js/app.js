@@ -705,57 +705,88 @@ function bindList() {
 const WEEKDAY_SHORT = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش'];
 
 // Months before the start date come from an anonymised monthly summary file (no names, no transactions).
-const HIST_LABELS = { people: 'کارت‌به‌کارت بدون توضیح' };
 
 function viewHistory(key) {
-  const H = S.history.months;
-  const h = H[key];
-  const keys = Object.keys(H).sort();
-  const left = h.work + h.family + h.sale + h.otherIn - h.expense - h.inventory;
-  const cov = h.expense ? Math.round(h.work / h.expense * 100) : 0;
-  const upto = keys.filter(k => k <= key);
-  const bars = upto.slice(-11);
-  const maxW = Math.max(1, ...bars.map(k => H[k].work));
-  const cats = Object.entries(h.byCat).sort((x, y) => y[1] - x[1]);
-  const flows = [['پس‌انداز (دلار، نقره، …)', h.asset], ['دریافت وام', h.loanIn], ['قسط وام', h.loanPay], ['صندوق مریم', h.fundIn], ['خرید مکمل برای فروش', h.inventory], ['پرداخت برای دیگران', h.onBehalf], ['پس گرفته', h.reimburse]].filter(r => r[1]);
+  const h = S.history.months[key];
+  const ins = h.ins || [['درآمد کاری', h.work], ['از خانواده', h.family], ['فروش مکمل', h.sale], ['نامشخص', h.otherIn]].filter(x => x[1]);
+  const outs = h.outs || [['دارایی', h.asset], ['قسط وام', h.loanPay], ['پرداخت برای دیگران', h.onBehalf]].filter(x => x[1]);
+  const days = h.days || Object.entries(h.byCat).map(([c, v]) => [(CATEGORIES[c] || CATEGORIES.other).label, v]);
   return `<div class="view wide">
-    ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
-    <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}فقط جمع ماه، بدون نام${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
-    <section class="bento">
-      <div class="b-primary"><div class="stripes"></div>
-        <div><span class="b-pill">باقی‌مانده بعد از خرج</span><h3 class="b-hero" data-cu="${left}" data-f="short">${fmtShort(left)}</h3></div>
-        <p class="b-note">${h.family ? `بدون ${fmtShort(h.family)} کمک خانواده: ${fmtShort(left - h.family)}` : ''}</p></div>
-      <div class="b-growth"><div><p class="b-label">درآمد کاری</p><p class="b-value" data-cu="${h.work}" data-f="short">${fmtShort(h.work)}</p><p class="b-sub">خرج: ${fmtShort(h.expense)}</p></div>
-        <div class="b-bars">${bars.map(k => `<i style="height:${Math.max(8, H[k].work / maxW * 100).toFixed(0)}%;${k === key ? '' : 'opacity:.35'}"></i>`).join('')}</div></div>
-      <div class="b-count"><p class="b-num" data-cu="${h.sourceCount}" data-f="int">${faDigits(h.sourceCount)}</p><p class="b-label">منبع درآمد</p></div>
-      <div class="b-rating"><div class="b-badge">٪</div><div><p class="b-strong">${faDigits(cov)}٪</p><p class="b-label">از خرج با درآمد کاری پوشش داده شد</p></div></div>
-    </section>
+    ${pageHead('خلاصه', monthNav(key))}
+    <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}بدون نام</p>
+    ${histUnlock()}
+    ${storyHtml(key, { ins, outs, days, h, bank: h.bank })}
     <div class="dash">
       <div class="span-6" id="trend">${trendCard()}</div>
-      <div class="span-6">
-        <div class="section-title">خرج‌ها</div>
-        <div class="group">${cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${CATEGORIES[c] ? CATEGORIES[c].color : '#c7c7cc'}"></i><span class="grow">${HIST_LABELS[c] || (CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (h.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('')}</div>
-        <div class="section-title">ورودی‌ها</div>
-        <div class="group">
-          <div class="cell"><span class="grow">درآمد کاری</span><b>${fmtShort(h.work)}</b></div>
-          ${h.sale ? `<div class="cell"><span class="grow">فروش مکمل</span><b>${fmtShort(h.sale)}</b></div>` : ''}
-          <div class="cell"><span class="grow sec">از خانواده</span><b class="sec">${fmtShort(h.family)}</b></div>
-        </div>
-        ${flows.length ? `<div class="section-title">پس‌انداز و جابه‌جایی</div><div class="group">${flows.map(([l, v]) => `<div class="cell"><span class="grow">${l}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
-      </div>
     </div></div>`;
+}
+
+const monthNav = key => `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`;
+
+// Asks once for the password when the shipped history is newer than the one on this device.
+function histUnlock() {
+  if (S.history && S.history.source === 'numbers' && (S.history.rev || 1) >= HIST_REV) return '';
+  return `<div class="group"><div class="cell col">
+      <p class="foot" style="margin:0 0 10px">${S.history ? 'نسخهٔ کامل‌تر تاریخچه آماده است (با جزئیات هر ماه).' : 'تاریخچهٔ ماه‌های قبل هنوز وارد نشده.'} رمز را بزن تا بارگذاری شود.</p>
+      <input class="field" id="an-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی">
+      <button class="btn-primary" data-act="an-load" style="margin-top:12px">بارگذاری</button></div></div>`;
+}
+
+// «… در یک نگاه»: what came in, what went out, the biggest items, and a few plain sentences.
+function storyHtml(key, { ins, outs, days, h, bank, hero = true }) {
+  const sum = arr => arr.reduce((a, x) => a + x[1], 0);
+  const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
+  const name = monthLabel(key).split(' ')[0];
+  const big = [...outs, ...(days || [])].sort((a, b) => b[1] - a[1]);
+  const assets = outs.filter(x => /دلار|نقره|طلا|دوچرخه|سکه|پس‌انداز|باکس/.test(x[0]));
+  const lines = [];
+  lines.push(h.work ? `درآمد کاری‌ات ${fmtShort(h.work)} بود${h.expense ? `؛ یعنی ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرج‌های زندگی‌ات.` : '.'}` : 'این ماه درآمد کاری نداشتی.');
+  if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ خرج‌ها با همین و موجودی حساب گذشت'}.`);
+  if (big.length) lines.push(`بزرگ‌ترین‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
+  if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، دارایی شد: ${assets.map(x => x[0]).join('، ')}.`);
+  lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از پولی که آمد، رفت.` : `در کل ${fmtShort(net)} بیشتر از پولی که رفت، آمد.`);
+  if (bank) {
+    lines.push(`موجودی بلو از ${fmtShort(bank[0])} به ${fmtShort(bank[1])} رسید.`);
+    const gap = (bank[1] - bank[0]) - net;
+    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً خرج‌هایی ثبت نشده.` : `بانک ${fmtShort(gap)} کمتر از جدولت کم شده.`);
+  }
+  const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<div class="cell bar-row"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b><i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></div>`).join(''); };
+  return `${hero ? `<section class="bento an-hero">
+      <div class="b-primary"><div class="stripes"></div>
+        <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${net < 0 ? '−' : '+'}${fmtShort(Math.abs(net))}</h3></div>
+        <p class="b-note story-io"><span class="green">${fmtShort(inT)} آمد</span> · <span class="red">${fmtShort(outT)} رفت</span></p></div>
+    </section>` : ''}
+    <div class="dash">
+      <div class="span-6">
+        <div class="section-title">چه اتفاقی افتاد</div>
+        <div class="group story">${lines.map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}</div>
+        <div class="section-title">از کجا آمد · ${fmtShort(inT)}</div>
+        <div class="group">${ins.length ? bars(ins, 'in') : '<div class="cell"><span class="sec">پولی نیامد</span></div>'}</div>
+      </div>
+      <div class="span-6">
+        ${outs.length ? `<div class="section-title">پرداخت‌های بزرگ · ${fmtShort(sum(outs))}</div><div class="group">${bars(outs, 'out')}</div>` : ''}
+        ${days && days.length ? `<div class="section-title">${h.days ? 'خرج‌های روزانه' : 'خرج‌ها'} · ${fmtShort(sum(days))}</div><div class="group">${bars(days.slice().sort((a, b) => b[1] - a[1]), 'day')}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+// The same story for months recorded in the app, built from transactions.
+function liveStory(T, key) {
+  const { start, end } = monthRange(key);
+  const M = T.filter(t => { const d = new Date(t.ts); return d >= start && d < end; });
+  const group = (list, f) => { const o = {}; for (const t of list) { const k = f(t); o[k] = (o[k] || 0) + t.amount; } return Object.entries(o).sort((a, b) => b[1] - a[1]); };
+  const ins = group(M.filter(t => t.dir === 'in'), t => t.type ? TYPES[t.type].label : 'بررسی نشده');
+  const outs = group(M.filter(t => t.dir === 'out' && t.type !== 'expense'), t => isRound(t) ? 'رند بلو (باکس)' : TYPES[t.type].label);
+  const days = group(M.filter(t => t.type === 'expense'), t => (CATEGORIES[t.cat] || CATEGORIES.uncat).label);
+  return storyHtml(key, { ins, outs, days, h: monthSummary(T, key), bank: null, hero: false });
 }
 
 // ----- Analysis: the long view from the first month on -----
 // Bump when the encrypted history bundle is rebuilt so devices offer to reload it.
-const HIST_REV = 3;
+const HIST_REV = 4;
 function viewAnalysis() {
   const head = pageHead('تحلیل');
-  const fresh = S.history && S.history.source === 'numbers' && (S.history.rev || 1) >= HIST_REV;
-  const unlock = fresh ? '' : `<div class="group"><div class="cell col">
-      <p class="foot" style="margin:0 0 10px">${S.history ? 'تاریخچهٔ دقیق‌تر (از جدول‌های Numbers) آماده است.' : 'تاریخچهٔ ماه‌های قبل هنوز وارد نشده.'} رمز را بزن تا بارگذاری شود.</p>
-      <input class="field" id="an-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی">
-      <button class="btn-primary" data-act="an-load" style="margin-top:12px">بارگذاری</button></div></div>`;
+  const unlock = histUnlock();
   const series = monthsSeries(S.history, scoped(), S.settings.startDate);
   const A = analyze(series);
   if (!A) return `<div class="view wide">${head}${unlock}<p class="empty">هنوز ماه کاملی برای تحلیل نیست.</p></div>`;
@@ -877,9 +908,6 @@ function viewDash() {
   const chk = bankCheck(S.tx, S.settings);
   const b = balances(T);
   const cov = s.expense ? Math.round(s.work / s.expense * 100) : null;
-  const cats = Object.entries(s.byCat).sort((x, y) => y[1] - x[1]);
-  const sources = Object.entries(s.bySource).sort((x, y) => y[1] - x[1]);
-  if (s.sale) sources.push(['فروش', s.sale]);
   const held = [
     ...(b.seenzhin > 0 ? [['طلب از Seenzhin', b.seenzhin]] : []),
     ...(b.fund ? [['صندوق مریم', b.fund]] : []),
@@ -907,14 +935,11 @@ function viewDash() {
       </div>
     </section>
 
+    ${liveStory(T, key)}
     <div class="dash">
       <div class="span-6" id="trend">${trendCard()}</div>
       <div class="span-6">
-        <div class="section-title">خرج‌ها</div>
-        <div class="group">${cats.length ? cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${(CATEGORIES[c] || CATEGORIES.other).color}"></i><span class="grow">${(CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (s.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">خرجی ثبت نشده</span></div>'}</div>
-        <div class="section-title">درآمدها</div>
-        <div class="group">${sources.length ? sources.map(([k, v]) => `<div class="cell"><span class="grow">${esc(k)}</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">درآمدی ثبت نشده</span></div>'}</div>
-        ${held.length ? `<div class="section-title">پس‌انداز و طلب</div><div class="group">${held.map(([l, v]) => `<div class="cell"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
+        ${held.length ? `<div class="section-title">پس‌انداز و طلب (از روز شروع)</div><div class="group">${held.map(([l, v]) => `<div class="cell"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
       </div>
     </div></div>`;
 }
@@ -1068,7 +1093,7 @@ function trendCard() {
     ${[A, B].filter(x => x != null).map(i => `<circle cx="${X(i)}" cy="${Y(pts[i].value)}" r="5" fill="#0b0c0e" stroke="#fff" stroke-width="2"/>`).join('')}
     ${last.running ? `<circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}"/><circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}" class="tr-pulse"/>` : ''}
     <circle cx="${X(hi)}" cy="${Y(cur.value)}" r="5" fill="#fff"/>
-    ${pts.map((p, i) => (n <= 6 || (n - 1 - i) % Math.ceil(n / 6) === 0) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day">${p.label}</text>` : '').join('')}
+    ${pts.map((p, i) => (n <= 9 || (n - 1 - i) % Math.ceil(n / 8) === 0) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day${n > 6 ? ' tight' : ''}">${p.label}</text>` : '').join('')}
   </svg>`;
   const chips = (list, on, act) => list.map(([k, l]) => `<button data-act="${act}" data-v="${k}" class="${on === k ? 'on' : ''}">${act !== 'tr-frame' ? `<i style="background:${trColor(k)}"></i>` : ''}${l}</button>`).join('');
   return `<div class="bc-shell"><div class="bc tr">
