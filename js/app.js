@@ -967,7 +967,8 @@ function liveLines(T, chk) {
   lines.push(today.length ? `امروز ${faDigits(today.length)} خرج · ${fmtShort(today.reduce((a, t) => a + t.amount, 0))}` : 'امروز هنوز خرجی ثبت نشده');
   if (last) lines.push(`آخرین ثبت: <span data-ago="${last.ts}">${ago(last.ts)}</span> · ${esc(last.desc)}`);
   lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)} · ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
-  if (ms.expense && j.jd > 1) lines.push(`با این سرعت، خرج این ماه حدود ${fmtShort(ms.expense / (j.jd - 1 + now.getHours() / 24) * len)} می‌شود`);
+  const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
+  if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
   if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
   return lines;
 }
@@ -1041,16 +1042,27 @@ function trendPoints(field, frame) {
   }
   const series = monthsSeries(S.history, T, S.settings.startDate);
   const keep = frame === '3m' ? 3 : frame === '6m' ? 6 : series.length;
+  const base = baseline(series, m => monthValue(m, field));
   return series.slice(-keep).map(m => {
     const p = { key: m.key, label: monthLabel(m.key).split(' ')[0], full: monthLabel(m.key), value: monthValue(m, field), running: !!m.running };
-    if (m.running && !upGood(field)) {
-      // Straight-line projection of the running month from the days passed so far.
-      const { start, end } = monthRange(m.key);
-      const k = Math.min(1, Math.max(.05, (now - start) / (end - start)));
-      p.proj = p.value / k;
-    }
+    if (m.running && !upGood(field)) p.proj = projectMonth(m.key, p.value, base, now);
     return p;
   });
+}
+
+// Typical month: average of the last three finished months.
+function baseline(series, get) {
+  const done = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
+  return done.length ? done.reduce((a, m) => a + get(m), 0) / done.length : null;
+}
+
+// End-of-month estimate: what is already spent plus a typical month's pace for the days left.
+// Early in the month a straight line from 2–3 days wildly overshoots, so the rest comes from history.
+function projectMonth(key, sofar, base, now = new Date()) {
+  const { start, end } = monthRange(key);
+  const k = Math.min(1, Math.max(0, (now - start) / (end - start)));
+  if (base == null) return k >= .25 ? sofar / k : null;
+  return sofar + (1 - k) * base;
 }
 
 // Price-scale style ticks: a round step (1, 2, 2.5, 5 × 10^k) and a top that is a multiple of it.
@@ -1148,7 +1160,7 @@ function trendCard() {
     <div class="tv-chart" id="tr-wrap">${svg}</div>
     ${tr.picking ? `<div class="tr-fields tr-cmp">${TR_FIELDS.filter(x => x[0] !== tr.field).map(([k, l]) => `<button data-act="tr-cmpf" data-v="${k}" class="${tr.cmp === k ? 'on' : ''}"><i style="background:${trColor(k)}"></i>${l}</button>`).join('')}</div>` : ''}
     ${tr.mText ? `<p class="tr-mtext ${tr.mGood === true ? 'good' : tr.mGood === false ? 'bad' : ''}">${esc(tr.mText)}</p>` : ''}
-    <p class="tv-hint">${tr.measure ? 'اندازه‌گیری: روی دو نقطه بزن.' : 'انگشتت را روی نمودار بکش تا عدد هر نقطه را ببینی.'}</p>
+    <p class="tv-hint">${tr.measure ? 'اندازه‌گیری: روی دو نقطه بزن.' : 'انگشتت را روی نمودار بکش تا عدد هر نقطه را ببینی.'}${last.proj ? ' پیش‌بینی = خرج تا امروز + میانگین ۳ ماه اخیر برای روزهای باقی‌مانده.' : ''}</p>
   </div>`;
 }
 
