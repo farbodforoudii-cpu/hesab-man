@@ -772,6 +772,22 @@ function histUnlock() {
 }
 
 // «… در یک نگاه»: what came in, what went out, the biggest items, and a few plain sentences.
+// What Seenzhin still owes at the end of a month: everything paid for it minus everything it paid back.
+function seenzhinOwed(key) {
+  let owed = 0;
+  const H = (S.history && S.history.months) || {};
+  for (const k of Object.keys(H)) {
+    if (k > key) continue;
+    for (const [l, v] of H[k].outs || []) if (/Seenzhin/.test(l)) owed += v;
+    for (const [l, v] of H[k].ins || []) if (/Seenzhin/.test(l)) owed -= v;
+  }
+  for (const t of scoped()) if (t.ctx === 'seenzhin' && txMonth(t) <= key) {
+    if (t.type === 'on_behalf') owed += t.amount;
+    if (t.type === 'reimburse') owed -= t.amount;
+  }
+  return owed;
+}
+
 function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, lateNet = 0 }) {
   const sum = arr => arr.reduce((a, x) => a + x[1], 0);
   const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
@@ -787,7 +803,14 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, l
   if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ ماه با همین و پول تو حساب گذشت'}.`);
   if (big.length) lines.push(`بیشترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
   if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، تبدیل شد به دارایی: ${assets.map(x => x[0]).join('، ')}.`);
-  if (pass.length || back.length) lines.push(`با Seenzhin و بقیه: ${pass.length ? `${fmtShort(sum(pass))} دادی` : ''}${pass.length && back.length ? ' و ' : ''}${back.length ? `${fmtShort(sum(back))} گرفتی` : ''}. اینا جدا حساب شدن، نه خرج زندگی‌ت، نه درآمد کاری‌ت.`);
+  // Seenzhin is a running account: money paid for it comes back later, often the next month.
+  const szOut = sum(pass.filter(x => /Seenzhin/.test(x[0]))), szIn = sum(back.filter(x => /Seenzhin/.test(x[0])));
+  if (szOut || szIn) {
+    const owed = seenzhinOwed(key);
+    lines.push(`Seenzhin: این ماه ${szOut ? `${fmtShort(szOut)} بهش دادی` : 'چیزی بهش ندادی'}${szIn ? ` و ${fmtShort(szIn)} ازش گرفتی` : ''}${szIn > szOut ? ' (تسویهٔ پول‌هایی که ماه قبل داده بودی هم توشه)' : ''}. ${Math.abs(owed) < 5e5 ? 'حسابت باهاش صافه.' : owed > 0 ? `تا آخر این ماه هنوز حدود ${fmtShort(owed)} بهت بدهکاره.` : `تا آخر این ماه حدود ${fmtShort(-owed)} بیشتر ازش گرفتی.`} اینا خرج و درآمد زندگی‌ت حساب نشدن.`);
+  }
+  const prOut = sum(pass.filter(x => !/Seenzhin/.test(x[0]))), prIn = sum(back.filter(x => !/Seenzhin/.test(x[0])));
+  if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} دادی` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} گرفتی` : ''}؛ جدا از خرج و درآمد حساب شدن.`);
   lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`);
   if (bank) {
     lines.push(`اول ماه ${fmtShort(bank[0])} تو حساب داشتی؛ با ${fmtShort(inT)} که اومد، کلاً ${fmtShort(bank[0] + inT)} دستت بود.`);
@@ -1397,14 +1420,15 @@ function assetValue(it) {
   return v;
 }
 function assetsTotal() {
-  const items = assetsState().items;
-  return { cash: balanceAt(S.tx, S.settings), held: items.reduce((a, it) => a + assetValue(it), 0) };
+  const items = assetsState().items, owed = Math.max(0, seenzhinOwed(monthKey(new Date())));
+  return { cash: balanceAt(S.tx, S.settings), held: items.reduce((a, it) => a + assetValue(it), 0) + (owed > 5e5 ? owed : 0) };
 }
 const missingPrice = it => ASSET_KINDS[it.kind].price && !assetsState().prices[ASSET_KINDS[it.kind].price];
 
 function viewAssets() {
   const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = A.prices.usd;
-  const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
+  const owed = seenzhinOwed(monthKey(new Date()));
+  const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: هرچه بهش دادی منهای هرچه پس داده', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
     `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? ' · قیمت وارد نشده' : ''}`, it.id])];
   const mx = Math.max(1, ...rows.map(r => r[1]));
   const old = !A.pricesAt || Date.now() - new Date(A.pricesAt) > 7 * 864e5;
