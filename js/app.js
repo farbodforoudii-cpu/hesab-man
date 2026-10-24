@@ -67,8 +67,10 @@ function openLink() {
   if (!m || !S.settings.startDate) return;
   const q = new URLSearchParams(m[1]), amount = parseAmount(q.get('amount') || '');
   history.replaceState(null, '', location.pathname);
-  if (!amount) return;
-  Object.assign(S, { view: 'entry', step: 'what', amount: String(amount), dir: q.get('dir') === 'in' ? 'in' : 'out', what: q.get('what') || '' });
+  const dir = q.get('dir') === 'in' ? 'in' : 'out', what = q.get('what') || '';
+  // Without an amount, ask «چقدر؟» first and keep the description for the next step.
+  if (!amount) Object.assign(S, { view: 'entry', step: 'amount', amount: '', dir, linkWhat: what });
+  else Object.assign(S, { view: 'entry', step: 'what', amount: String(amount), dir, what });
   S.linkPeriod = /^\d{4}-\d{2}$/.test(q.get('period') || '') ? q.get('period') : null;
 }
 window.addEventListener('hashchange', () => { if (/^#\/?add\?/.test(location.hash)) { openLink(); render(); } });
@@ -349,7 +351,7 @@ function viewEntry() {
   return `<div class="view entry">${top}
     <label class="hero-amt" for="amt">
       <div class="stripes"></div>
-      <span class="b-pill">چقدر؟</span>
+      <span class="b-pill">${S.linkWhat ? `چقدر؟ · ${esc(S.linkWhat)}` : 'چقدر؟'}</span>
       <input id="amt" class="amt-input" inputmode="numeric" enterkeyhint="next" autocomplete="off" placeholder="۰" value="${amt ? fmt(amt) : ''}">
       <div class="hero-words" id="amt-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
     </label>
@@ -409,7 +411,7 @@ function bindAmount() {
 // Called from a tap or key press, so iOS keeps the keyboard open while focus moves.
 function goWhat(dir) {
   if (!Number(S.amount)) { document.getElementById('amt')?.focus(); return; }
-  S.dir = dir; S.step = 'what'; S.what = '';
+  S.dir = S.linkWhat ? (S.dir || dir) : dir; S.step = 'what'; S.what = S.linkWhat || ''; S.linkWhat = null;
   render();
 }
 
