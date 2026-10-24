@@ -629,3 +629,32 @@ nav.tabs button.on svg { color: var(--tint); }
 .det-head b small { font-size: 14px; color: var(--sec); font-weight: 500; }
 .det-note { margin: 0 4px 12px; }
 .sheet .cell b.green { color: var(--green); } .sheet .cell b.red { color: #ff6b61; } .sheet .cell .tint { color: var(--tint); }
+
+/* KPI carousel */
+.car { position: relative; min-height: 330px; padding: 22px 22px 18px !important; cursor: pointer; margin-bottom: 12px; display: block !important; }
+.car-head { position: relative; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--sec); }
+.car-dots { display: flex; gap: 5px; direction: ltr; }
+.car-dots i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .2); transition: width .3s, background .3s; }
+.car-dots i.on { width: 18px; background: var(--label); }
+.car-stage { position: relative; height: 282px; margin-top: 10px; }
+.car-slide { position: absolute; inset: 0; opacity: 0; transform: translateX(-24px); filter: blur(6px); transition: opacity .55s, transform .55s cubic-bezier(.2, .8, .2, 1), filter .55s; pointer-events: none; display: flex; flex-direction: column; }
+.car-slide.on { opacity: 1; transform: none; filter: none; }
+.car-slide .b-pill { align-self: flex-start; margin-bottom: 10px; }
+.car-title { margin: 0; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.car-val { margin: 4px 0 2px; font-size: 44px; font-weight: 300; letter-spacing: -.02em; }
+.car-mean { margin: 0; font-size: 14px; line-height: 1.6; color: var(--sec); min-height: 44px; }
+.car-spark { margin-top: auto; width: 100%; height: auto; direction: ltr; stroke: none; }
+.spark-bar { fill: rgba(255, 255, 255, .78); transform-box: fill-box; transform-origin: bottom; }
+.spark-bar.neg { fill: #ff6b61; transform-origin: top; }
+.spark-bar.run { fill: rgba(255, 255, 255, .3); }
+.car-slide.on .spark-bar { animation: grow .7s cubic-bezier(.2, .8, .2, 1) both; }
+.spark-lbl { font-size: 8.5px; fill: rgba(235, 235, 245, .55); font-family: Estedad, system-ui, sans-serif; }
+.kdot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
+.kdot.g { background: var(--green); } .kdot.o { background: var(--orange); } .kdot.r { background: var(--red); }
+.kpi .grow { display: flex; flex-direction: column; gap: 1px; }
+.kpi .grow b { font-weight: 600; }
+.kpi .grow small { font-size: 12px; }
+.kpi-val { font-size: 17px; }
+.kpi svg { width: 14px; height: 14px; color: var(--ter); }
+@media (min-width: 820px) { .car { min-height: 320px; } .car-val { font-size: 56px; } }
+.car-val, .kpi-val, .tl-self { direction: ltr; unicode-bidi: isolate; text-align: right; }

@@ -2,10 +2,10 @@ import { db, requestPersistence } from './db.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
-import { monthSummary, balanceAt, bankCheck, balances } from './stats.js';
+import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
-import { monthsSeries, analyze, compare } from './analysis.js';
+import { monthsSeries, analyze, compare, kpis } from './analysis.js';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
@@ -48,6 +48,7 @@ async function boot() {
     await saveSettings();
   }
   await fixAban1();
+  await fixLateMehr();
   refresh();
   S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
@@ -73,6 +74,21 @@ async function fixAban1() {
   }
   if (moved.length) await db.putManyTx(moved);
   S.settings.fixAban1 = true;
+  await saveSettings();
+}
+
+// One-off (1405/08/02): two coaching payments that arrived on 2 Aban belong to Mehr.
+async function fixLateMehr() {
+  if (S.settings.fixLateMehr) return;
+  const moved = [];
+  for (const amt of [36500000, 37500000]) {
+    const t = S.tx.find(x => x.dir === 'in' && x.amount === amt && !x.period && txMonth(x) === '1405-08');
+    if (!t) continue;
+    Object.assign(t, { period: '1405-07', type: 'income_work', ctx: 'coaching', status: 'ok', updated: new Date().toISOString() });
+    moved.push(t);
+  }
+  if (moved.length) await db.putManyTx(moved);
+  S.settings.fixLateMehr = true;
   await saveSettings();
 }
 
@@ -479,7 +495,7 @@ function openTxSheet(init) {
     type: init.type ?? (init.dir === 'out' ? 'expense' : 'income_work'), cat: init.cat || null, ctx: init.ctx || 'personal',
     date: `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`,
     time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-    touched: !!init.id, bank: init.bank || null, more: false,
+    touched: !!init.id, bank: init.bank || null, more: false, period: init.period || '',
   };
   F.initTs = init.ts || null; F.initDate = F.date; F.initTime = F.time;
   // Quietly prefill from the best matching pattern instead of showing suggestions.
@@ -504,8 +520,16 @@ function txSheetHtml() {
     <div class="group">
       <div class="cell"><span>تاریخ</span><input class="bare end" id="f-date" value="${faDigits(F.date)}" inputmode="numeric"></div>
       <div class="cell"><span>ساعت</span><input class="bare end" id="f-time" value="${faDigits(F.time)}" inputmode="numeric"></div>
+      <div class="cell"><span>حساب ماهِ</span><select class="bare end" id="f-period">${periodOptions()}</select></div>
     </div>
+    <p class="foot" style="margin-bottom:14px">اگر پولی دیر رسید (مثلاً حق کلاس مهر که آبان واریز شد)، ماهِ واقعی‌اش را انتخاب کن تا در همان ماه حساب شود.</p>
     ${edit ? '<div class="group"><button class="cell danger" data-f="delete">حذف تراکنش</button></div>' : ''}`;
+}
+
+function periodOptions() {
+  const now = monthKey(new Date()), opts = [['', 'همان ماهِ تاریخ']];
+  for (let i = 0; i < 12; i++) { const k = shiftMonth(now, -i); opts.push([k, monthLabel(k)]); }
+  return opts.map(([k, l]) => `<option value="${k}"${F.period === k ? ' selected' : ''}>${l}</option>`).join('');
 }
 
 function typeSeg() {
@@ -529,6 +553,7 @@ function bindTxSheet(root) {
     root.querySelector('#f-words').textContent = tomanWords(F.amount);
   });
   amt.addEventListener('blur', () => { if (F.amount) amt.value = fmt(F.amount); });
+  root.querySelector('#f-period').addEventListener('change', e => { F.period = e.target.value; });
   const desc = root.querySelector('#f-desc');
   desc.addEventListener('input', () => {
     F.desc = desc.value;
@@ -597,6 +622,7 @@ async function saveSheet() {
     ...base, ts: ts.toISOString(), dir: F.dir, amount: F.amount, desc, cp: F.cp || (F.type !== 'expense' ? desc : ''),
     type: F.type, cat: F.type === 'expense' ? F.cat : null, ctx: F.ctx,
   };
+  if (F.period && F.period !== monthKey(ts)) tx.period = F.period; else delete tx.period;
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
   closeSheet();
   const extra = tx.status === 'ok' ? await learnAndSpread(tx) : [];
@@ -707,19 +733,24 @@ const WEEKDAY_SHORT = ['ی', 'د', 'س', 'چ', 'پ', 'ج', 'ش'];
 // Months before the start date come from an anonymised monthly summary file (no names, no transactions).
 
 function viewHistory(key) {
-  const h = S.history.months[key];
-  const ins = h.ins || [['درآمد کاری', h.work], ['از خانواده', h.family], ['فروش مکمل', h.sale], ['نامشخص', h.otherIn]].filter(x => x[1]);
+  const h = monthsSeries(S.history, scoped(), S.settings.startDate).find(m => m.key === key) || S.history.months[key];
+  const ins = (h.ins || [['درآمد کاری', h.work], ['از خانواده', h.family], ['فروش مکمل', h.sale], ['نامشخص', h.otherIn]].filter(x => x[1])).slice();
+  // Late payments recorded in the app but counted for this month.
+  const lateIn = (h.late || []).filter(t => t.dir === 'in').reduce((a, t) => a + t.amount, 0);
+  if (lateIn) ins.push([LATE_LABEL, lateIn]);
   const outs = h.outs || [['دارایی', h.asset], ['قسط وام', h.loanPay], ['پرداخت برای دیگران', h.onBehalf]].filter(x => x[1]);
   const days = h.days || Object.entries(h.byCat).map(([c, v]) => [(CATEGORIES[c] || CATEGORIES.other).label, v]);
   return `<div class="view wide">
     ${pageHead('خلاصه', monthNav(key))}
     <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}بدون نام</p>
     ${histUnlock()}
-    ${storyHtml(key, { ins, outs, days, h, bank: h.bank })}
+    ${storyHtml(key, { ins: ins.sort((a, b) => b[1] - a[1]), outs, days, h, bank: h.bank, lateNet: lateIn })}
     <div class="dash">
       <div class="span-6" id="trend">${trendCard()}</div>
     </div></div>`;
 }
+
+const LATE_LABEL = 'دیر رسید (در آبان واریز شد)';
 
 const monthNav = key => `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><button class="month-btn" data-act="month-pick">${monthLabel(key)}<span>▾</span></button><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`;
 
@@ -741,7 +772,7 @@ function histUnlock() {
 }
 
 // «… در یک نگاه»: what came in, what went out, the biggest items, and a few plain sentences.
-function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false }) {
+function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, lateNet = 0 }) {
   const sum = arr => arr.reduce((a, x) => a + x[1], 0);
   const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
   const name = monthLabel(key).split(' ')[0];
@@ -751,30 +782,30 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false })
   const back = ins.filter(x => /پس گرفتن/.test(x[0]));
   const big = [...outs.filter(x => !passRe.test(x[0]) && !assetRe.test(x[0])), ...(days || [])].sort((a, b) => b[1] - a[1]);
   const lines = [];
-  if (!h.work) lines.push('این ماه درآمد کاری نداشتی.');
-  else lines.push(`درآمد کاری‌ات ${fmtShort(h.work)} بود و خرج زندگی‌ات ${fmtShort(h.expense)}؛ ${h.work >= h.expense ? 'درآمد کاری خرج را پوشاند' : `درآمد کاری ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرج را پوشاند`}.`);
-  if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ خرج‌ها با همین و موجودی حساب گذشت'}.`);
-  if (big.length) lines.push(`بزرگ‌ترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
-  if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، دارایی شد: ${assets.map(x => x[0]).join('، ')}.`);
-  if (pass.length) lines.push(`${fmtShort(sum(pass))} برای دیگران و Seenzhin پرداختی${back.length ? ` و ${fmtShort(sum(back))} پس گرفتی` : ''}؛ این‌ها خرج خودت نیستند.`);
-  lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از پولی که آمد، رفت.` : `در کل ${fmtShort(net)} بیشتر از پولی که رفت، آمد.`);
+  if (!h.work) lines.push('این ماه از کار پولی درنیاوردی.');
+  else lines.push(`از کار ${fmtShort(h.work)} درآوردی و ${fmtShort(h.expense)} خرج زندگی کردی؛ ${h.work >= h.expense ? 'درآمدت خرجت رو کامل پوشوند' : `درآمدت فقط ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرجت رو پوشوند`}.`);
+  if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ ماه با همین و پول تو حساب گذشت'}.`);
+  if (big.length) lines.push(`بیشترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
+  if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، تبدیل شد به دارایی: ${assets.map(x => x[0]).join('، ')}.`);
+  if (pass.length) lines.push(`${fmtShort(sum(pass))} برای بقیه و Seenzhin دادی${back.length ? ` و ${fmtShort(sum(back))} پس گرفتی` : ''}؛ اینا خرج خودت نیست.`);
+  lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`);
   if (bank) {
-    lines.push(`موجودی بلو از ${fmtShort(bank[0])} به ${fmtShort(bank[1])} رسید.`);
-    const gap = (bank[1] - bank[0]) - net;
-    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `در بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند خرج ثبت نشده.` : `بانک ${fmtShort(gap)} از جدولت بهتر است؛ شاید ورودی‌ای جا افتاده یا خرجی در ماه دیگر ثبت شده.`);
+    lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
+    const gap = (bank[1] - bank[0]) - (net - lateNet);
+    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند تا خرج یادت رفته بنویسی.` : `بانک ${fmtShort(gap)} از جدولت بهتره؛ شاید یه واریزی جا افتاده یا یه خرج رو تو ماه دیگه نوشتی.`);
   }
   const kindOf = { in: 'in', out: 'out', day: 'day' };
-  const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
+  const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${l === LATE_LABEL ? 'late' : live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
   return `${hero ? `<section class="bento an-hero">
       <div class="b-primary tap" data-act="detail" data-k="net"><div class="stripes"></div>
         <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${net < 0 ? '−' : '+'}${fmtShort(Math.abs(net))}</h3></div>
-        <p class="b-note story-io"><span class="green">${fmtShort(inT)} آمد</span> · <span class="red">${fmtShort(outT)} رفت</span></p></div>
+        <p class="b-note story-io"><span class="green">${fmtShort(inT)} اومد</span> · <span class="red">${fmtShort(outT)} رفت</span></p></div>
     </section>` : ''}
     <div class="dash">
       <div class="span-6">
         <div class="section-title">چه اتفاقی افتاد</div>
         <div class="group story">${lines.map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}</div>
-        <div class="section-title">از کجا آمد · ${fmtShort(inT)}</div>
+        <div class="section-title">از کجا اومد · ${fmtShort(inT)}</div>
         <div class="group">${ins.length ? bars(ins, 'in') : '<div class="cell"><span class="sec">پولی نیامد</span></div>'}</div>
       </div>
       <div class="span-6">
@@ -794,8 +825,7 @@ const STORY_GROUPS = {
   day: [t => t.type === 'expense', dayLabelOf],
 };
 function monthTx(T, key) {
-  const { start, end } = monthRange(key);
-  return T.filter(t => { const d = new Date(t.ts); return d >= start && d < end; });
+  return T.filter(t => txMonth(t) === key);
 }
 function liveStory(T, key) {
   const M = monthTx(T, key);
@@ -841,6 +871,7 @@ function openDetail(kind, v) {
       ...(rnd ? [['− رند بلو (رفت به باکس)', fmt(rnd), 'red']] : []), ['= موجودی الان', fmt(balanceAt(S.tx, st))]],
       'برای دیدن تک‌تک تراکنش‌ها، به «تراکنش‌ها» برو.');
   }
+  if (kind === 'late') return txSheet(`حساب ${mName}، دیر رسیده`, 'جمع', S.tx.filter(t => t.period === key), 'این پول‌ها بعداً به حساب آمدند ولی مال این ماه‌اند. در موجودی، روز واریز حساب شده‌اند.');
   if (kind === 'in' || kind === 'out' || kind === 'day') {
     const [keep, f] = STORY_GROUPS[kind];
     return txSheet(v, mName, monthTx(T, key).filter(t => keep(t) && f(t) === v));
@@ -887,15 +918,18 @@ function viewAnalysis() {
   const A = analyze(series);
   if (!A) return `<div class="view wide">${head}${unlock}<p class="empty">هنوز ماه کاملی برای تحلیل نیست.</p></div>`;
   const key = series.some(m => m.key === S.anKey) ? S.anKey : A.last;
-  const max = Math.max(...series.map(m => Math.max(m.work || 0, m.expense || 0)), 1);
+  const K = kpis(series, balanceAt(S.tx, S.settings));
+  const max = Math.max(...series.map(m => Math.max(m.inT || 0, m.outT || 0)), 1);
+  // Month cards: what came in, what went out and the net, the same totals as the Numbers sheets.
   const card = m => {
-    const tag = m.running ? 'در جریان' : m.asset > 0 ? `پس‌انداز ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرخرج' : m.self >= 0 ? 'از کار خودت ماند' : 'کم آوردی';
+    const net = (m.inT || 0) - (m.outT || 0);
+    const tag = m.running ? 'در جریان' : m.asset > 0 ? `دارایی ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرخرج' : net >= 0 ? 'پول اضافه موند' : 'کم آوردی';
     return `<button class="tl-card${m.key === key ? ' on' : ''}" data-act="an-month" data-v="${m.key}">
       <span class="tl-go">${ICON.arrow}</span>
       <span class="tl-name">${esc(monthName(m.key))}</span>
-      <span class="tl-self ${m.self >= 0 ? 'green' : 'red'}">${m.self >= 0 ? '+' : '−'}${fmtShort(Math.abs(m.self))}</span>
-      <span class="tl-bar"><i style="width:${(m.work / max * 100).toFixed(0)}%;background:#34c759"></i></span>
-      <span class="tl-bar"><i style="width:${(m.expense / max * 100).toFixed(0)}%;background:var(--tint)"></i></span>
+      <span class="tl-self ${net >= 0 ? 'green' : 'red'}">${net >= 0 ? '+' : '−'}${fmtShort(Math.abs(net))}</span>
+      <span class="tl-bar"><i style="width:${((m.inT || 0) / max * 100).toFixed(0)}%;background:#34c759"></i></span>
+      <span class="tl-bar"><i style="width:${((m.outT || 0) / max * 100).toFixed(0)}%;background:var(--tint)"></i></span>
       <span class="tl-tag">${tag}</span></button>`;
   };
   const C = compare(series, key);
@@ -910,21 +944,11 @@ function viewAnalysis() {
   ].filter(Boolean);
   return `<div class="view wide">
     ${head}${unlock}
-    <section class="bento an-hero">
-      <div class="b-primary"><div class="stripes"></div>
-        <div><span class="b-pill">${esc(monthName(A.first))} تا ${esc(monthName(A.last))} · ${faDigits(A.n)} ماه</span>
-          <h3 class="b-hero" data-cu="${Math.round(A.cov * 100)}" data-f="int">${faDigits(Math.round(A.cov * 100))}٪</h3></div>
-        <p class="b-note" style="max-width:420px">${esc(A.verdict)}</p></div>
-    </section>
-    <div class="mini-bento an-tiles">
-      <div class="mb-tile tap" data-act="detail" data-k="series" data-v="work"><p class="b-label"><span class="st g">${ICON.ok}</span>درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
-      <div class="mb-tile tap" data-act="detail" data-k="series" data-v="expense"><p class="b-label"><span class="st ${A.cov < 1 ? 'r' : 'g'}">${A.cov < 1 ? '' : ICON.ok}</span>خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
-      <div class="mb-tile muted tap" data-act="detail" data-k="series" data-v="family"><p class="b-label"><span class="st o"></span>سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
-      ${A.top ? `<div class="mb-tile muted tap" data-act="detail" data-k="series" data-v="${A.top.c}"><p class="b-label"><span class="st" style="background:${CATEGORIES[A.top.c].color}"></span>بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)}</p><p class="b-sub">${faDigits(Math.round(A.top.share * 100))}٪ کل خرج</p></div>` : ''}
-    </div>
+    ${kpiCarousel(K, A)}
+    ${kpiList(K)}
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
-    <p class="foot legend-foot"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:var(--tint)"></i>خرج</span><span>عدد بالا: باقی‌مانده بدون کمک خانواده (درآمد کاری و فروش منهای خرج)</span></p>
+    <p class="foot legend-foot"><span><i style="background:#34c759"></i>پولی که اومد</span><span><i style="background:var(--tint)"></i>پولی که رفت</span><span>عدد بالا: اومد منهای رفت (مثل جدول Numbers)</span></p>
     <div class="dash">
       <div class="span-6">
         ${A.critiques.length ? `<div class="section-title">انتقاد</div><div class="group">${list(A.critiques, 'bad')}</div>` : ''}
@@ -949,6 +973,54 @@ function viewAnalysis() {
 
 const monthName = k => monthLabel(k).split(' ')[0];
 
+const TIER = { 1: 'اولویت ۱ · پایه‌ای', 2: 'اولویت ۲ · مهم', 3: 'اولویت ۳ · برای بهتر شدن' };
+const kpiNum = (k, v) => k.unit === 'pct' ? faDigits(Math.round(v * 100)) + '٪' : fmtShort(v);
+
+// Live hero: the key metrics one after another, each with its months as small bars.
+function kpiCarousel(K, A) {
+  if (!K.length) return '';
+  const slide = (k, i) => {
+    const pts = k.points, mx = Math.max(...pts.map(p => Math.abs(p.v)), 1e-9), W = 320, H = 92, bw = W / pts.length;
+    const bars = pts.map((p, j) => {
+      const h = Math.max(2, Math.abs(p.v) / mx * (H - 26)), x = j * bw + bw * .18, w = bw * .64;
+      const y = p.v >= 0 ? H - 16 - h : H - 16;
+      return `<rect class="spark-bar${p.running ? ' run' : ''}${p.v < 0 ? ' neg' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" style="animation-delay:${(j * .05).toFixed(2)}s"/>
+        <text x="${(x + w / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle" class="spark-lbl">${esc(monthName(p.key))}</text>`;
+    }).join('');
+    return `<div class="car-slide${i ? '' : ' on'}" data-i="${i}">
+      <span class="b-pill">${TIER[k.tier]}</span>
+      <p class="car-title"><i class="kdot ${k.status}"></i>${esc(k.title)}</p>
+      <h3 class="car-val">${esc(k.value)}</h3>
+      <p class="car-mean">${esc(k.mean)}</p>
+      <svg viewBox="0 0 ${W} ${H}" class="car-spark">${bars}</svg>
+    </div>`;
+  };
+  return `<section class="car b-primary" data-carousel data-act="car-next">
+    <div class="stripes"></div>
+    <div class="car-head"><span>${esc(monthName(A.first))} تا ${esc(monthName(A.last))} · ${faDigits(A.n)} ماه</span><span class="car-dots">${K.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</span></div>
+    <div class="car-stage">${K.map(slide).join('')}</div>
+  </section>`;
+}
+
+function kpiList(K) {
+  return [1, 2].map(t => `<div class="section-title">${TIER[t]}</div><div class="group">${K.filter(k => k.tier === t).map(k =>
+    `<button class="cell kpi" data-act="kpi" data-v="${k.id}"><i class="kdot ${k.status}"></i><span class="grow"><b>${esc(k.title)}</b><small>${esc(k.target)}</small></span><b class="kpi-val">${esc(k.value)}</b>${ICON.chevL}</button>`).join('')}</div>`).join('');
+}
+
+function kpiSheet(id) {
+  const K = kpis(monthsSeries(S.history, scoped(), S.settings.startDate), balanceAt(S.tx, S.settings)), k = K.find(x => x.id === id);
+  if (!k) return;
+  infoSheet(k.title, [['الان', k.value], ...k.points.map(p => [monthLabel(p.key) + (p.running ? ' (تا الان)' : ''), kpiNum(k, p.v)])], `${esc(k.mean)}<br><b>${esc(k.target)}</b>`);
+}
+
+function advanceCarousel(el, step = 1) {
+  const slides = [...el.querySelectorAll('.car-slide')], dots = [...el.querySelectorAll('.car-dots i')];
+  if (slides.length < 2) return;
+  const i = slides.findIndex(x => x.classList.contains('on')), j = (i + step + slides.length) % slides.length;
+  slides[i].classList.remove('on'); slides[j].classList.add('on');
+  dots.forEach((d, n) => d.classList.toggle('on', n === j));
+}
+
 // Plain-text report anyone can read: summary, month by month, critique, suggestions.
 function analysisReport() {
   const series = monthsSeries(S.history, scoped(), S.settings.startDate);
@@ -958,8 +1030,11 @@ function analysisReport() {
   const L = [`گزارش مالی — ${monthLabel(A.first)} تا ${monthLabel(A.last)} (${faDigits(A.n)} ماه، تومان)`, ''];
   L.push('خلاصه', `• ${A.verdict}`, `• میانگین ماهانه: درآمد کاری ${m(A.avgWork)} · خرج ${m(A.avgExp)}`,
     `• کمک خانواده در کل دوره: ${m(A.family)} (${faDigits(Math.round(A.famShare * 100))}٪ پول ورودی)`, `• دارایی خریده‌شده (دلار، نقره، دوچرخه): ${m(A.asset)}`, '');
-  L.push('ماه به ماه (درآمد کاری / خرج / باقی‌مانده بدون کمک خانواده، با سود فروش مکمل)');
-  for (const x of series) L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.work)} / ${m(x.expense)} / ${x.self >= 0 ? '+' : '−'}${m(Math.abs(x.self))}`);
+  L.push('ماه به ماه (اومد / رفت / نتیجه · درآمد کاری · خرج زندگی)');
+  for (const x of series) { const net = (x.inT || 0) - (x.outT || 0); L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.inT)} / ${m(x.outT)} / ${net >= 0 ? '+' : '−'}${m(Math.abs(net))} · کار ${m(x.work)} · خرج ${m(x.expense)}`); }
+  const K = kpis(series, balanceAt(S.tx, S.settings));
+  L.push('', 'شاخص‌های مهم');
+  for (const k of K) L.push(`• ${k.title}: ${k.value} (${k.status === 'g' ? 'خوب' : k.status === 'o' ? 'متوسط' : 'ضعیف'}) — ${k.target}`);
   const top = Object.entries(A.cats).sort((a, b) => b[1] - a[1]).slice(0, 5);
   L.push('', 'بیشترین خرج‌ها در کل دوره');
   for (const [c, v] of top) L.push(`• ${(CATEGORIES[c] || CATEGORIES.other).label}: ${m(v)} (${faDigits(Math.round(v / A.expense * 100))}٪)`);
@@ -1075,6 +1150,7 @@ setInterval(() => {
     const i = items.findIndex(x => x.classList.contains('on'));
     items[i].classList.remove('on'); items[(i + 1) % items.length].classList.add('on');
   });
+  if (liveTick % 6 === 0 && Date.now() - (S.carHold || 0) > 15000) document.querySelectorAll('[data-carousel]').forEach(el => advanceCarousel(el));
   if (liveTick % 30 === 0) document.querySelectorAll('[data-ago]').forEach(el => { el.textContent = ago(el.dataset.ago); });
 }, 1000);
 
@@ -1469,6 +1545,8 @@ document.addEventListener('click', async e => {
       { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, a: null, b: null, cmp: S.tr.cmp === v ? null : S.tr.cmp }); redrawTrend(); } });
     else if (a === 'month-pick') openMonthPicker();
     else if (a === 'detail') openDetail(b.dataset.k, b.dataset.v);
+    else if (a === 'car-next') { S.carHold = Date.now(); advanceCarousel(b); }
+    else if (a === 'kpi') kpiSheet(b.dataset.v);
     else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
     else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null, a: null, b: null }); redrawTrend(); }
     else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }

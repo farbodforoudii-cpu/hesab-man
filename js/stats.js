@@ -44,9 +44,11 @@ export function summarize(txs) {
 
 function add(o, k, v) { o[k] = (o[k] || 0) + v; }
 
+// The month a transaction counts toward: its own «period» (e.g. a late client payment for last month) or its date.
+export const txMonth = t => t.period || monthKey(new Date(t.ts));
+
 export function monthSummary(txs, key) {
-  const { start, end } = monthRange(key);
-  return summarize(inRange(txs, start, end));
+  return summarize(txs.filter(t => txMonth(t) === key));
 }
 
 export function balanceAt(txs, settings, at = new Date(8.64e15)) {
