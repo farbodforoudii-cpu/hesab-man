@@ -777,9 +777,9 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, l
   const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
   const name = monthLabel(key).split(' ')[0];
   // Money that only passed through (paid for others / Seenzhin, then paid back) and savings are told apart from spending.
-  const passRe = /Seenzhin|برای دیگران/, assetRe = /دلار|نقره|طلا|دوچرخه|سکه|پس‌انداز|باکس|رند/;
+  const passRe = /Seenzhin|برای دیگران|اشخاص/, assetRe = /دلار|نقره|طلا|دوچرخه|سکه|پس‌انداز|باکس|رند/;
   const pass = outs.filter(x => passRe.test(x[0])), assets = outs.filter(x => assetRe.test(x[0]));
-  const back = ins.filter(x => /پس گرفتن/.test(x[0]));
+  const back = ins.filter(x => /Seenzhin|اشخاص|پس گرفتن/.test(x[0]));
   const big = [...outs.filter(x => !passRe.test(x[0]) && !assetRe.test(x[0])), ...(days || [])].sort((a, b) => b[1] - a[1]);
   const lines = [];
   if (!h.work) lines.push('این ماه از کار پولی درنیاوردی.');
@@ -787,9 +787,10 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, l
   if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ ماه با همین و پول تو حساب گذشت'}.`);
   if (big.length) lines.push(`بیشترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
   if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، تبدیل شد به دارایی: ${assets.map(x => x[0]).join('، ')}.`);
-  if (pass.length) lines.push(`${fmtShort(sum(pass))} برای بقیه و Seenzhin دادی${back.length ? ` و ${fmtShort(sum(back))} پس گرفتی` : ''}؛ اینا خرج خودت نیست.`);
+  if (pass.length || back.length) lines.push(`با Seenzhin و بقیه: ${pass.length ? `${fmtShort(sum(pass))} دادی` : ''}${pass.length && back.length ? ' و ' : ''}${back.length ? `${fmtShort(sum(back))} گرفتی` : ''}. اینا جدا حساب شدن، نه خرج زندگی‌ت، نه درآمد کاری‌ت.`);
   lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`);
   if (bank) {
+    lines.push(`اول ماه ${fmtShort(bank[0])} تو حساب داشتی؛ با ${fmtShort(inT)} که اومد، کلاً ${fmtShort(bank[0] + inT)} دستت بود.`);
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
     const gap = (bank[1] - bank[0]) - (net - lateNet);
     if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند تا خرج یادت رفته بنویسی.` : `بانک ${fmtShort(gap)} از جدولت بهتره؛ شاید یه واریزی جا افتاده یا یه خرج رو تو ماه دیگه نوشتی.`);
@@ -910,7 +911,7 @@ function openDetail(kind, v) {
 
 // ----- Analysis: the long view from the first month on -----
 // Bump when the encrypted history bundle is rebuilt so devices offer to reload it.
-const HIST_REV = 4;
+const HIST_REV = 5;
 function viewAnalysis() {
   const head = pageHead('تحلیل');
   const unlock = histUnlock();
