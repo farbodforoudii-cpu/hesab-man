@@ -50,7 +50,7 @@ export const CONTEXTS = {
 
 // Keyword rules used when there is no history for a description.
 const TYPE_RULES = [
-  [/dollar|دلار|یورو|euro|silver|نقره|طلا|gold|سکه|coin|bike|دوچرخه|کریپتو|crypto/, { out: 'asset' }],
+  [/dollar|دلار|یورو|euro|silver|نقره|طلا|gold|سکه|coin|bike|دوچرخه|کریپتو|crypto|باکس|رند|پس ?انداز/, { out: 'asset' }],
   [/وام|vam|قسط|loan/, { out: 'loan_pay', in: 'loan_in' }],
   [/صندوق/, { out: 'fund_pay', in: 'fund_payout' }],
   [/supp|مکمل|amino/, { out: 'inventory', in: 'sale', ctx: 'supplement' }],
