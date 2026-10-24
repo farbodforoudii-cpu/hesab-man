@@ -5,6 +5,7 @@ import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, claudePack } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
+import { monthsSeries, analyze, compare } from './analysis.js';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
@@ -19,6 +20,7 @@ const $ov = document.getElementById('overlay');
 const ICON = {
   add: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
+  spark: '<svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg>',
   chart: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   chevL: '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
@@ -173,10 +175,10 @@ function render() {
   const n = pendingList().length;
   const entry = S.view === 'entry' || !S.settings.startDate;
   document.body.classList.toggle('no-tabs', entry);
-  const tabs = [['dash', 'chart', 'خلاصه'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
+  const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
   $tabs.innerHTML = entry ? '' : `<div class="inner">${tabs.map(([v, ic, l]) =>
     `<button data-act="tab" data-v="${v}" class="${S.view === v ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
-  const views = { entry: viewEntry, list: viewList, dash: viewDash, settings: viewSettings };
+  const views = { entry: viewEntry, list: viewList, dash: viewDash, an: viewAnalysis, settings: viewSettings };
   const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
   S.shownView = S.view; S.shownMonth = S.month;
   $app.innerHTML = views[S.view]();
@@ -639,7 +641,7 @@ function viewHistory(key) {
   const bars = upto.slice(-11);
   const maxW = Math.max(1, ...bars.map(k => H[k].work));
   const cats = Object.entries(h.byCat).sort((x, y) => y[1] - x[1]);
-  const flows = [['پس‌انداز (دلار، نقره، …)', h.asset], ['دریافت وام', h.loanIn], ['قسط', h.loanPay], ['صندوق', h.fundIn], ['پرداخت برای دیگران', h.onBehalf], ['پس گرفته', h.reimburse]].filter(r => r[1]);
+  const flows = [['پس‌انداز (دلار، نقره، …)', h.asset], ['دریافت وام', h.loanIn], ['قسط وام', h.loanPay], ['صندوق مریم', h.fundIn], ['خرید مکمل برای فروش', h.inventory], ['پرداخت برای دیگران', h.onBehalf], ['پس گرفته', h.reimburse]].filter(r => r[1]);
   const W = 360, Hh = 150, pad = 20, n = keys.length;
   const max = Math.max(...keys.map(k => Math.max(H[k].expense, H[k].work + H[k].family)));
   const X = i => pad + (n === 1 ? 0 : i * (W - 2 * pad) / (n - 1));
@@ -648,7 +650,7 @@ function viewHistory(key) {
   const cur = keys.indexOf(key);
   return `<div class="view wide">
     ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
-    <p class="hist-note">قبل از شروع · فقط خلاصهٔ ماه، بدون نام و جزئیات${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
+    <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}فقط جمع ماه، بدون نام${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
     <section class="bento">
       <div class="b-primary"><div class="stripes"></div>
         <div><span class="b-pill">باقی‌مانده بعد از خرج</span><h3 class="b-hero" data-cu="${left}" data-f="short">${fmtShort(left)}</h3></div>
@@ -684,6 +686,98 @@ function viewHistory(key) {
         ${flows.length ? `<div class="section-title">پس‌انداز و جابه‌جایی</div><div class="group">${flows.map(([l, v]) => `<div class="cell"><span class="grow">${l}</span><b>${fmtShort(v)}</b></div>`).join('')}</div>` : ''}
       </div>
     </div></div>`;
+}
+
+// ----- Analysis: the long view from the first month on -----
+function viewAnalysis() {
+  const head = pageHead('تحلیل');
+  const fresh = S.history && S.history.source === 'numbers';
+  const unlock = fresh ? '' : `<div class="group"><div class="cell col">
+      <p class="foot" style="margin:0 0 10px">${S.history ? 'تاریخچهٔ دقیق‌تر (از جدول‌های Numbers) آماده است.' : 'تاریخچهٔ ماه‌های قبل هنوز وارد نشده.'} رمز را بزن تا بارگذاری شود.</p>
+      <input class="field" id="an-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی">
+      <button class="btn-primary" data-act="an-load" style="margin-top:12px">بارگذاری</button></div></div>`;
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate);
+  const A = analyze(series);
+  if (!A) return `<div class="view wide">${head}${unlock}<p class="empty">هنوز ماه کاملی برای تحلیل نیست.</p></div>`;
+  const key = series.some(m => m.key === S.anKey) ? S.anKey : A.last;
+  const max = Math.max(...series.map(m => Math.max(m.work || 0, m.expense || 0)), 1);
+  const card = m => {
+    const tag = m.running ? 'در جریان' : m.asset > 0 ? `پس‌انداز ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرخرج' : m.self >= 0 ? 'از کار خودت ماند' : 'کم آوردی';
+    return `<button class="tl-card${m.key === key ? ' on' : ''}" data-act="an-month" data-v="${m.key}">
+      <span class="tl-name">${esc(monthName(m.key))}</span>
+      <span class="tl-self ${m.self >= 0 ? 'green' : 'red'}">${m.self >= 0 ? '+' : '−'}${fmtShort(Math.abs(m.self))}</span>
+      <span class="tl-bar"><i style="width:${(m.work / max * 100).toFixed(0)}%;background:#34c759"></i></span>
+      <span class="tl-bar"><i style="width:${(m.expense / max * 100).toFixed(0)}%;background:var(--tint)"></i></span>
+      <span class="tl-tag">${tag}</span></button>`;
+  };
+  const C = compare(series, key);
+  // Up arrow means more than average; colour says whether that is good (income) or bad (spending).
+  const arrow = (d, a, upGood = false) => !a || !Math.round(d / a * 100) ? '' : `<span class="${(d > 0) === upGood ? 'green' : 'red'} sec">${d > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d / a * 100)))}٪</span>`;
+  const list = (items, cls) => items.map(x => `<div class="cell col an-item ${cls}"><b>${esc(x.t)}</b><span class="sec">${esc(x.d)}</span></div>`).join('');
+  const sel = series.find(m => m.key === key);
+  const flagNote = [
+    A.flags.unknown ? `${fmtShort(A.flags.unknown)} ورودی بدون نام جزو درآمد حساب نشده` : '',
+    A.flags.assumed ? `${fmtShort(A.flags.assumed)} با حدس درآمد کاری حساب شده` : '',
+    A.flags.vague ? `${fmtShort(A.flags.vague)} خرج با عنوان نامعلوم (مثل W و C) شخصی حساب شده` : '',
+  ].filter(Boolean);
+  return `<div class="view wide">
+    ${head}${unlock}
+    <section class="bento an-hero">
+      <div class="b-primary"><div class="stripes"></div>
+        <div><span class="b-pill">${esc(monthName(A.first))} تا ${esc(monthName(A.last))} · ${faDigits(A.n)} ماه</span>
+          <h3 class="b-hero" data-cu="${Math.round(A.cov * 100)}" data-f="int">${faDigits(Math.round(A.cov * 100))}٪</h3></div>
+        <p class="b-note" style="max-width:420px">${esc(A.verdict)}</p></div>
+    </section>
+    <div class="mini-bento an-tiles">
+      <div class="mb-tile"><p class="b-label">درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
+      <div class="mb-tile"><p class="b-label">خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
+      <div class="mb-tile muted"><p class="b-label">سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
+      ${A.top ? `<div class="mb-tile muted"><p class="b-label">بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)} · ${faDigits(Math.round(A.top.share * 100))}٪</p></div>` : ''}
+    </div>
+    <div class="section-title">ماه به ماه</div>
+    <div class="tl">${series.map(card).join('')}</div>
+    <p class="foot legend-foot"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:var(--tint)"></i>خرج</span><span>عدد بالا: آنچه بدون کمک خانواده ماند</span></p>
+    <div class="dash">
+      <div class="span-6">
+        ${A.critiques.length ? `<div class="section-title">انتقاد</div><div class="group">${list(A.critiques, 'bad')}</div>` : ''}
+        ${A.tips.length ? `<div class="section-title">پیشنهاد</div><div class="group">${list(A.tips, 'tip')}</div>` : ''}
+        ${A.good.length ? `<div class="section-title">خوب‌ها</div><div class="group">${list(A.good, 'ok')}</div>` : ''}
+      </div>
+      <div class="span-6">
+        ${C ? `<div class="section-title">${esc(monthLabel(key))} در برابر میانگین بقیهٔ ماه‌ها</div>
+        <div class="group">
+          <div class="cell"><span class="grow">درآمد کاری</span>${arrow(C.work.v - C.work.a, C.work.a, true)}<b>${fmtShort(C.work.v)}</b></div>
+          <div class="cell"><span class="grow">کل خرج</span>${arrow(C.expense.v - C.expense.a, C.expense.a)}<b>${fmtShort(C.expense.v)}</b></div>
+        </div>
+        <div class="group" style="margin-top:10px">${C.rows.map(r => `<div class="cell"><i class="dot" style="background:${CATEGORIES[r.c].color}"></i><span class="grow">${CATEGORIES[r.c].label}<small> · میانگین ${fmtShort(r.a)}</small></span>${arrow(r.d, r.a)}<b>${fmtShort(r.v)}</b></div>`).join('')}</div>` : ''}
+        ${dayStrip(sel)}
+        <button class="btn-plain" data-act="an-open" data-v="${key}">جزئیات ${esc(monthLabel(key))}</button>
+      </div>
+    </div>
+    ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join(' · ')}.</p>` : ''}
+  </div>`;
+}
+
+const monthName = k => monthLabel(k).split(' ')[0];
+
+// Day-by-day spending inside one month (only months recorded in the app have days).
+function dayStrip(m) {
+  if (!m) return '';
+  if (!m.live) return `<p class="foot an-flags">روزبه‌روز فقط برای ماه‌هایی هست که در خود اپ ثبت شده‌اند (از آبان).</p>`;
+  const { start, end } = monthRange(m.key);
+  const days = Math.round((end - start) / 864e5);
+  const v = new Array(days).fill(0);
+  for (const t of scoped()) {
+    if (t.type !== 'expense') continue;
+    const d = new Date(t.ts);
+    if (d >= start && d < end) v[Math.floor((d - start) / 864e5)] += t.amount;
+  }
+  const mx = Math.max(...v, 1);
+  const today = Math.floor((Date.now() - start) / 864e5);
+  return `<div class="section-title">روز به روز</div><div class="group"><div class="cell col">
+    <div class="days">${v.map((x, i) => `<i title="${faDigits(i + 1)}" class="${i > today ? 'future' : ''}" style="height:${x ? Math.max(6, x / mx * 100).toFixed(0) : 3}%"></i>`).join('')}</div>
+    <div class="days-axis"><span>${faDigits(1)}</span><span>${faDigits(Math.ceil(days / 2))}</span><span>${faDigits(days)}</span></div>
+  </div></div>`;
 }
 
 function viewDash() {
@@ -1027,6 +1121,14 @@ document.addEventListener('click', async e => {
     else if (a === 'edit') { const t = S.tx.find(x => x.id === b.dataset.id); if (t) openTxSheet({ ...t }); }
     else if (a === 'lf') { S.listFilter = b.dataset.v; S.listLimit = 60; render(); }
     else if (a === 'more') { S.listLimit += 100; document.getElementById('list-body').innerHTML = listBody(); }
+    else if (a === 'an-month') { S.anKey = b.dataset.v; render(); }
+    else if (a === 'an-open') { S.month = b.dataset.v; S.view = 'dash'; render(); window.scrollTo(0, 0); }
+    else if (a === 'an-load') {
+      const pw = toAscii(document.getElementById('an-pw').value).toLowerCase().replace(/\s/g, '');
+      if (!pw) return toast('رمز را بنویس');
+      await importBackupData(await loadBundle(pw));
+      toast('تاریخچه بارگذاری شد'); render();
+    }
     else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); render(); }
     else if (a === 'bmode') { S.budgetMode = b.dataset.v; S.budgetHover = null; render(); }
     else if (a === 'toggle') { S.settings[b.dataset.v] = !S.settings[b.dataset.v]; await saveSettings(); render(); }

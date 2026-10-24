@@ -375,3 +375,33 @@ h1.large { font-weight: 800; letter-spacing: -.01em; }
 .bc-total, .b-value, .b-hero, .mb-num, .b-num { white-space: nowrap; }
 .bc-total { font-size: 34px; }
 .bc-head > div:first-child { min-width: 0; }
+
+/* Analysis */
+.an-tiles { grid-template-columns: 1fr 1fr; }
+.tl { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 2px 2px 6px; margin: 0 -2px; scrollbar-width: none; }
+.tl::-webkit-scrollbar { display: none; }
+.tl-card { flex: 0 0 132px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 6px; text-align: right; background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 14px; transition: transform .15s, border-color .15s; }
+.tl-card:active { transform: scale(.97); }
+.tl-card.on { border-color: var(--tint); box-shadow: 0 0 0 1px var(--tint) inset; }
+.tl-name { font-size: 13px; font-weight: 600; color: var(--sec); }
+.tl-self { font-size: 19px; font-weight: 600; white-space: nowrap; direction: ltr; text-align: right; }
+.tl-bar { display: block; height: 5px; border-radius: 3px; background: var(--fill); overflow: hidden; }
+.tl-bar i { display: block; height: 100%; border-radius: 3px; }
+.tl-tag { font-size: 12px; color: var(--sec); }
+.legend-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.legend-foot i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-inline-end: 5px; }
+.an-item { gap: 3px; align-items: flex-start !important; }
+.an-item b { font-weight: 600; white-space: normal; }
+.an-item span { font-size: 15px; line-height: 1.5; }
+.an-item.bad b { color: var(--red); }
+.an-item.ok b { color: #248a3d; }
+.an-flags { margin-top: 18px; }
+.days { display: flex; align-items: flex-end; gap: 2px; height: 90px; direction: rtl; }
+.days i { flex: 1; background: var(--tint); border-radius: 2px; min-height: 2px; }
+.days i.future { background: var(--fill); }
+.days-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--sec); margin-top: 4px; }
+@media (min-width: 820px) {
+  .an-tiles { grid-template-columns: repeat(4, 1fr); }
+  .tl { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); overflow: visible; }
+  .an-hero > .b-primary { grid-column: 1 / -1; }
+}
