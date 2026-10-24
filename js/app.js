@@ -1007,8 +1007,8 @@ document.addEventListener('click', async e => {
       const day = fromJalali(+dm[1], +dm[2], +dm[3]);
       if (day > new Date()) return toast('تاریخ شروع نمی‌تواند در آینده باشد');
       const d = (formatJalali(day) === formatJalali(new Date()) ? startDay() : day).toISOString();
-      const pw = norm(document.getElementById('start-pw').value).toLowerCase().replace(/[^a-z]/g, '');
-      if (pw) await importBackupData(await loadBundle(pw.replace(/(.{4})(?=.)/g, '$1-')));
+      const pw = toAscii(document.getElementById('start-pw').value).toLowerCase().replace(/\s/g, '');
+      if (pw) await importBackupData(await loadBundle(pw));
       Object.assign(S.settings, { startDate: d, openingBalance: v, openingDate: d });
       S.month = monthKey(new Date(Math.max(Date.now(), new Date(d))));
       await saveSettings();
