@@ -268,8 +268,8 @@ function render() {
   document.body.classList.toggle('no-tabs', entry);
   const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
   $tabs.innerHTML = entry ? '' : `<div class="inner">${tabs.map(([v, ic, l]) =>
-    `<button data-act="tab" data-v="${v}" class="${S.view === v ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
-  const views = { entry: viewEntry, list: viewList, dash: viewDash, an: viewAnalysis, settings: viewSettings };
+    `<button data-act="tab" data-v="${v}" class="${S.view === v || (v === 'dash' && S.view === 'assets') ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
+  const views = { entry: viewEntry, list: viewList, dash: viewDash, an: viewAnalysis, settings: viewSettings, assets: viewAssets };
   const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
   S.shownView = S.view; S.shownMonth = S.month;
   $app.innerHTML = views[S.view]();
@@ -918,7 +918,7 @@ function viewAnalysis() {
   const A = analyze(series);
   if (!A) return `<div class="view wide">${head}${unlock}<p class="empty">هنوز ماه کاملی برای تحلیل نیست.</p></div>`;
   const key = series.some(m => m.key === S.anKey) ? S.anKey : A.last;
-  const K = kpis(series, balanceAt(S.tx, S.settings));
+  const K = kpis(series, balanceAt(S.tx, S.settings), assetsTotal().held);
   const max = Math.max(...series.map(m => Math.max(m.inT || 0, m.outT || 0)), 1);
   // Month cards: what came in, what went out and the net, the same totals as the Numbers sheets.
   const card = m => {
@@ -973,6 +973,11 @@ function viewAnalysis() {
 
 const monthName = k => monthLabel(k).split(' ')[0];
 
+function assetTile() {
+  const A = assetsState(), { cash, held } = assetsTotal();
+  return `<button class="asset-tile" data-act="go-assets"><span class="grow"><span class="b-label">همهٔ دارایی‌ات</span><b>${fmtShort(cash + held)}</b><small>${A.items.length ? `نقد ${fmtShort(cash)} · دلار، طلا و بقیه ${fmtShort(held)}` : 'دلار، طلا، نقره و باکس را اضافه کن'}</small></span>${ICON.chevL}</button>`;
+}
+
 const TIER = { 1: 'اولویت ۱ · پایه‌ای', 2: 'اولویت ۲ · مهم', 3: 'اولویت ۳ · برای بهتر شدن' };
 const kpiNum = (k, v) => k.unit === 'pct' ? faDigits(Math.round(v * 100)) + '٪' : fmtShort(v);
 
@@ -1008,7 +1013,7 @@ function kpiList(K) {
 }
 
 function kpiSheet(id) {
-  const K = kpis(monthsSeries(S.history, scoped(), S.settings.startDate), balanceAt(S.tx, S.settings)), k = K.find(x => x.id === id);
+  const K = kpis(monthsSeries(S.history, scoped(), S.settings.startDate), balanceAt(S.tx, S.settings), assetsTotal().held), k = K.find(x => x.id === id);
   if (!k) return;
   infoSheet(k.title, [['الان', k.value], ...k.points.map(p => [monthLabel(p.key) + (p.running ? ' (تا الان)' : ''), kpiNum(k, p.v)])], `${esc(k.mean)}<br><b>${esc(k.target)}</b>`);
 }
@@ -1032,7 +1037,7 @@ function analysisReport() {
     `• کمک خانواده در کل دوره: ${m(A.family)} (${faDigits(Math.round(A.famShare * 100))}٪ پول ورودی)`, `• دارایی خریده‌شده (دلار، نقره، دوچرخه): ${m(A.asset)}`, '');
   L.push('ماه به ماه (اومد / رفت / نتیجه · درآمد کاری · خرج زندگی)');
   for (const x of series) { const net = (x.inT || 0) - (x.outT || 0); L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.inT)} / ${m(x.outT)} / ${net >= 0 ? '+' : '−'}${m(Math.abs(net))} · کار ${m(x.work)} · خرج ${m(x.expense)}`); }
-  const K = kpis(series, balanceAt(S.tx, S.settings));
+  const K = kpis(series, balanceAt(S.tx, S.settings), assetsTotal().held);
   L.push('', 'شاخص‌های مهم');
   for (const k of K) L.push(`• ${k.title}: ${k.value} (${k.status === 'g' ? 'خوب' : k.status === 'o' ? 'متوسط' : 'ضعیف'}) — ${k.target}`);
   const top = Object.entries(A.cats).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -1106,6 +1111,7 @@ function viewDash() {
       </div>
     </section>
 
+    ${assetTile()}
     ${liveStory(T, key)}
     <div class="dash">
       <div class="span-6" id="trend">${trendCard()}</div>
@@ -1368,6 +1374,96 @@ function smooth(pts) {
   return d;
 }
 
+// ----- Assets: what you own besides Blu cash, valued at prices you enter -----
+const ASSET_KINDS = {
+  usd: { label: 'دلار', unit: 'دلار', price: 'usd' },
+  eur: { label: 'یورو', unit: 'یورو', price: 'eur' },
+  gold: { label: 'طلا', unit: 'گرم', price: 'gold' },
+  coin: { label: 'سکه', unit: 'عدد', price: 'coin' },
+  silver: { label: 'نقره', unit: 'گرم', price: 'silver' },
+  crypto: { label: 'کریپتو', unit: 'دلار', price: 'usd' },
+  box: { label: 'باکس بلو', unit: 'تومان', price: null },
+  toman: { label: 'سایر (به تومان)', unit: 'تومان', price: null },
+};
+const PRICE_LABELS = { usd: 'هر دلار', eur: 'هر یورو', gold: 'هر گرم طلای ۱۸ عیار', coin: 'هر سکه امامی', silver: 'هر گرم نقره' };
+const assetsState = () => (S.settings.assets ||= { items: [], prices: {}, pricesAt: null });
+
+// Box grows on its own with every round-up recorded after the amount was entered.
+function assetValue(it) {
+  const A = assetsState(), k = ASSET_KINDS[it.kind];
+  let v = k.price ? (it.qty || 0) * (A.prices[k.price] || 0) : (it.qty || 0);
+  if (it.kind === 'box' && it.since) v += S.tx.filter(t => isRound(t) && t.ts > it.since).reduce((a, t) => a + t.amount, 0);
+  return v;
+}
+function assetsTotal() {
+  const items = assetsState().items;
+  return { cash: balanceAt(S.tx, S.settings), held: items.reduce((a, it) => a + assetValue(it), 0) };
+}
+const missingPrice = it => ASSET_KINDS[it.kind].price && !assetsState().prices[ASSET_KINDS[it.kind].price];
+
+function viewAssets() {
+  const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = A.prices.usd;
+  const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
+    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? ' · قیمت وارد نشده' : ''}`, it.id])];
+  const mx = Math.max(1, ...rows.map(r => r[1]));
+  const old = !A.pricesAt || Date.now() - new Date(A.pricesAt) > 7 * 864e5;
+  const usedPrices = [...new Set(['usd', ...A.items.map(it => ASSET_KINDS[it.kind].price).filter(Boolean)])];
+  return `<div class="view wide">
+    <div class="page-head"><h1 class="large">دارایی‌ها</h1><div class="row"><button class="chip-btn" data-act="tab" data-v="dash">بازگشت</button></div></div>
+    <section class="bento an-hero"><div class="b-primary"><div class="stripes"></div>
+      <div><span class="b-pill">همهٔ دارایی‌ات</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
+      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار · ` : ''}نقد ${fmtShort(cash)} · بقیه ${fmtShort(held)}</p></div></section>
+    ${old && A.items.length ? `<button class="warn-box" data-act="as-prices">قیمت‌ها ${A.pricesAt ? `از ${formatJalali(new Date(A.pricesAt))}` : 'هنوز وارد نشده'}؛ برای عدد درست، به‌روزشان کن ←</button>` : ''}
+    <div class="dash">
+      <div class="span-6">
+        <div class="section-title">چه چیزهایی داری</div>
+        <div class="group">${rows.map(([l, v, sub, id]) => `<${id ? `button data-act="as-edit" data-v="${id}"` : 'div'} class="cell bar-row"><span class="grow">${esc(l)}<small class="avg-line">${esc(sub)}</small></span><b>${fmtShort(v)}</b>${id ? ICON.chevL : ''}<i class="bar in" style="width:${(v / mx * 100).toFixed(1)}%"></i></${id ? 'button' : 'div'}>`).join('')}</div>
+        <button class="btn-plain" data-act="as-add">+ افزودن دارایی</button>
+      </div>
+      <div class="span-6">
+        <div class="section-title">قیمت‌ها (تومان)</div>
+        <div class="group">${usedPrices.map(p => `<button class="cell" data-act="as-prices"><span class="grow">${PRICE_LABELS[p]}</span><b>${A.prices[p] ? fmt(A.prices[p]) : '—'}</b>${ICON.chevL}</button>`).join('')}</div>
+        <p class="foot">قیمت‌ها را خودت از جایی که همیشه نگاه می‌کنی وارد کن؛ اپ آفلاین است و قیمت را خودش نمی‌گیرد. ${A.pricesAt ? `آخرین به‌روزرسانی: ${formatJalali(new Date(A.pricesAt))}.` : ''}</p>
+      </div>
+    </div></div>`;
+}
+
+function assetSheet(id) {
+  const A = assetsState(), it = id ? A.items.find(x => x.id === id) : { id: newId(), kind: 'usd', label: '', qty: 0 };
+  let kind = it.kind;
+  const html = () => `<div class="sheet-nav"><button class="link" data-close>لغو</button><b>${id ? 'ویرایش دارایی' : 'دارایی جدید'}</b><button class="link strong" data-act="save">ذخیره</button></div>
+    <div class="cats">${Object.entries(ASSET_KINDS).map(([k, v]) => `<button data-act="kind" data-v="${k}" class="${kind === k ? 'on' : ''}">${v.label}</button>`).join('')}</div>
+    <div class="group">
+      <div class="cell"><span>اسم</span><input class="bare end" id="as-label" value="${esc(it.label || '')}" placeholder="${ASSET_KINDS[kind].label}"></div>
+      <div class="cell"><span>مقدار (${ASSET_KINDS[kind].unit})</span><input class="bare end" id="as-qty" inputmode="decimal" value="${it.qty ? faDigits(String(it.qty).replace('.', '٫')) : ''}" placeholder="۰"></div>
+    </div>
+    ${kind === 'box' ? '<p class="foot">موجودی الان باکس را بنویس. از این به بعد رندها خودشان اضافه می‌شوند.</p>' : ''}
+    ${id ? '<div class="group"><button class="cell danger" data-act="del">حذف</button></div>' : ''}`;
+  const qtyOf = () => Number(toAscii(document.getElementById('as-qty').value).replace(/[٫,]/g, m => m === '٫' ? '.' : '').replace(/[^\d.]/g, '')) || 0;
+  const actions = {
+    kind: v => { it.label = document.getElementById('as-label').value; it.qty = qtyOf(); kind = v; document.querySelector('.sheet').innerHTML = '<div class="grab"></div>' + html(); document.querySelectorAll('.sheet [data-close]').forEach(el => { el.onclick = closeSheet; }); },
+    save: async () => {
+      Object.assign(it, { kind, label: document.getElementById('as-label').value.trim(), qty: qtyOf() });
+      if (kind === 'box') it.since = new Date().toISOString();
+      if (!A.items.includes(it)) A.items.push(it);
+      await saveSettings(); closeSheet(); render(); toast('ذخیره شد');
+    },
+    del: async () => { A.items = A.items.filter(x => x.id !== it.id); await saveSettings(); closeSheet(); render(); },
+  };
+  openSheet(html(), actions);
+}
+
+function pricesSheet() {
+  const A = assetsState(), used = [...new Set(['usd', ...A.items.map(it => ASSET_KINDS[it.kind].price).filter(Boolean)])];
+  openSheet(`<div class="sheet-nav"><button class="link" data-close>لغو</button><b>قیمت‌های امروز</b><button class="link strong" data-act="save">ذخیره</button></div>
+    <p class="foot det-note">به تومان. از همان جایی که همیشه قیمت را می‌بینی.</p>
+    <div class="group">${used.map(p => `<div class="cell"><span>${PRICE_LABELS[p]}</span><input class="bare end" data-p="${p}" inputmode="numeric" value="${A.prices[p] ? fmt(A.prices[p]) : ''}" placeholder="تومان"></div>`).join('')}</div>`,
+    { save: async () => {
+      document.querySelectorAll('.sheet [data-p]').forEach(i => { const v = parseAmount(i.value); if (v) A.prices[i.dataset.p] = v; });
+      A.pricesAt = new Date().toISOString(); await saveSettings(); closeSheet(); render(); toast('قیمت‌ها به‌روز شد');
+    } }, root => root.querySelectorAll('[data-p]').forEach(i => i.addEventListener('input', () => { const v = parseAmount(i.value); i.value = v ? fmt(v) : ''; })));
+}
+
 // ----- Settings -----
 function viewSettings() {
   const st = S.settings;
@@ -1544,6 +1640,10 @@ document.addEventListener('click', async e => {
       <div class="group">${TR_FIELDS.map(([k, l]) => `<button class="cell" data-act="pick" data-v="${k}"><i class="dot" style="background:${trColor(k)}"></i><span class="grow">${l}</span>${S.tr.field === k ? ICON.ok : ''}</button>`).join('')}</div>`,
       { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, a: null, b: null, cmp: S.tr.cmp === v ? null : S.tr.cmp }); redrawTrend(); } });
     else if (a === 'month-pick') openMonthPicker();
+    else if (a === 'go-assets') { S.view = 'assets'; render(); window.scrollTo(0, 0); }
+    else if (a === 'as-add') assetSheet(null);
+    else if (a === 'as-edit') assetSheet(b.dataset.v);
+    else if (a === 'as-prices') pricesSheet();
     else if (a === 'detail') openDetail(b.dataset.k, b.dataset.v);
     else if (a === 'car-next') { S.carHold = Date.now(); advanceCarousel(b); }
     else if (a === 'kpi') kpiSheet(b.dataset.v);

@@ -658,3 +658,11 @@ nav.tabs button.on svg { color: var(--tint); }
 .kpi svg { width: 14px; height: 14px; color: var(--ter); }
 @media (min-width: 820px) { .car { min-height: 320px; } .car-val { font-size: 56px; } }
 .car-val, .kpi-val, .tl-self { direction: ltr; unicode-bidi: isolate; text-align: right; }
+
+/* Assets */
+.asset-tile { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--glass); border: 1px solid var(--border); border-radius: 22px; padding: 16px 18px; margin-bottom: 4px; text-align: right; }
+.asset-tile .grow { display: flex; flex-direction: column; gap: 2px; }
+.asset-tile b { font-size: 24px; font-weight: 500; }
+.asset-tile small { font-size: 13px; color: var(--sec); }
+.asset-tile svg { width: 16px; height: 16px; color: var(--ter); }
+.warn-box { display: block; width: 100%; text-align: right; background: rgba(255, 159, 10, .12); border: 1px solid rgba(255, 159, 10, .35); color: var(--orange); border-radius: 16px; padding: 12px 16px; font-size: 14px; margin-bottom: 12px; }

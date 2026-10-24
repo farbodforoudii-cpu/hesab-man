@@ -122,7 +122,7 @@ export function compare(series, key) {
 // Key metrics for reading money behaviour, grouped by how much they matter.
 // Each has a monthly series (for the mini chart), a status and a plain explanation.
 const DISCRETIONARY = ['weekend', 'gift', 'habits', 'personal'];
-export function kpis(series, balance) {
+export function kpis(series, balance, held = 0) {
   const done = series.filter(m => !m.running && (m.expense || m.work));
   if (!done.length) return [];
   const n = done.length, sum = f => done.reduce((a, m) => a + f(m), 0);
@@ -150,7 +150,7 @@ export function kpis(series, balance) {
     m => m.family || 0, 'money', 'هدف: زیر ۱۰٪'));
   const runway = avgExp ? balance / avgExp : 0;
   out.push(mk('runway', 2, 'اگه درآمد قطع بشه', `${faDigits(runway.toFixed(1).replace('.', '٫'))} ماه`, st(runway, 3, 1),
-    `با پولی که الان تو بلو داری (${fmtShort(balance)})، اگه هیچ پولی نیاد، چند ماه می‌تونی مثل الان خرج کنی. دلار و نقره حساب نشده.`,
+    `با پولی که الان تو بلو داری (${fmtShort(balance)})، اگه هیچ پولی نیاد، چند ماه می‌تونی مثل الان خرج کنی.${held && avgExp ? ` اگه دلار و طلا و بقیهٔ دارایی‌ها رو هم حساب کنی: ${faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫'))} ماه.` : ' دلار و نقره حساب نشده.'}`,
     m => m.bank ? m.bank[1] : (m.running ? balance : 0), 'money', 'هدف: حداقل ۳ ماه'));
   out.push(mk('disc', 2, 'خرج‌های دلبخواهی', P(disc / (exp || 1)), st(disc / (exp || 1), .25, .4, false),
     'تفریح و سفر، هدیه، شخصی و دخانیات؛ خرج‌هایی که دست خودته و می‌شه کمشون کرد.',
