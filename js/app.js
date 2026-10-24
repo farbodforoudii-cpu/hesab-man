@@ -2,7 +2,7 @@ import { db, requestPersistence } from './db.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
-import { monthSummary, balanceAt, bankCheck, balances, claudePack } from './stats.js';
+import { monthSummary, balanceAt, bankCheck, balances } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare } from './analysis.js';
@@ -10,7 +10,7 @@ import { monthsSeries, analyze, compare } from './analysis.js';
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
   view: 'entry', amount: '', dayBack: 0, step: 'amount', dir: 'out', what: '',
-  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, budgetMode: 'week', budgetHover: null,
+  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, tr: { field: 'expense', cmp: null, frame: 'all', hover: null, a: null, b: null, measure: false, picking: false },
 };
 const $app = document.getElementById('app');
 const $tabs = document.getElementById('tabs');
@@ -20,6 +20,11 @@ const $ov = document.getElementById('overlay');
 const ICON = {
   add: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
+  ruler: '<svg viewBox="0 0 24 24"><path d="M4 16L16 4l4 4L8 20z"/><path d="M8 12l2 2M11 9l2 2M14 6l2 2"/></svg>',
+  layers: '<svg viewBox="0 0 24 24"><path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 002 2h10a2 2 0 002-2v-7"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8"/></svg>',
+  ok: '<svg viewBox="0 0 24 24"><path d="M6 12.5l4 4 8-9"/></svg>',
   spark: '<svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 3 8-8"/><path d="M15 7h5v5"/></svg>',
   chart: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   gear: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
@@ -144,11 +149,19 @@ let animTimer = null;
 const easeOut = t => 1 - Math.pow(1 - t, 3);
 
 // Count numbers up from zero; roll the balance digits like an odometer.
+// Big numbers read like the reference: the whole part bright, decimals and units faded.
+const NICE = '.b-hero, .b-value, .bc-total, .mb-num, .tl-self';
+function niceNum(el) {
+  el.innerHTML = esc(el.textContent)
+    .replace(/(٫[۰-۹]+)/, '<span class="dim">$1</span>')
+    .replace(/\s?(میلیون|میلیارد|هزار|٪)/, '<span class="unit">$1</span>');
+}
+
 function animateNumbers(root) {
   root.querySelectorAll('[data-cu]').forEach(el => {
     const to = Number(el.dataset.cu), f = el.dataset.f;
     if (!to) return;
-    const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : fmtShort(v); };
+    const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : fmtShort(v); if (el.matches(NICE)) niceNum(el); };
     const t0 = performance.now(), dur = 700;
     const step = now => { const k = Math.min(1, (now - t0) / dur); show(to * easeOut(k)); if (k < 1) requestAnimationFrame(step); };
     show(0); requestAnimationFrame(step);
@@ -156,9 +169,10 @@ function animateNumbers(root) {
   root.querySelectorAll('[data-odo]').forEach(el => {
     const text = fmt(Number(el.dataset.odo));
     const digits = '۰۱۲۳۴۵۶۷۸۹';
-    el.innerHTML = [...text].map(ch => digits.includes(ch)
-      ? `<span class="odo"><span class="odo-strip" data-d="${digits.indexOf(ch)}">${[...digits].map(d => `<span>${d}</span>`).join('')}</span></span>`
-      : `<span>${ch}</span>`).join('');
+    const cut = text.lastIndexOf(',');
+    el.innerHTML = [...text].map((ch, i) => digits.includes(ch)
+      ? `<span class="odo${cut >= 0 && i > cut ? ' dim' : ''}"><span class="odo-strip" data-d="${digits.indexOf(ch)}">${[...digits].map(d => `<span>${d}</span>`).join('')}</span></span>`
+      : `<span${cut >= 0 && i >= cut ? ' class="dim"' : ''}>${ch}</span>`).join('');
     requestAnimationFrame(() => requestAnimationFrame(() => {
       el.querySelectorAll('.odo-strip').forEach((st, i) => {
         st.style.transitionDelay = `${i * 45}ms`;
@@ -182,6 +196,7 @@ function render() {
   const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
   S.shownView = S.view; S.shownMonth = S.month;
   $app.innerHTML = views[S.view]();
+  $app.querySelectorAll(NICE).forEach(niceNum);
   if (fresh && !REDUCED()) {
     $app.classList.remove('anim'); void $app.offsetWidth; $app.classList.add('anim');
     clearTimeout(animTimer); animTimer = setTimeout(() => $app.classList.remove('anim'), 1400);
@@ -189,7 +204,7 @@ function render() {
   }
   if (S.view === 'list') setTimeout(() => { S.lastId = null; }, 1500);
   if (S.view === 'list') bindList();
-  if (S.view === 'dash') bindBudget();
+  if (S.view === 'dash') bindTrend();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
   if (S.view === 'entry' && S.step === 'amount') bindAmount();
 }
@@ -642,12 +657,6 @@ function viewHistory(key) {
   const maxW = Math.max(1, ...bars.map(k => H[k].work));
   const cats = Object.entries(h.byCat).sort((x, y) => y[1] - x[1]);
   const flows = [['پس‌انداز (دلار، نقره، …)', h.asset], ['دریافت وام', h.loanIn], ['قسط وام', h.loanPay], ['صندوق مریم', h.fundIn], ['خرید مکمل برای فروش', h.inventory], ['پرداخت برای دیگران', h.onBehalf], ['پس گرفته', h.reimburse]].filter(r => r[1]);
-  const W = 360, Hh = 150, pad = 20, n = keys.length;
-  const max = Math.max(...keys.map(k => Math.max(H[k].expense, H[k].work + H[k].family)));
-  const X = i => pad + (n === 1 ? 0 : i * (W - 2 * pad) / (n - 1));
-  const Y = v => 14 + (Hh - 40) * (1 - v / max);
-  const line = f => smooth(keys.map((k, i) => [X(i), Y(f(H[k]))]));
-  const cur = keys.indexOf(key);
   return `<div class="view wide">
     ${pageHead('خلاصه', `<div class="month"><button data-act="mon" data-v="-1">${ICON.chevR}</button><span>${monthLabel(key)}</span><button data-act="mon" data-v="1">${ICON.chevL}</button></div>`)}
     <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}فقط جمع ماه، بدون نام${h.partial ? ' · تا ۲۶ام ماه' : ''}</p>
@@ -661,19 +670,7 @@ function viewHistory(key) {
       <div class="b-rating"><div class="b-badge">٪</div><div><p class="b-strong">${faDigits(cov)}٪</p><p class="b-label">از خرج با درآمد کاری پوشش داده شد</p></div></div>
     </section>
     <div class="dash">
-      <div class="span-6"><div class="bc-shell"><div class="bc">
-        <p class="bc-label">${faDigits(n)} ماه</p>
-        <svg viewBox="0 0 ${W} ${Hh}" class="bc-chart">
-          <defs><linearGradient id="hA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--tint)" stop-opacity=".25"/><stop offset="1" stop-color="var(--tint)" stop-opacity="0"/></linearGradient></defs>
-          <path d="${line(m => m.expense)} L${X(n - 1)},${Hh - 26} L${X(0)},${Hh - 26} Z" fill="url(#hA)"/>
-          <path d="${line(m => m.expense)}" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="${line(m => m.work)}" fill="none" stroke="#34c759" stroke-width="2.5" stroke-linecap="round"/>
-          <path d="${line(m => m.work + m.family)}" fill="none" stroke="#34c759" stroke-width="1.5" stroke-dasharray="4 5" opacity=".7"/>
-          ${cur >= 0 ? `<line x1="${X(cur)}" x2="${X(cur)}" y1="10" y2="${Hh - 26}" class="bc-grid"/>` : ''}
-          ${keys.map((k, i) => `<text x="${X(i)}" y="${Hh - 6}" text-anchor="middle" class="bc-day">${esc(monthLabel(k).split(' ')[0])}</text>`).join('')}
-        </svg>
-        <div class="legend"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:#34c759;opacity:.5"></i>با کمک خانواده</span><span><i style="background:var(--tint)"></i>خرج</span></div>
-      </div></div></div>
+      <div class="span-6" id="trend">${trendCard()}</div>
       <div class="span-6">
         <div class="section-title">خرج‌ها</div>
         <div class="group">${cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${CATEGORIES[c] ? CATEGORIES[c].color : '#c7c7cc'}"></i><span class="grow">${HIST_LABELS[c] || (CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (h.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('')}</div>
@@ -706,6 +703,7 @@ function viewAnalysis() {
   const card = m => {
     const tag = m.running ? 'در جریان' : m.asset > 0 ? `پس‌انداز ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرخرج' : m.self >= 0 ? 'از کار خودت ماند' : 'کم آوردی';
     return `<button class="tl-card${m.key === key ? ' on' : ''}" data-act="an-month" data-v="${m.key}">
+      <span class="tl-go">${ICON.arrow}</span>
       <span class="tl-name">${esc(monthName(m.key))}</span>
       <span class="tl-self ${m.self >= 0 ? 'green' : 'red'}">${m.self >= 0 ? '+' : '−'}${fmtShort(Math.abs(m.self))}</span>
       <span class="tl-bar"><i style="width:${(m.work / max * 100).toFixed(0)}%;background:#34c759"></i></span>
@@ -718,7 +716,7 @@ function viewAnalysis() {
   const list = (items, cls) => items.map(x => `<div class="cell col an-item ${cls}"><b>${esc(x.t)}</b><span class="sec">${esc(x.d)}</span></div>`).join('');
   const sel = series.find(m => m.key === key);
   const flagNote = [
-    A.flags.unknown ? `${fmtShort(A.flags.unknown)} ورودی بدون نام جزو درآمد حساب نشده` : '',
+    A.flags.unknown ? `${fmtShort(A.flags.unknown)} ورودی نامشخص جزو درآمد حساب نشده` : '',
     A.flags.assumed ? `${fmtShort(A.flags.assumed)} با حدس درآمد کاری حساب شده` : '',
     A.flags.vague ? `${fmtShort(A.flags.vague)} خرج با عنوان نامعلوم (مثل W و C) شخصی حساب شده` : '',
   ].filter(Boolean);
@@ -731,14 +729,14 @@ function viewAnalysis() {
         <p class="b-note" style="max-width:420px">${esc(A.verdict)}</p></div>
     </section>
     <div class="mini-bento an-tiles">
-      <div class="mb-tile"><p class="b-label">درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
-      <div class="mb-tile"><p class="b-label">خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
-      <div class="mb-tile muted"><p class="b-label">سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
-      ${A.top ? `<div class="mb-tile muted"><p class="b-label">بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)} · ${faDigits(Math.round(A.top.share * 100))}٪</p></div>` : ''}
+      <div class="mb-tile"><p class="b-label"><span class="st g">${ICON.ok}</span>درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
+      <div class="mb-tile"><p class="b-label"><span class="st ${A.cov < 1 ? 'r' : 'g'}">${A.cov < 1 ? '' : ICON.ok}</span>خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
+      <div class="mb-tile muted"><p class="b-label"><span class="st o"></span>سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
+      ${A.top ? `<div class="mb-tile muted"><p class="b-label"><span class="st" style="background:${CATEGORIES[A.top.c].color}"></span>بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)}</p><p class="b-sub">${faDigits(Math.round(A.top.share * 100))}٪ کل خرج</p></div>` : ''}
     </div>
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
-    <p class="foot legend-foot"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:var(--tint)"></i>خرج</span><span>عدد بالا: آنچه بدون کمک خانواده ماند</span></p>
+    <p class="foot legend-foot"><span><i style="background:#34c759"></i>درآمد کاری</span><span><i style="background:var(--tint)"></i>خرج</span><span>عدد بالا: باقی‌مانده بدون کمک خانواده (درآمد کاری و فروش منهای خرج)</span></p>
     <div class="dash">
       <div class="span-6">
         ${A.critiques.length ? `<div class="section-title">انتقاد</div><div class="group">${list(A.critiques, 'bad')}</div>` : ''}
@@ -748,19 +746,42 @@ function viewAnalysis() {
       <div class="span-6">
         ${C ? `<div class="section-title">${esc(monthLabel(key))} در برابر میانگین بقیهٔ ماه‌ها</div>
         <div class="group">
-          <div class="cell"><span class="grow">درآمد کاری</span>${arrow(C.work.v - C.work.a, C.work.a, true)}<b>${fmtShort(C.work.v)}</b></div>
-          <div class="cell"><span class="grow">کل خرج</span>${arrow(C.expense.v - C.expense.a, C.expense.a)}<b>${fmtShort(C.expense.v)}</b></div>
+          <div class="cell"><span class="grow">درآمد کاری<small class="avg-line">میانگین ${fmtShort(C.work.a)}</small></span>${arrow(C.work.v - C.work.a, C.work.a, true)}<b>${fmtShort(C.work.v)}</b></div>
+          <div class="cell"><span class="grow">کل خرج<small class="avg-line">میانگین ${fmtShort(C.expense.a)}</small></span>${arrow(C.expense.v - C.expense.a, C.expense.a)}<b>${fmtShort(C.expense.v)}</b></div>
         </div>
-        <div class="group" style="margin-top:10px">${C.rows.map(r => `<div class="cell"><i class="dot" style="background:${CATEGORIES[r.c].color}"></i><span class="grow">${CATEGORIES[r.c].label}<small> · میانگین ${fmtShort(r.a)}</small></span>${arrow(r.d, r.a)}<b>${fmtShort(r.v)}</b></div>`).join('')}</div>` : ''}
+        <div class="group" style="margin-top:10px">${C.rows.map(r => `<div class="cell"><i class="dot" style="background:${CATEGORIES[r.c].color}"></i><span class="grow">${CATEGORIES[r.c].label}<small class="avg-line">میانگین ${fmtShort(r.a)}</small></span>${arrow(r.d, r.a)}<b>${fmtShort(r.v)}</b></div>`).join('')}</div>` : ''}
         ${dayStrip(sel)}
         <button class="btn-plain" data-act="an-open" data-v="${key}">جزئیات ${esc(monthLabel(key))}</button>
       </div>
     </div>
+    <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
     ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join(' · ')}.</p>` : ''}
   </div>`;
 }
 
 const monthName = k => monthLabel(k).split(' ')[0];
+
+// Plain-text report anyone can read: summary, month by month, critique, suggestions.
+function analysisReport() {
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate);
+  const A = analyze(series);
+  if (!A) return 'هنوز داده‌ای برای گزارش نیست.';
+  const m = v => fmtShort(v || 0);
+  const L = [`گزارش مالی — ${monthLabel(A.first)} تا ${monthLabel(A.last)} (${faDigits(A.n)} ماه، تومان)`, ''];
+  L.push('خلاصه', `• ${A.verdict}`, `• میانگین ماهانه: درآمد کاری ${m(A.avgWork)} · خرج ${m(A.avgExp)}`,
+    `• کمک خانواده در کل دوره: ${m(A.family)} (${faDigits(Math.round(A.famShare * 100))}٪ پول ورودی)`, `• دارایی خریده‌شده (دلار، نقره، دوچرخه): ${m(A.asset)}`, '');
+  L.push('ماه به ماه (درآمد کاری / خرج / باقی‌مانده بدون کمک خانواده، با سود فروش مکمل)');
+  for (const x of series) L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.work)} / ${m(x.expense)} / ${x.self >= 0 ? '+' : '−'}${m(Math.abs(x.self))}`);
+  const top = Object.entries(A.cats).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  L.push('', 'بیشترین خرج‌ها در کل دوره');
+  for (const [c, v] of top) L.push(`• ${(CATEGORIES[c] || CATEGORIES.other).label}: ${m(v)} (${faDigits(Math.round(v / A.expense * 100))}٪)`);
+  const sec = (t, list) => list.length && L.push('', t, ...list.map(x => `• ${x.t}: ${x.d}`));
+  sec('انتقاد', A.critiques); sec('پیشنهاد', A.tips); sec('خوب‌ها', A.good);
+  const f = A.flags, notes = [f.unknown && `${m(f.unknown)} ورودی نامشخص جزو درآمد نیست`, f.assumed && `${m(f.assumed)} با حدس درآمد کاری حساب شده`, f.vague && `${m(f.vague)} خرج با عنوان نامعلوم شخصی حساب شده`].filter(Boolean);
+  if (notes.length) L.push('', 'دقت داده: ' + notes.join(' · '));
+  L.push('', 'منبع: جدول Numbers تا مهر، ثبت‌های اپ از آبان. فقط جمع‌ها، بدون نام.');
+  return L.join('\n');
+}
 
 // Day-by-day spending inside one month (only months recorded in the app have days).
 function dayStrip(m) {
@@ -776,8 +797,11 @@ function dayStrip(m) {
   }
   const mx = Math.max(...v, 1);
   const today = Math.floor((Date.now() - start) / 864e5);
+  const past = v.slice(0, Math.min(days, today + 1)).filter(x => x > 0);
+  const avg = past.length ? past.reduce((a, b) => a + b, 0) / past.length : 0;
+  const lo = past.length > 2 ? v.indexOf(Math.min(...past)) : -1;
   return `<div class="section-title">روز به روز</div><div class="group"><div class="cell col">
-    <div class="days">${v.map((x, i) => `<i title="${faDigits(i + 1)}" class="${i > today ? 'future' : ''}" style="height:${x ? Math.max(6, x / mx * 100).toFixed(0) : 3}%"></i>`).join('')}</div>
+    <div class="days">${v.map((x, i) => `<i title="${faDigits(i + 1)}" class="${i > today ? 'future' : i === lo ? 'low' : avg && x > avg ? 'over' : ''}" style="height:${x ? Math.max(6, x / mx * 100).toFixed(0) : 3}%"></i>`).join('')}${avg ? `<span class="avg" style="bottom:${(avg / mx * 100).toFixed(1)}%"></span>` : ''}</div>
     <div class="days-axis"><span>${faDigits(1)}</span><span>${faDigits(Math.ceil(days / 2))}</span><span>${faDigits(days)}</span></div>
   </div></div>`;
 }
@@ -807,23 +831,23 @@ function viewDash() {
     <section class="bento">
       <div class="b-primary">
         <div class="stripes"></div>
-        <div><span class="b-pill">موجودی بلو</span><h3 class="b-hero" data-odo="${Math.round(bal)}">${fmt(bal)}</h3></div>
-        <p class="b-note">${chk ? (Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است.' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی.`) : 'تومان، بر اساس ثبت‌های تو از روز شروع.'}</p>
+        <div><span class="b-pill"><span class="live-dot"></span>موجودی بلو</span><h3 class="b-hero" data-odo="${Math.round(bal)}">${fmt(bal)}</h3></div>
+        <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
       <div class="b-growth">
-        <div><p class="b-label">درآمد ${monthLabel(key).split(' ')[0]}</p><p class="b-value" data-cu="${s.work}" data-f="short">${fmtShort(s.work)}</p>
+        <div><p class="b-label">درآمد کاری ${monthLabel(key).split(' ')[0]}</p><p class="b-value" data-cu="${s.work}" data-f="short">${fmtShort(s.work)}</p>
           <p class="b-sub">${s.family ? `و ${fmtShort(s.family)} از خانواده` : '&nbsp;'}</p></div>
         <div class="b-bars">${incomeBars(T, key)}</div>
       </div>
       <div class="b-count"><p class="b-num" data-cu="${s.count}" data-f="int">${faDigits(s.count)}</p><p class="b-label">تراکنش</p></div>
       <div class="b-rating">
         <div class="b-badge">٪</div>
-        <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج با درآمد پوشش داده شد</p></div>
+        <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج این ماه را درآمد کاری پوشش داده</p></div>
       </div>
     </section>
 
     <div class="dash">
-      <div class="span-6" id="budget">${budgetCard(T)}</div>
+      <div class="span-6" id="trend">${trendCard()}</div>
       <div class="span-6">
         <div class="section-title">خرج‌ها</div>
         <div class="group">${cats.length ? cats.map(([c, v]) => `<div class="cell"><i class="dot" style="background:${(CATEGORIES[c] || CATEGORIES.other).color}"></i><span class="grow">${(CATEGORIES[c] || CATEGORIES.other).label}</span><span class="sec">${faDigits(Math.round(v / (s.expense || 1) * 100))}٪</span><b>${fmtShort(v)}</b></div>`).join('') : '<div class="cell"><span class="sec">خرجی ثبت نشده</span></div>'}</div>
@@ -833,6 +857,43 @@ function viewDash() {
       </div>
     </div></div>`;
 }
+
+// Rotating one-liners under the balance so the app feels alive.
+function liveLines(T, chk) {
+  const now = new Date(), j = toJalali(now), len = monthLength(j.jy, j.jm);
+  const today = T.filter(t => t.type === 'expense' && new Date(t.ts).toDateString() === now.toDateString());
+  const last = T.filter(t => t.src === 'manual').sort((a, b) => b.ts.localeCompare(a.ts))[0];
+  const ms = monthSummary(T, monthKey(now));
+  const lines = [];
+  lines.push(today.length ? `امروز ${faDigits(today.length)} خرج · ${fmtShort(today.reduce((a, t) => a + t.amount, 0))}` : 'امروز هنوز خرجی ثبت نشده');
+  if (last) lines.push(`آخرین ثبت: <span data-ago="${last.ts}">${ago(last.ts)}</span> · ${esc(last.desc)}`);
+  lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)} · ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
+  if (ms.expense && j.jd > 1) lines.push(`با این سرعت، خرج این ماه حدود ${fmtShort(ms.expense / (j.jd - 1 + now.getHours() / 24) * len)} می‌شود`);
+  if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
+  return lines;
+}
+
+function ago(iso) {
+  const m = Math.round((Date.now() - new Date(iso)) / 6e4);
+  if (m < 1) return 'همین حالا';
+  if (m < 60) return `${faDigits(m)} دقیقه پیش`;
+  if (m < 60 * 24) return `${faDigits(Math.round(m / 60))} ساعت پیش`;
+  const d = Math.round(m / 1440);
+  return d === 1 ? 'دیروز' : `${faDigits(d)} روز پیش`;
+}
+
+// One clock for all live bits: rotate tickers, refresh «… ago» labels.
+let liveTick = 0;
+setInterval(() => {
+  liveTick++;
+  if (liveTick % 4 === 0) document.querySelectorAll('[data-ticker]').forEach(el => {
+    const items = [...el.children];
+    if (items.length < 2) return;
+    const i = items.findIndex(x => x.classList.contains('on'));
+    items[i].classList.remove('on'); items[(i + 1) % items.length].classList.add('on');
+  });
+  if (liveTick % 30 === 0) document.querySelectorAll('[data-ago]').forEach(el => { el.textContent = ago(el.dataset.ago); });
+}, 1000);
 
 // Eleven bars of cumulative income through the month, like the bento "growth" tile.
 function incomeBars(T, key) {
@@ -849,102 +910,160 @@ function incomeBars(T, key) {
   return pts.map(v => `<i class="${v ? '' : 'zero'}" style="height:${Math.max(8, v / max * 100).toFixed(0)}%"></i>`).join('');
 }
 
-// Spending per day for the last 7 days (week) or this month (month).
-function spendSeries(T) {
-  const today = new Date();
-  const days = S.budgetMode === 'month' ? toJalali(today).jd : 7;
-  const out = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-    out.push({ d, label: S.budgetMode === 'month' ? faDigits(toJalali(d).jd) : WEEKDAY_SHORT[d.getDay()], value: 0 });
+// ----- Trend chart (TradingView-like): one field over time, crosshair, compare, measure -----
+const TR_FIELDS = [['expense', 'کل خرج'], ['work', 'درآمد کاری'], ['family', 'از خانواده'],
+  ...PICKABLE_CATS.map(c => [c, CATEGORIES[c].label])];
+const TR_FRAMES = [['1w', '۷ روز'], ['1m', 'این ماه'], ['3m', '۳ ماه'], ['6m', '۶ ماه'], ['all', 'همه']];
+const trLabel = f => (TR_FIELDS.find(x => x[0] === f) || [, ''])[1];
+const trColor = f => f === 'work' ? '#30d158' : f === 'family' ? '#ff9f0a' : f === 'expense' ? '#f2f2f4' : CATEGORIES[f].color;
+const upGood = f => f === 'work' || f === 'family';
+
+// Money of one field inside a transaction (daily frames) or a month record (monthly frames).
+const txValue = (t, f) => f === 'expense' ? (t.type === 'expense' ? t.amount : 0)
+  : f === 'work' ? (t.type === 'income_work' ? t.amount : 0)
+  : f === 'family' ? (t.type === 'family' ? t.amount : 0)
+  : (t.type === 'expense' && t.cat === f ? t.amount : 0);
+const monthValue = (m, f) => ['expense', 'work', 'family'].includes(f) ? (m[f] || 0) : ((m.byCat || {})[f] || 0);
+
+function trendPoints(field, frame) {
+  const T = scoped(), now = new Date();
+  if (frame === '1w' || frame === '1m') {
+    const n = frame === '1w' ? 7 : toJalali(now).jd;
+    const pts = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+      pts.push({ d, label: frame === '1w' ? WEEKDAY_SHORT[d.getDay()] : faDigits(toJalali(d).jd), full: formatJalali(d), value: 0, running: i === 0 });
+    }
+    for (const t of T) {
+      const d = new Date(t.ts), idx = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - pts[0].d) / 864e5);
+      if (idx >= 0 && idx < n) pts[idx].value += txValue(t, field);
+    }
+    return pts;
   }
-  const first = out[0].d;
-  for (const t of T) {
-    if (t.type !== 'expense') continue;
-    const d = new Date(t.ts);
-    if (d < first) continue;
-    const idx = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - first) / 864e5);
-    if (idx >= 0 && idx < out.length) out[idx].value += t.amount;
-  }
-  return out;
+  const series = monthsSeries(S.history, T, S.settings.startDate);
+  const keep = frame === '3m' ? 3 : frame === '6m' ? 6 : series.length;
+  return series.slice(-keep).map(m => {
+    const p = { key: m.key, label: monthLabel(m.key).split(' ')[0], full: monthLabel(m.key), value: monthValue(m, field), running: !!m.running };
+    if (m.running && !upGood(field)) {
+      // Straight-line projection of the running month from the days passed so far.
+      const { start, end } = monthRange(m.key);
+      const k = Math.min(1, Math.max(.05, (now - start) / (end - start)));
+      p.proj = p.value / k;
+    }
+    return p;
+  });
 }
 
-function budgetCard(T) {
-  const data = spendSeries(T);
-  const total = data.reduce((x, y) => x + y.value, 0);
-  const prevStart = new Date(data[0].d); prevStart.setDate(prevStart.getDate() - data.length);
-  let prev = 0;
-  for (const t of T) { const d = new Date(t.ts); if (t.type === 'expense' && d >= prevStart && d < data[0].d) prev += t.amount; }
-  const diff = total - prev;
-  const W = 360, H = 160, pad = { top: 40, bottom: 35, left: 12, right: 12 };
-  const max = Math.max(...data.map(d => d.value)), min = Math.min(...data.map(d => d.value));
-  const range = max - min || 1;
-  const n = data.length;
-  const X = i => pad.left + (n === 1 ? 0 : i / (n - 1)) * (W - pad.left - pad.right);
-  const Y = v => H - pad.bottom - (v - min) / range * (H - pad.top - pad.bottom);
-  const pts = data.map((d, i) => [X(i), Y(d.value)]);
-  const line = smooth(pts);
-  const hi = S.budgetHover == null || S.budgetHover >= n ? n - 1 : S.budgetHover;
-  const step = Math.ceil(n / 8);
-  const tipX = X(hi) / W * 100;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" class="bc-chart" id="bc-svg">
-    <defs><linearGradient id="bcArea" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="var(--tint)" stop-opacity=".32"/><stop offset="55%" stop-color="var(--tint)" stop-opacity=".12"/><stop offset="100%" stop-color="var(--tint)" stop-opacity=".02"/></linearGradient></defs>
-    ${data.map((_, i) => (n <= 8 || i % step === 0) ? `<line x1="${X(i)}" y1="${pad.top}" x2="${X(i)}" y2="${H - pad.bottom}" class="bc-grid" opacity="${i === hi ? .9 : .5}"/>` : '').join('')}
-    <path d="${line} L ${X(n - 1)} ${H - pad.bottom} L ${X(0)} ${H - pad.bottom} Z" fill="url(#bcArea)"/>
-    <path d="${line}" pathLength="1" class="draw" fill="none" stroke="var(--tint)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="12" fill="#fff" opacity=".6"/>
-    <circle cx="${X(hi)}" cy="${Y(data[hi].value)}" r="7" fill="#fff" stroke="var(--tint)" stroke-width="3"/>
-    ${data.map((d, i) => (i % step === 0 || i === n - 1) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day">${d.label}</text>` : '').join('')}
+const axisNum = v => v >= 1e6 ? faDigits(String(Math.round(v / 1e5) / 10).replace('.', '٫')) : v >= 1e3 ? faDigits(Math.round(v / 1e3)) + 'ه' : faDigits(Math.round(v));
+
+function trendCard() {
+  const tr = S.tr;
+  const pts = trendPoints(tr.field, tr.frame);
+  const cmp = tr.cmp ? trendPoints(tr.cmp, tr.frame) : null;
+  const n = pts.length;
+  const W = 360, H = 210, pad = { t: 18, b: 28, l: 8, r: 40 };
+  const vals = [...pts.map(p => p.value), ...pts.map(p => p.proj || 0), ...(cmp ? cmp.map(p => p.value) : [])];
+  const top = Math.max(1, ...vals) * 1.12;
+  const X = i => pad.l + (n === 1 ? (W - pad.l - pad.r) / 2 : i * (W - pad.l - pad.r) / (n - 1));
+  const Y = v => pad.t + (H - pad.t - pad.b) * (1 - v / top);
+  const line = arr => smooth(arr.map((p, i) => [X(i), Y(p.value)]));
+  const done = pts.filter(p => !p.running);
+  const avg = done.length ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
+  // Without a finger on the chart, show the month open in «خلاصه».
+  const focus = pts.findIndex(p => p.key === S.month);
+  const hi = tr.hover == null || tr.hover >= n ? (focus >= 0 ? focus : n - 1) : tr.hover;
+  const cur = pts[hi], prev = pts[hi - 1];
+  const daily = tr.frame === '1w' || tr.frame === '1m';
+  // A month still running is compared by its projection, not by its partial total.
+  const curV = cur.running && cur.proj ? cur.proj : cur.value;
+  const delta = prev && prev.value && !(cur.running && !cur.proj && !daily) ? (curV - prev.value) / prev.value : null;
+  const prevName = daily ? 'روز قبل' : prev ? prev.label : '';
+  const good = delta == null ? null : (delta > 0) === upGood(tr.field);
+  const grid = [0, .25, .5, .75, 1].map(k => top / 1.12 * k);
+  const last = pts[n - 1];
+  const col = trColor(tr.field);
+  // Measure tool: two pinned points and the change between them.
+  const A = tr.a != null && tr.a < n ? tr.a : null, B = tr.b != null && tr.b < n ? tr.b : null;
+  let measure = '';
+  if (A != null && B != null) {
+    const [i, j] = A < B ? [A, B] : [B, A], va = pts[i].value, vb = pts[j].value, ch = va ? (vb - va) / va : null;
+    const g = ch == null ? null : (ch > 0) === upGood(tr.field);
+    measure = `<rect x="${X(i)}" y="${pad.t}" width="${X(j) - X(i)}" height="${H - pad.t - pad.b}" class="tr-measure ${g === null ? '' : g ? 'up' : 'down'}"/>`;
+    tr.mText = `از ${pts[i].label} تا ${pts[j].label}: ${ch == null ? '' : `${ch > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(ch * 100)))}٪ · `}${vb >= va ? '+' : '−'}${fmtShort(Math.abs(vb - va))}`;
+    tr.mGood = g;
+  } else tr.mText = A != null ? `${pts[A].label} انتخاب شد؛ نقطهٔ دوم را بزن` : '';
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="tr-svg" id="tr-svg">
+    <defs><linearGradient id="trA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    ${grid.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" class="tr-grid"/><text x="${W - pad.r + 6}" y="${Y(v) + 3}" class="tr-axis">${axisNum(v)}</text>`).join('')}
+    ${measure}
+    ${avg ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(avg)}" y2="${Y(avg)}" class="bc-avg"/>` : ''}
+    <path d="${line(pts)} L${X(n - 1)},${H - pad.b} L${X(0)},${H - pad.b} Z" fill="url(#trA)"/>
+    ${cmp ? `<path d="${line(cmp)}" fill="none" stroke="${trColor(tr.cmp)}" stroke-width="1.6" stroke-dasharray="1 0" opacity=".85" stroke-linecap="round"/>` : ''}
+    <path d="${line(pts)}" pathLength="1" class="draw" fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${last.proj ? `<line x1="${X(n - 1)}" y1="${Y(last.value)}" x2="${X(n - 1)}" y2="${Y(last.proj)}" stroke="${col}" stroke-width="1.5" stroke-dasharray="2 4" opacity=".7"/><circle cx="${X(n - 1)}" cy="${Y(last.proj)}" r="3.5" fill="none" stroke="${col}" stroke-width="1.5"/>` : ''}
+    <line x1="${X(hi)}" x2="${X(hi)}" y1="${pad.t}" y2="${H - pad.b}" class="tr-cross"/>
+    <line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(cur.value)}" y2="${Y(cur.value)}" class="tr-cross"/>
+    <rect x="${W - pad.r + 1}" y="${Y(cur.value) - 8}" width="${pad.r - 2}" height="16" rx="4" fill="${col}"/><text x="${W - pad.r + 6}" y="${Y(cur.value) + 4}" class="tr-axis tr-axis-on">${axisNum(cur.value)}</text>
+    ${[A, B].filter(x => x != null).map(i => `<circle cx="${X(i)}" cy="${Y(pts[i].value)}" r="5" fill="#0b0c0e" stroke="#fff" stroke-width="2"/>`).join('')}
+    ${last.running ? `<circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}"/><circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}" class="tr-pulse"/>` : ''}
+    <circle cx="${X(hi)}" cy="${Y(cur.value)}" r="5" fill="#fff"/>
+    ${pts.map((p, i) => (n <= 6 || (n - 1 - i) % Math.ceil(n / 6) === 0) ? `<text x="${X(i)}" y="${H - 8}" text-anchor="middle" class="bc-day">${p.label}</text>` : '').join('')}
   </svg>`;
-  return `<div class="bc-shell"><div class="bc">
+  const chips = (list, on, act) => list.map(([k, l]) => `<button data-act="${act}" data-v="${k}" class="${on === k ? 'on' : ''}">${act !== 'tr-frame' ? `<i style="background:${trColor(k)}"></i>` : ''}${l}</button>`).join('');
+  return `<div class="bc-shell"><div class="bc tr">
+    <div class="tr-fields">${chips(TR_FIELDS, tr.field, 'tr-field')}</div>
     <div class="bc-head">
       <div>
-        <div class="row"><p class="bc-label">${S.budgetMode === 'month' ? 'خرج این ماه' : 'خرج ۷ روز اخیر'}</p></div>
-        <h2 class="bc-total" data-cu="${total}" data-f="short">${fmtShort(total)}</h2>
-        <div class="bc-pill"><span>${diff > 0 ? '+' : diff < 0 ? '−' : ''} ${fmtShort(Math.abs(diff))}</span>
-          <svg viewBox="0 0 16 16" class="${diff > 0 ? '' : 'down'}"><path d="M2 11L6 7L9 10L14 4"/><path d="M10 4H14V8"/></svg></div>
+        <p class="bc-label">${esc(trLabel(tr.field))} · ${esc(cur.full)}${cur.running ? ' <span class="live-dot"></span><span class="sec">تا الان</span>' : ''}</p>
+        <h2 class="bc-total">${fmtShort(cur.value)}</h2>
+        <div class="row" style="flex-wrap:wrap">
+          ${delta != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(delta * 100)))}٪ ${cur.running && cur.proj ? 'پیش‌بینی' : ''} نسبت به ${esc(prevName)}</span>` : ''}
+          ${cur.proj ? `<span class="tr-delta">پیش‌بینی آخر ماه: ${fmtShort(cur.proj)}</span>` : ''}
+        </div>
       </div>
-      <div class="bc-money">${moneyIllustration()}</div>
     </div>
-    <div class="bc-wrap">${svg}
-      <div class="bc-tip" style="left:${tipX.toFixed(2)}%;top:${(Y(data[hi].value) / H * 100).toFixed(2)}%;--tx:${tipX > 80 ? -86 : tipX < 20 ? -14 : -50}%;--ax:${tipX > 80 ? 86 : tipX < 20 ? 14 : 50}%"><span>${fmtShort(data[hi].value)}</span><i></i></div>
+    <div class="bc-wrap" id="tr-wrap">${svg}</div>
+    <div class="tr-foot">
+      <div class="segmented sm tr-frames">${chips(TR_FRAMES, tr.frame, 'tr-frame')}</div>
+      <div class="row tr-tools">
+        <button class="tr-tool ${tr.measure ? 'on' : ''}" data-act="tr-measure">${ICON.ruler}<span>اندازه‌گیری</span></button>
+        <button class="tr-tool ${tr.picking || tr.cmp ? 'on' : ''}" data-act="tr-cmp">${ICON.layers}<span>${tr.cmp ? `مقایسه با ${esc(trLabel(tr.cmp))}` : 'مقایسه'}</span></button>
+      </div>
     </div>
-    <div class="segmented sm bc-seg">${[['week', 'هفته'], ['month', 'ماه']].map(([k, l]) => `<button data-act="bmode" data-v="${k}" class="${(S.budgetMode || 'week') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-
+    ${tr.picking ? `<div class="tr-fields tr-cmp">${chips(TR_FIELDS.filter(x => x[0] !== tr.field), tr.cmp, 'tr-cmpf')}</div>` : ''}
+    ${tr.mText ? `<p class="tr-mtext ${tr.mGood === true ? 'good' : tr.mGood === false ? 'bad' : ''}">${esc(tr.mText)}</p>` : ''}
+    <p class="tr-legend"><span><i style="background:${col}"></i>${esc(trLabel(tr.field))}</span>${cmp ? `<span><i style="background:${trColor(tr.cmp)}"></i>${esc(trLabel(tr.cmp))}</span>` : ''}${avg ? '<span><i class="dash"></i>میانگین</span>' : ''}${last.proj ? '<span><i class="ring"></i>پیش‌بینی</span>' : ''}</p>
   </div></div>`;
 }
 
-function moneyIllustration() {
-  const bill = (tx, ty, rot, fill, sh) => `<g transform="translate(${tx}, ${ty}) rotate(${rot}, 40, 25)" filter="url(#${sh})">
-      <rect width="80" height="48" rx="6" fill="${fill}"/><circle cx="62" cy="14" r="7" fill="#d9d9de"/><circle cx="62" cy="34" r="5" fill="#d9d9de"/></g>`;
-  return `<svg viewBox="0 0 130 110">
-    <defs>
-      <linearGradient id="bl1" x1="0" y1="0" x2=".3" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e5e5ea"/></linearGradient>
-      <linearGradient id="bl2" x1="0" y1="0" x2=".2" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#ececf0"/></linearGradient>
-      <linearGradient id="bl3" x1="0" y1="0" x2=".1" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#f2f2f5"/></linearGradient>
-      <filter id="bs1" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="6" stdDeviation="4" flood-opacity=".06"/></filter>
-      <filter id="bs2" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="4" stdDeviation="3" flood-opacity=".1"/></filter>
-      <filter id="bs3" x="-30%" y="-30%" width="160%" height="180%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity=".09"/></filter>
-    </defs>
-    ${bill(8, 12, -20, 'url(#bl1)', 'bs1')}${bill(22, 28, -10, 'url(#bl2)', 'bs2')}${bill(38, 44, -2, 'url(#bl3)', 'bs3')}
-  </svg>`;
-}
+function redrawTrend() { const el = document.getElementById('trend'); if (el) el.innerHTML = trendCard(); }
 
-function bindBudget() {
-  const el = document.getElementById('budget');
+function bindTrend() {
+  const el = document.getElementById('trend');
   if (!el) return;
-  const onMove = e => {
-    const svg = document.getElementById('bc-svg');
-    if (!svg) return;
-    const r = svg.getBoundingClientRect();
-    const n = spendSeries(scoped()).length;
-    const rel = (e.clientX - r.left) / r.width;
-    const idx = Math.max(0, Math.min(n - 1, Math.round(((rel * 360) - 12) / (336 / Math.max(1, n - 1)))));
-    if (idx !== S.budgetHover) { S.budgetHover = idx; el.innerHTML = budgetCard(scoped()); }
+  const idxAt = e => {
+    const svg = document.getElementById('tr-svg');
+    if (!svg) return null;
+    const r = svg.getBoundingClientRect(), n = trendPoints(S.tr.field, S.tr.frame).length;
+    const x = (e.clientX - r.left) / r.width * 360;
+    return Math.max(0, Math.min(n - 1, Math.round((x - 8) / ((360 - 48) / Math.max(1, n - 1)))));
   };
-  el.addEventListener('pointermove', onMove);
-  el.addEventListener('pointerdown', onMove);
+  const redraw = () => { el.innerHTML = trendCard(); };
+  el.addEventListener('pointermove', e => {
+    if (!e.target.closest('#tr-wrap')) return;
+    const i = idxAt(e);
+    if (i != null && i !== S.tr.hover) { S.tr.hover = i; redraw(); }
+  });
+  el.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#tr-wrap')) return;
+    const i = idxAt(e);
+    if (i == null) return;
+    S.tr.hover = i;
+    if (S.tr.measure) {
+      if (S.tr.a == null || S.tr.b != null) { S.tr.a = i; S.tr.b = null; } else S.tr.b = i;
+    }
+    redraw();
+  });
 }
 
 // Smooth path through points (Catmull-Rom converted to cubic Béziers).
@@ -986,11 +1105,11 @@ function viewSettings() {
 
     <div class="section-title">نمایش</div>
     <div class="group">
-      ${toggle('showHistory', 'نمایش اطلاعات قبل از شروع')}
+      ${toggle('showHistory', 'نشان دادن ثبت‌های آزمایشی قبل از شروع')}
     </div>
 
     <div class="section-title">تحلیل</div>
-    <div class="group"><button class="cell" data-act="pack"><span class="tint">کپی خلاصهٔ ماه برای Claude</span></button></div>
+    <div class="group"><button class="cell" data-act="pack"><span class="tint">گزارش متنی (برای خودم یا Claude)</span></button></div>
 
     <div class="section-title">حساب</div>
     <div class="group">
@@ -1131,13 +1250,18 @@ document.addEventListener('click', async e => {
       await importBackupData(await loadBundle(pw));
       toast('تاریخچه بارگذاری شد'); render();
     }
-    else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); render(); }
-    else if (a === 'bmode') { S.budgetMode = b.dataset.v; S.budgetHover = null; render(); }
+    else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); S.tr.hover = null; render(); }
+    else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
+    else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null, a: null, b: null }); redrawTrend(); }
+    else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }
+    else if (a === 'tr-cmp') { if (S.tr.cmp) Object.assign(S.tr, { cmp: null, picking: false }); else S.tr.picking = !S.tr.picking; redrawTrend(); }
+    else if (a === 'tr-cmpf') { Object.assign(S.tr, { cmp: b.dataset.v, picking: false }); redrawTrend(); }
     else if (a === 'toggle') { S.settings[b.dataset.v] = !S.settings[b.dataset.v]; await saveSettings(); render(); }
-    else if (a === 'pack') {
-      const text = claudePack(scoped(), S.settings, S.month);
+    else if (a === 'pack' || a === 'report') {
+      const text = analysisReport();
+      if (navigator.share) { try { await navigator.share({ text }); return; } catch (err) { if (err.name === 'AbortError') return; } }
       try { await navigator.clipboard.writeText(text); toast('کپی شد'); }
-      catch { openSheet(`<div class="sheet-nav"><span></span><b>خلاصهٔ ماه</b><button class="link" data-close>بستن</button></div><textarea class="field" rows="14" readonly>${esc(text)}</textarea>`); }
+      catch { openSheet(`<div class="sheet-nav"><span></span><b>گزارش</b><button class="link" data-close>بستن</button></div><textarea class="field" rows="14" readonly>${esc(text)}</textarea>`); }
     }
     else if (a === 'export') await exportBackup();
     else if (a === 'pick-json') document.getElementById('file-json').click();

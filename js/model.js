@@ -27,7 +27,7 @@ export const CATEGORIES = {
   food:      { label: 'غذا', color: '#ff9500' },
   personal:  { label: 'شخصی', color: '#af52de' },
   home:      { label: 'خانه', color: '#34c759' },
-  car:       { label: 'ماشین', color: '#007aff' },
+  car:       { label: 'ماشین و رفت‌وآمد', color: '#007aff' },
   weekend:   { label: 'تفریح و سفر', color: '#ff2d55' },
   digital:   { label: 'اشتراک‌ها', color: '#5ac8fa' },
   health:    { label: 'سلامت و ورزش', color: '#30b0c7' },
@@ -56,12 +56,13 @@ const TYPE_RULES = [
   [/supp|مکمل|amino/, { out: 'inventory', in: 'sale', ctx: 'supplement' }],
   [/seenzhin|seen zhin|سینژین|سین ژین/, { out: 'on_behalf', in: 'reimburse', ctx: 'seenzhin' }],
   [/مامان|بابا|مادر|پدر|عیدی|eydi/, { in: 'family' }],
+  [/کلاس|جلسه|شاگرد|کوچینگ|تمرین|برنامه|حقوق|دستمزد|مربیگری/, { in: 'income_work', ctx: 'coaching' }],
   [/جابجایی|جابه جایی|انتقال/, { out: 'transfer_out', in: 'transfer_in' }],
 ];
 
 const CAT_RULES = [
   [/سوپر|نان|نانوایی|میوه|غذا|ناهار|نهار|شام|صبحانه|کافه|قهوه|رستوران|food|اسنپ ?فود|فست|پیتزا/, 'food'],
-  [/بنزین|کارواش|تعمیر ماشین|ماشین|car|پارکینگ|عوارض/, 'car'],
+  [/بنزین|کارواش|تعمیر ماشین|ماشین|car|پارکینگ|عوارض|تاکسی|اسنپ|تپسی|مترو|اتوبوس|کرایه/, 'car'],
   [/خانه|اجاره|قبض برق|قبض گاز|آب|home|لوازم خانه|شارژ ساختمان/, 'home'],
   [/vpn|chatgpt|gpt|ai |^ai$|ai plan|اینترنت|internet|اشتراک|قبض موبایل|شارژ موبایل|سیم ?کارت|apple|icloud/, 'digital'],
   [/دندان|dentis|فیزیو|physio|ماساژ|massage|دکتر|دارو|داروخانه|باشگاه|بوکس|box|ورزش|پزشک/, 'health'],

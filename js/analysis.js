@@ -58,7 +58,7 @@ export function analyze(series) {
     }
     if (best) {
       const avg = cats[best.c] / n;
-      critiques.push({ w: (best.b - best.a) * h, t: `${label(best.c)} مدام بالا رفته`, d: `از ماهی ${fmtShort(best.a)} در ماه‌های اول به ${fmtShort(best.b)} در ماه‌های آخر (${faDigits((best.b / best.a).toFixed(1))} برابر).` });
+      critiques.push({ w: (best.b - best.a) * h, t: `${label(best.c)} مدام بالا رفته`, d: `از ماهی ${fmtShort(best.a)} در ماه‌های اول به ${fmtShort(best.b)} در ماه‌های آخر (${faDigits((best.b / best.a).toFixed(1).replace('.', '٫'))} برابر).` });
       if (best.b > avg) tips.push({ w: (best.b - avg) * 12, t: `${label(best.c)} را به میانگین خودت برگردان`, d: `میانگین تو ماهی ${fmtShort(avg)} است. یعنی ماهی ${fmtShort(best.b - avg)} و سالی ${fmtShort((best.b - avg) * 12)} آزاد می‌شود.` });
     }
   }
@@ -73,12 +73,11 @@ export function analyze(series) {
   }
   if (asset) {
     const k = done.filter(m => m.asset > 0);
-    good.push({ t: 'پس‌انداز کردی', d: `${fmtShort(asset)} پول به دلار، نقره و دارایی تبدیل شد.` });
+    good.push({ t: 'دارایی خریدی', d: `${fmtShort(asset)} پول به دلار، نقره و دوچرخه تبدیل شد، نه خرج.` });
     if (k.length <= n / 2) tips.push({ w: asset / 2, t: 'پس‌انداز ماهانهٔ ثابت', d: `پس‌اندازت یک‌جا و فقط در ${faDigits(k.length)} ماه بود. اول هر ماه مبلغ ثابتی کنار بگذار، مثلاً ${fmtShort(asset / n)}.` });
   }
   const best = done.reduce((x, m) => (m.self > x.self ? m : x), done[0]);
   if (best.self > 0) good.push({ t: `${name(best.key)} بهترین ماهت بود`, d: `بدون کمک خانواده ${fmtShort(best.self)} از کار خودت ماند.` });
-  if (avgWork) good.push({ t: 'درآمد کاری', d: `میانگین ماهی ${fmtShort(avgWork)}${done.some(m => m.sourceCount) ? ` از حدود ${faDigits(Math.round(sum('sourceCount') / n))} منبع` : ''}.` });
 
   const by = (a, b) => b.w - a.w;
   const flags = {};
