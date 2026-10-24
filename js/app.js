@@ -76,7 +76,7 @@ async function fixAban1() {
   await saveSettings();
 }
 
-function refresh() { S.tpl = buildTemplates(S.tx); }
+function refresh() { S.tpl = buildTemplates(S.tx.filter(t => !isRound(t))); }
 
 // Self-updating: whenever the app is opened or comes back online, look for a new version and
 // switch to it automatically (only while nothing is being typed).
@@ -106,14 +106,44 @@ async function putTx(list) {
     const i = S.tx.findIndex(x => x.id === t.id);
     if (i >= 0) S.tx[i] = t; else S.tx.push(t);
   }
-  await db.putManyTx(list);
+  const { put, drop } = syncRoundUps(list, now);
+  await db.putManyTx([...list, ...put]);
+  for (const id of drop) await db.deleteTx(id);
   refresh();
 }
 
 async function delTx(id) {
-  S.tx = S.tx.filter(t => t.id !== id);
-  await db.deleteTx(id);
+  const gone = S.tx.filter(t => t.id === id || t.ru === id).map(t => t.id);
+  S.tx = S.tx.filter(t => !gone.includes(t.id));
+  for (const x of gone) await db.deleteTx(x);
   refresh();
+}
+
+// Blu «رند»: every card purchase is rounded up to the next step and the difference goes to the Box.
+// Each expense gets a hidden companion «رند بلو» saving so the balance stays equal to Blu's.
+const isRound = t => t.src === 'roundup';
+function roundFor(t) {
+  const st = S.settings;
+  if (!st.roundUp || t.type !== 'expense' || t.src !== 'manual' || !st.roundSince || t.created < st.roundSince) return null;
+  const step = st.roundStep || 100000, r = (step - t.amount % step) % step;
+  return r;
+}
+function syncRoundUps(list, now) {
+  const put = [], drop = [];
+  for (const t of list) {
+    if (isRound(t)) continue;
+    const want = roundFor(t);
+    const c = S.tx.find(x => x.ru === t.id);
+    if (want == null) { if (c && t.type !== 'expense') drop.push(c.id); continue; }
+    if (!want) { if (c) drop.push(c.id); continue; }
+    const comp = { ...(c || { id: newId(), created: now }), ru: t.id, src: 'roundup', dir: 'out', type: 'asset', cat: null, ctx: 'personal',
+      amount: want, desc: 'رند بلو', cp: 'باکس بلو', ts: new Date(new Date(t.ts).getTime() + 1000).toISOString(), status: 'ok', updated: now };
+    const i = S.tx.findIndex(x => x.id === comp.id);
+    if (i >= 0) S.tx[i] = comp; else S.tx.push(comp);
+    put.push(comp);
+  }
+  if (drop.length) S.tx = S.tx.filter(x => !drop.includes(x.id));
+  return { put, drop };
 }
 
 const saveSettings = () => db.set('settings', S.settings);
@@ -132,6 +162,11 @@ function entryDate() {
   const d = new Date();
   d.setDate(d.getDate() - S.dayBack);
   return d;
+}
+
+function roundNote(t) {
+  const c = S.tx.find(x => x.ru === t.id);
+  return c ? ` · رند ${esc(fmtShort(c.amount))}` : '';
 }
 
 function subtitle(t) {
@@ -634,7 +669,7 @@ function listBento() {
 
 function listBody() {
   const q = norm(S.listQuery), qn = parseAmount(S.listQuery);
-  const items = scoped().filter(t =>
+  const items = scoped().filter(t => !isRound(t) &&
     (S.listFilter === 'all' || (S.listFilter === 'pending' ? t.status === 'pending' : t.dir === S.listFilter)) &&
     (!q || norm(t.desc).includes(q) || norm(t.cp).includes(q) || norm(t.bank?.name).includes(q) || (qn && Math.abs(t.amount - qn) < 1)));
   items.sort((a, b) => b.ts.localeCompare(a.ts));
@@ -656,7 +691,7 @@ function itemHtml(t) {
   const time = faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
   return `<button class="cell tx ${t.id === S.lastId ? 'new' : ''}" data-act="edit" data-id="${t.id}">
     <i class="dot" style="background:${dotColor(t)}"></i>
-    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))} · ${time}</span></span>
+    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))} · ${time}${roundNote(t)}</span></span>
     ${amountHtml(t)}</button>`;
 }
 
@@ -865,7 +900,7 @@ function viewDash() {
           <p class="b-sub">${s.family ? `و ${fmtShort(s.family)} از خانواده` : '&nbsp;'}</p></div>
         <div class="b-bars">${incomeBars(T, key)}</div>
       </div>
-      <div class="b-count"><p class="b-num" data-cu="${s.count}" data-f="int">${faDigits(s.count)}</p><p class="b-label">تراکنش</p></div>
+      <div class="b-count"><p class="b-num" data-cu="${s.count - s.rounds}" data-f="int">${faDigits(s.count - s.rounds)}</p><p class="b-label">تراکنش</p></div>
       <div class="b-rating">
         <div class="b-badge">٪</div>
         <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج این ماه را درآمد کاری پوشش داده</p></div>
@@ -1127,7 +1162,9 @@ function viewSettings() {
       <button class="cell" data-act="pick-xlsx"><span class="tint">وارد کردن صورت‌حساب بلو</span></button>
       <div class="cell"><span>موجودی واقعی بلو</span><input class="bare end" id="bank-bal" inputmode="numeric" placeholder="مبلغ"></div>
       <button class="cell" data-act="check"><span class="tint">مقایسه با موجودی اپ</span><span class="sec" id="check-res">${fmt(balanceAt(S.tx, S.settings))}</span></button>
+      ${toggle('roundUp', 'رند بلو (تا ۱۰۰ هزار تومان)')}
     </div>
+    <p class="foot">${st.roundUp ? `از ${esc(formatJalali(new Date(st.roundSince)))}، با هر خرج، فرقش تا ۱۰۰ هزار تومان بعدی خودکار «پس‌انداز باکس» حساب می‌شود؛ مثل خود بلو.` : 'اگر «رند» در بلو روشن است، این را روشن کن تا موجودی اپ با بلو یکی بماند.'}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
@@ -1282,7 +1319,12 @@ document.addEventListener('click', async e => {
     else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }
     else if (a === 'tr-cmp') { if (S.tr.cmp) Object.assign(S.tr, { cmp: null, picking: false }); else S.tr.picking = !S.tr.picking; redrawTrend(); }
     else if (a === 'tr-cmpf') { Object.assign(S.tr, { cmp: b.dataset.v, picking: false }); redrawTrend(); }
-    else if (a === 'toggle') { S.settings[b.dataset.v] = !S.settings[b.dataset.v]; await saveSettings(); render(); }
+    else if (a === 'toggle') {
+      const k = b.dataset.v;
+      S.settings[k] = !S.settings[k];
+      if (k === 'roundUp' && S.settings.roundUp) S.settings.roundSince = new Date().toISOString();
+      await saveSettings(); render();
+    }
     else if (a === 'pack' || a === 'report') {
       const text = analysisReport();
       if (navigator.share) { try { await navigator.share({ text }); return; } catch (err) { if (err.name === 'AbortError') return; } }

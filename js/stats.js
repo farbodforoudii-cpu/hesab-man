@@ -11,7 +11,7 @@ export function summarize(txs) {
   const s = {
     work: 0, family: 0, sale: 0, otherIn: 0, reimburse: 0, loanIn: 0, fundOut: 0, transferIn: 0,
     expense: 0, asset: 0, inventory: 0, onBehalf: 0, loanPay: 0, fundIn: 0, transferOut: 0,
-    in: 0, out: 0, count: txs.length, byCat: {}, bySource: {}, byAsset: {}, pending: 0,
+    in: 0, out: 0, count: txs.length, rounds: txs.filter(t => t.src === 'roundup').length, byCat: {}, bySource: {}, byAsset: {}, pending: 0,
   };
   for (const t of txs) {
     const a = t.amount;
