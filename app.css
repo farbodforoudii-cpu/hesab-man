@@ -615,3 +615,17 @@ nav.tabs button.on svg { color: var(--tint); }
 .month-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255, 255, 255, .04); color: var(--label); font-size: 15px; font-weight: 600; }
 .month-btn span { color: var(--sec); font-size: 11px; }
 .tv-cmp i.dash { width: 14px; height: 0; border-radius: 0; border-top: 1.5px dashed rgba(255,255,255,.55); vertical-align: 3px; }
+
+/* Tap for details */
+.tap { cursor: pointer; transition: transform .15s; }
+.tap:active { transform: scale(.985); }
+.bar-row { width: 100%; text-align: inherit; }
+.bar-row svg { width: 14px; height: 14px; color: var(--ter); flex: 0 0 auto; }
+.tv-num { display: inline-flex; align-items: center; gap: 4px; }
+.tv-num b { font-size: 26px; font-weight: 600; }
+.tv-num svg { width: 16px; height: 16px; color: var(--ter); }
+.det-head { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0 14px; }
+.det-head b { font-size: 30px; font-weight: 600; direction: ltr; }
+.det-head b small { font-size: 14px; color: var(--sec); font-weight: 500; }
+.det-note { margin: 0 4px 12px; }
+.sheet .cell b.green { color: var(--green); } .sheet .cell b.red { color: #ff6b61; } .sheet .cell .tint { color: var(--tint); }

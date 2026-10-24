@@ -686,9 +686,9 @@ function listBody() {
     + (items.length > shown.length ? `<button class="btn-plain" data-act="more">بیشتر</button>` : '');
 }
 
-function itemHtml(t) {
+function itemHtml(t, withDay = false) {
   const d = new Date(t.ts);
-  const time = faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+  const time = (withDay ? dayLabel(d).replace(/^(امروز|دیروز) · /, '$1 ') + ' · ' : '') + faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
   return `<button class="cell tx ${t.id === S.lastId ? 'new' : ''}" data-act="edit" data-id="${t.id}">
     <i class="dot" style="background:${dotColor(t)}"></i>
     <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))} · ${time}${roundNote(t)}</span></span>
@@ -741,7 +741,7 @@ function histUnlock() {
 }
 
 // «… در یک نگاه»: what came in, what went out, the biggest items, and a few plain sentences.
-function storyHtml(key, { ins, outs, days, h, bank, hero = true }) {
+function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false }) {
   const sum = arr => arr.reduce((a, x) => a + x[1], 0);
   const inT = sum(ins), outT = sum(outs) + sum(days || []), net = inT - outT;
   const name = monthLabel(key).split(' ')[0];
@@ -763,9 +763,10 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true }) {
     const gap = (bank[1] - bank[0]) - net;
     if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `در بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند خرج ثبت نشده.` : `بانک ${fmtShort(gap)} از جدولت بهتر است؛ شاید ورودی‌ای جا افتاده یا خرجی در ماه دیگر ثبت شده.`);
   }
-  const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<div class="cell bar-row"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b><i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></div>`).join(''); };
+  const kindOf = { in: 'in', out: 'out', day: 'day' };
+  const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
   return `${hero ? `<section class="bento an-hero">
-      <div class="b-primary"><div class="stripes"></div>
+      <div class="b-primary tap" data-act="detail" data-k="net"><div class="stripes"></div>
         <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${net < 0 ? '−' : '+'}${fmtShort(Math.abs(net))}</h3></div>
         <p class="b-note story-io"><span class="green">${fmtShort(inT)} آمد</span> · <span class="red">${fmtShort(outT)} رفت</span></p></div>
     </section>` : ''}
@@ -784,14 +785,96 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true }) {
 }
 
 // The same story for months recorded in the app, built from transactions.
-function liveStory(T, key) {
+const inLabel = t => t.type ? TYPES[t.type].label : 'بررسی نشده';
+const outLabel = t => isRound(t) ? 'رند بلو (باکس)' : TYPES[t.type] ? TYPES[t.type].label : 'بررسی نشده';
+const dayLabelOf = t => (CATEGORIES[t.cat] || CATEGORIES.uncat).label;
+const STORY_GROUPS = {
+  in: [t => t.dir === 'in', inLabel],
+  out: [t => t.dir === 'out' && t.type !== 'expense', outLabel],
+  day: [t => t.type === 'expense', dayLabelOf],
+};
+function monthTx(T, key) {
   const { start, end } = monthRange(key);
-  const M = T.filter(t => { const d = new Date(t.ts); return d >= start && d < end; });
-  const group = (list, f) => { const o = {}; for (const t of list) { const k = f(t); o[k] = (o[k] || 0) + t.amount; } return Object.entries(o).sort((a, b) => b[1] - a[1]); };
-  const ins = group(M.filter(t => t.dir === 'in'), t => t.type ? TYPES[t.type].label : 'بررسی نشده');
-  const outs = group(M.filter(t => t.dir === 'out' && t.type !== 'expense'), t => isRound(t) ? 'رند بلو (باکس)' : TYPES[t.type].label);
-  const days = group(M.filter(t => t.type === 'expense'), t => (CATEGORIES[t.cat] || CATEGORIES.uncat).label);
-  return storyHtml(key, { ins, outs, days, h: monthSummary(T, key), bank: null, hero: false });
+  return T.filter(t => { const d = new Date(t.ts); return d >= start && d < end; });
+}
+function liveStory(T, key) {
+  const M = monthTx(T, key);
+  const group = g => { const [keep, f] = STORY_GROUPS[g], o = {}; for (const t of M.filter(keep)) { const k = f(t); o[k] = (o[k] || 0) + t.amount; } return Object.entries(o).sort((a, b) => b[1] - a[1]); };
+  return storyHtml(key, { ins: group('in'), outs: group('out'), days: group('day'), h: monthSummary(T, key), bank: null, hero: false, live: true });
+}
+
+// ----- Details: tap any big number to see what it is made of -----
+function txSheet(title, sub, list, note = '') {
+  list = list.slice().sort((a, b) => b.ts.localeCompare(a.ts));
+  const total = list.reduce((a, t) => a + (t.dir === 'in' ? t.amount : -t.amount), 0);
+  openSheet(`<div class="sheet-nav"><span></span><b>${esc(title)}</b><button class="link" data-close>بستن</button></div>
+    <div class="det-head"><span class="sec">${esc(sub)}</span><b>${fmt(Math.abs(total))} <small>تومان</small></b><span class="sec">${faDigits(list.length)} تراکنش</span></div>
+    ${note ? `<p class="foot det-note">${note}</p>` : ''}
+    <div class="group">${list.length ? list.map(t => itemHtml(t, true)).join('') : '<div class="cell"><span class="sec">چیزی نیست</span></div>'}</div>
+    <p class="foot">روی هر ردیف بزنی، ویرایش باز می‌شود.</p>`,
+    { edit: (v, b) => { const t = S.tx.find(x => x.id === b.dataset.id); if (t) { closeSheet(); openTxSheet({ ...t }); } } });
+}
+
+function infoSheet(title, rows, note = '') {
+  openSheet(`<div class="sheet-nav"><span></span><b>${esc(title)}</b><button class="link" data-close>بستن</button></div>
+    ${note ? `<p class="foot det-note">${note}</p>` : ''}
+    <div class="group">${rows.map(([l, v, cls]) => `<div class="cell"><span class="grow ${cls || ''}">${esc(l)}</span><b class="${cls || ''}">${v}</b></div>`).join('')}</div>`);
+}
+
+function openDetail(kind, v) {
+  const T = scoped(), key = S.month, mName = monthLabel(key);
+  const M = monthTx(T, key).filter(t => !isRound(t));
+  if (kind === 'work') return txSheet(`درآمد کاری ${mName}`, 'جمع درآمد کاری', M.filter(t => t.type === 'income_work'));
+  if (kind === 'count') return txSheet(`تراکنش‌های ${mName}`, 'خالص (آمد منهای رفت)', M);
+  if (kind === 'cov') {
+    const s = monthSummary(T, key);
+    return infoSheet('درآمد کاری در برابر خرج', [['درآمد کاری', fmt(s.work), 'green'], ['خرج زندگی', fmt(s.expense), 'red'], ['نسبت', s.expense ? faDigits(Math.round(s.work / s.expense * 100)) + '٪' : '—']],
+      'یعنی درآمد کاری این ماه چند درصدِ خرج زندگی را پوشش داده. بالای ۱۰۰٪ یعنی از کار خودت چیزی هم مانده. اول ماه این عدد بالاست چون هنوز خرج زیادی ثبت نشده.');
+  }
+  if (kind === 'bal') {
+    const st = S.settings, all = S.tx.filter(t => t.ts >= (st.openingDate || ''));
+    const inn = all.filter(t => t.dir === 'in').reduce((a, t) => a + t.amount, 0), out = all.filter(t => t.dir === 'out' && !isRound(t)).reduce((a, t) => a + t.amount, 0);
+    const rnd = all.filter(isRound).reduce((a, t) => a + t.amount, 0);
+    return infoSheet('موجودی بلو از کجا آمده', [
+      [`موجودی شروع (${formatJalali(new Date(st.openingDate))})`, fmt(st.openingBalance || 0)],
+      ['+ همهٔ پول‌هایی که آمد', fmt(inn), 'green'], ['− همهٔ پول‌هایی که رفت', fmt(out), 'red'],
+      ...(rnd ? [['− رند بلو (رفت به باکس)', fmt(rnd), 'red']] : []), ['= موجودی الان', fmt(balanceAt(S.tx, st))]],
+      'برای دیدن تک‌تک تراکنش‌ها، به «تراکنش‌ها» برو.');
+  }
+  if (kind === 'in' || kind === 'out' || kind === 'day') {
+    const [keep, f] = STORY_GROUPS[kind];
+    return txSheet(v, mName, monthTx(T, key).filter(t => keep(t) && f(t) === v));
+  }
+  if (kind === 'hist') {
+    // History months only have monthly totals: show the same item across all months.
+    const H = S.history.months, rows = Object.keys(H).sort().map(k => {
+      const h = H[k], hit = [...(h.ins || []), ...(h.outs || []), ...(h.days || [])].find(x => x[0] === v);
+      return [monthLabel(k), hit ? fmt(hit[1]) : '—', k === key ? 'tint' : ''];
+    });
+    return infoSheet(v, rows, 'ماه‌های قبل از آبان فقط جمع ماهانه دارند (از جدول Numbers)، برای همین تک‌تک تراکنش‌ها نیست. این‌جا همین مورد را در همهٔ ماه‌ها می‌بینی.');
+  }
+  if (kind === 'trend') {
+    const tr = S.tr, pts = trendPoints(tr.field, tr.frame), i = tr.hover == null || tr.hover >= pts.length ? (pts.findIndex(p => p.key === S.month) >= 0 ? pts.findIndex(p => p.key === S.month) : pts.length - 1) : tr.hover, p = pts[i];
+    const match = t => txValue(t, tr.field) > 0;
+    let list;
+    if (p.d) { const d0 = p.d, d1 = new Date(d0); d1.setDate(d1.getDate() + 1); list = T.filter(t => { const d = new Date(t.ts); return d >= d0 && d < d1 && match(t); }); }
+    else if (S.history && S.history.months[p.key] && (!S.settings.startDate || p.key < monthKey(new Date(S.settings.startDate)))) return openDetail('series', tr.field);
+    else list = monthTx(T, p.key).filter(match);
+    return txSheet(`${trLabel(tr.field)} · ${p.full}`, 'جمع', list.filter(t => !isRound(t)));
+  }
+  if (kind === 'series') {
+    // One field month by month (history months have totals only).
+    const pts = trendPoints(v, 'all'), avg = pts.filter(p => !p.running).reduce((a, p, _, arr) => a + p.value / arr.length, 0);
+    return infoSheet(`${trLabel(v)} ماه به ماه`, [...pts.map(p => [p.full + (p.running ? ' (تا الان)' : ''), fmt(p.value), p.key === key ? 'tint' : '']), ['میانگین ماه‌های کامل', fmt(avg)]],
+      'ماه‌های قبل از آبان از جدول Numbers هستند و فقط جمع ماه را دارند. برای ماه‌های داخل اپ، روی عدد نمودار بزن تا تک‌تک تراکنش‌ها را ببینی.');
+  }
+  if (kind === 'net') {
+    const h = S.history.months[key], sum = a => (a || []).reduce((x, y) => x + y[1], 0);
+    const inT = sum(h.ins), outT = sum(h.outs) + sum(h.days);
+    return infoSheet(`${mName} در یک نگاه`, [['پولی که آمد', fmt(inT), 'green'], ['پولی که رفت', fmt(outT), 'red'], ['نتیجه', (inT - outT < 0 ? '−' : '+') + fmt(Math.abs(inT - outT))],
+      ...(h.bank ? [['موجودی بلو اول ماه', fmt(h.bank[0])], ['موجودی بلو آخر ماه', fmt(h.bank[1])]] : [])],
+      '«آمد» و «رفت» همان جمع‌های جدول Numbers توست (بدون Opening). موجودی بلو از صورت‌حساب بانک است.');
+  }
 }
 
 // ----- Analysis: the long view from the first month on -----
@@ -834,10 +917,10 @@ function viewAnalysis() {
         <p class="b-note" style="max-width:420px">${esc(A.verdict)}</p></div>
     </section>
     <div class="mini-bento an-tiles">
-      <div class="mb-tile"><p class="b-label"><span class="st g">${ICON.ok}</span>درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
-      <div class="mb-tile"><p class="b-label"><span class="st ${A.cov < 1 ? 'r' : 'g'}">${A.cov < 1 ? '' : ICON.ok}</span>خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
-      <div class="mb-tile muted"><p class="b-label"><span class="st o"></span>سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
-      ${A.top ? `<div class="mb-tile muted"><p class="b-label"><span class="st" style="background:${CATEGORIES[A.top.c].color}"></span>بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)}</p><p class="b-sub">${faDigits(Math.round(A.top.share * 100))}٪ کل خرج</p></div>` : ''}
+      <div class="mb-tile tap" data-act="detail" data-k="series" data-v="work"><p class="b-label"><span class="st g">${ICON.ok}</span>درآمد کاری در ماه</p><p class="mb-num">${fmtShort(A.avgWork)}</p></div>
+      <div class="mb-tile tap" data-act="detail" data-k="series" data-v="expense"><p class="b-label"><span class="st ${A.cov < 1 ? 'r' : 'g'}">${A.cov < 1 ? '' : ICON.ok}</span>خرج در ماه</p><p class="mb-num">${fmtShort(A.avgExp)}</p></div>
+      <div class="mb-tile muted tap" data-act="detail" data-k="series" data-v="family"><p class="b-label"><span class="st o"></span>سهم خانواده از پول ورودی</p><p class="mb-num">${faDigits(Math.round(A.famShare * 100))}٪</p></div>
+      ${A.top ? `<div class="mb-tile muted tap" data-act="detail" data-k="series" data-v="${A.top.c}"><p class="b-label"><span class="st" style="background:${CATEGORIES[A.top.c].color}"></span>بزرگ‌ترین خرج</p><p class="mb-num">${esc(CATEGORIES[A.top.c].label)}</p><p class="b-sub">${faDigits(Math.round(A.top.share * 100))}٪ کل خرج</p></div>` : ''}
     </div>
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
@@ -931,18 +1014,18 @@ function viewDash() {
     ${pageHead('خلاصه', monthNav(key))}
 
     <section class="bento">
-      <div class="b-primary">
+      <div class="b-primary tap" data-act="detail" data-k="bal">
         <div class="stripes"></div>
         <div><span class="b-pill"><span class="live-dot"></span>موجودی بلو</span><h3 class="b-hero" data-odo="${Math.round(bal)}">${fmt(bal)}</h3></div>
         <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
-      <div class="b-growth">
+      <div class="b-growth tap" data-act="detail" data-k="work">
         <div><p class="b-label">درآمد کاری ${monthLabel(key).split(' ')[0]}</p><p class="b-value" data-cu="${s.work}" data-f="short">${fmtShort(s.work)}</p>
           <p class="b-sub">${s.family ? `و ${fmtShort(s.family)} از خانواده` : '&nbsp;'}</p></div>
         <div class="b-bars">${incomeBars(T, key)}</div>
       </div>
-      <div class="b-count"><p class="b-num" data-cu="${s.count - s.rounds}" data-f="int">${faDigits(s.count - s.rounds)}</p><p class="b-label">تراکنش</p></div>
-      <div class="b-rating">
+      <div class="b-count tap" data-act="detail" data-k="count"><p class="b-num" data-cu="${s.count - s.rounds}" data-f="int">${faDigits(s.count - s.rounds)}</p><p class="b-label">تراکنش</p></div>
+      <div class="b-rating tap" data-act="detail" data-k="cov">
         <div class="b-badge">٪</div>
         <div><p class="b-strong">${cov === null ? '—' : faDigits(cov) + '٪'}</p><p class="b-label">از خرج این ماه را درآمد کاری پوشش داده</p></div>
       </div>
@@ -1152,7 +1235,7 @@ function trendCard() {
     <div class="tv-frames">${frames}</div>
     <div class="tv-legend">
       <span class="sec">${esc(cur.full)}${cur.running ? ' · <span class="live-dot"></span>تا الان' : ''}</span>
-      <b>${fmtShort(cur.value)}</b>
+      <button class="tv-num" data-act="detail" data-k="trend"><b>${fmtShort(cur.value)}</b>${ICON.chevL}</button>
       ${delta != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(delta * 100)))}٪ ${cur.running && cur.proj ? 'پیش‌بینی ' : ''}نسبت به ${esc(daily ? 'روز قبل' : prev.label)}</span>` : ''}
       ${avg ? `<span class="tv-cmp"><i class="dash"></i>میانگین ${fmtShort(avg)}</span>` : ''}
       ${cmp ? `<span class="tv-cmp"><i style="background:${trColor(tr.cmp)}"></i>${esc(trLabel(tr.cmp))}: ${fmtShort(cmp[hi] ? cmp[hi].value : 0)}</span>` : ''}
@@ -1385,6 +1468,7 @@ document.addEventListener('click', async e => {
       <div class="group">${TR_FIELDS.map(([k, l]) => `<button class="cell" data-act="pick" data-v="${k}"><i class="dot" style="background:${trColor(k)}"></i><span class="grow">${l}</span>${S.tr.field === k ? ICON.ok : ''}</button>`).join('')}</div>`,
       { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, a: null, b: null, cmp: S.tr.cmp === v ? null : S.tr.cmp }); redrawTrend(); } });
     else if (a === 'month-pick') openMonthPicker();
+    else if (a === 'detail') openDetail(b.dataset.k, b.dataset.v);
     else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
     else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null, a: null, b: null }); redrawTrend(); }
     else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }
