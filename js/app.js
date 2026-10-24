@@ -823,12 +823,13 @@ function storyHtml(key, { ins, outs, days, h, bank, hero = true, live = false, l
   }
   const prOut = sum(pass.filter(x => !/Seenzhin/.test(x[0]))), prIn = sum(back.filter(x => !/Seenzhin/.test(x[0])));
   if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} دادی` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} گرفتی` : ''}؛ جدا از خرج و درآمد حساب شدن.`);
-  lines.push(net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`);
+  lines.push((net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`)
+    + (lateNet ? ` (${fmtShort(lateNet)}ش دیر رسید و در واقع ماه بعد به حسابت اومد؛ بدون اون: ${net - lateNet < 0 ? '−' : '+'}${fmtShort(Math.abs(net - lateNet))}.)` : ''));
   if (bank) {
     lines.push(`اول ماه ${fmtShort(bank[0])} تو حساب داشتی؛ با ${fmtShort(inT)} که اومد، کلاً ${fmtShort(bank[0] + inT)} دستت بود.`);
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
     const gap = (bank[1] - bank[0]) - (net - lateNet);
-    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `بانک ${fmtShort(-gap)} بیشتر از جدولت کم شده؛ احتمالاً چند تا خرج یادت رفته بنویسی.` : `بانک ${fmtShort(gap)} از جدولت بهتره؛ شاید یه واریزی جا افتاده یا یه خرج رو تو ماه دیگه نوشتی.`);
+    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(-gap)} خرج هست که تو جدول ننوشتی.` : `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(gap)} پول بیشتر از جدولت تو حسابه (احتمالاً یه واریزی که ننوشتی).`);
   }
   const kindOf = { in: 'in', out: 'out', day: 'day' };
   const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${l === LATE_LABEL ? 'late' : live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
