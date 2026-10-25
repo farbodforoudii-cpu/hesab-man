@@ -253,7 +253,7 @@ const easeOut = t => 1 - Math.pow(1 - t, 3);
 
 // Count numbers up from zero; roll the balance digits like an odometer.
 // Big numbers read like the reference: the whole part bright, decimals and units faded.
-const NICE = '.b-hero, .b-value, .bc-total, .mb-num, .tl-self';
+const NICE = '.b-hero, .b-value, .bc-total, .mb-num, .tl-self, .ring-num';
 function niceNum(el) {
   el.innerHTML = esc(el.textContent)
     .replace(/(٫[۰-۹]+)/, '<span class="dim">$1</span>')
@@ -269,20 +269,48 @@ function animateNumbers(root) {
     const step = now => { const k = Math.min(1, (now - t0) / dur); show(to * easeOut(k)); if (k < 1) requestAnimationFrame(step); };
     show(0); requestAnimationFrame(step);
   });
-  root.querySelectorAll('[data-odo]').forEach(el => {
-    const text = fmt(Number(el.dataset.odo));
-    const digits = '۰۱۲۳۴۵۶۷۸۹';
-    const cut = text.lastIndexOf(',');
-    el.innerHTML = [...text].map((ch, i) => digits.includes(ch)
-      ? `<span class="odo${cut >= 0 && i > cut ? ' dim' : ''}"><span class="odo-strip" data-d="${digits.indexOf(ch)}">${[...digits].map(d => `<span>${d}</span>`).join('')}</span></span>`
-      : `<span${cut >= 0 && i >= cut ? ' class="dim"' : ''}>${ch}</span>`).join('');
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      el.querySelectorAll('.odo-strip').forEach((st, i) => {
-        st.style.transitionDelay = `${i * 45}ms`;
-        st.style.transform = `translateY(${-st.dataset.d * 10}%)`;
-      });
-    }));
-  });
+  root.querySelectorAll('[data-odo]').forEach(odometer);
+}
+
+// Odometer: every digit rolls from the value you saw last time to the value now, so a change is
+// visible the moment the screen opens. Unchanged digits stay still; a chip shows the difference.
+const DIG = '۰۱۲۳۴۵۶۷۸۹';
+// «−۲۵۰ هزار»: sign glued to the digits in their own LTR island, the unit after them.
+const signedShort = (v, plus = v > 0) => { const [n, ...u] = fmtShort(Math.abs(v)).split(' '); return `<bdi dir="ltr">${plus ? '+' : '−'}${n}</bdi> ${u.join(' ')}`; };
+function odometer(el) {
+  const to = Number(el.dataset.odo), key = 'odo:' + (el.dataset.odoKey || 'bal');
+  const prev = Number(LS(key) ?? NaN);
+  try { localStorage.setItem(key, String(to)); } catch {}
+  // Same value as last time: roll in from zero like before. Changed: roll from the old value.
+  const changed = Number.isFinite(prev) && prev !== to, from = changed ? prev : 0;
+  const text = fmt(to), old = [...fmt(Math.abs(from))].filter(c => DIG.includes(c));
+  const cut = text.lastIndexOf(',');
+  const nd = [...text].filter(c => DIG.includes(c)).length;
+  let di = 0;
+  el.innerHTML = [...text].map((ch, i) => {
+    if (!DIG.includes(ch)) return `<span${cut >= 0 && i >= cut ? ' class="dim"' : ''}>${ch}</span>`;
+    const back = nd - 1 - di++, o = old[old.length - 1 - back];
+    const fromD = o ? DIG.indexOf(o) : 0, toD = DIG.indexOf(ch);
+    return `<span class="odo${cut >= 0 && i > cut ? ' dim' : ''}"><span class="odo-w">${ch}</span><span class="odo-strip" data-f="${fromD}" data-d="${toD}" style="transform:translateY(${-fromD * 10}%)">${[...DIG].map(d => `<span>${d}</span>`).join('')}</span></span>`;
+  }).join('');
+  const diff = to - from;
+  if (changed && Math.abs(diff) >= 1 && !REDUCED() && !el.dataset.noChip) {
+    const chip = document.createElement('span');
+    chip.className = 'odo-chip ' + (diff > 0 ? 'up' : 'down');
+    chip.innerHTML = signedShort(diff);
+    el.parentElement.appendChild(chip);
+    el.closest('.b-primary')?.classList.add(diff > 0 ? 'glow-up' : 'glow-down');
+    setTimeout(() => chip.remove(), 3200);
+  }
+  if (REDUCED()) { el.querySelectorAll('.odo-strip').forEach(st => { st.style.transform = `translateY(${-st.dataset.d * 10}%)`; }); return; }
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    let k = 0;
+    el.querySelectorAll('.odo-strip').forEach(st => {
+      if (st.dataset.f === st.dataset.d && changed) return;
+      st.style.transitionDelay = `${120 + k++ * 55}ms`;
+      st.style.transform = `translateY(${-st.dataset.d * 10}%)`;
+    });
+  }));
 }
 
 // ---------- render ----------
@@ -297,6 +325,7 @@ function render() {
     `<button data-act="tab" data-v="${v}" class="${S.view === v || (v === 'dash' && S.view === 'assets') ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
   const views = { entry: viewEntry, list: viewList, dash: viewDash, an: viewAnalysis, settings: viewSettings, assets: viewAssets };
   const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
+  $tabs.classList.toggle('pop', S.view !== S.shownView);
   S.shownView = S.view; S.shownMonth = S.month;
   $app.innerHTML = views[S.view]();
   $app.querySelectorAll(NICE).forEach(niceNum);
@@ -308,6 +337,7 @@ function render() {
   if (S.view === 'list') setTimeout(() => { S.lastId = null; }, 1500);
   if (S.view === 'list') bindList();
   if (S.view === 'dash') bindTrend();
+  if (S.view === 'an') bindCarousel();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
   if (S.view === 'entry' && S.step === 'amount') bindAmount();
 }
@@ -472,27 +502,40 @@ async function saveWhat(m) {
   S.step = 'amount'; S.what = ''; S.amount = '';
   S.lastId = tx.id;
   render();
-  flashSaved();
+  const before = balanceAt(S.tx, S.settings);
   await putTx(tx);
+  island(tx, before, balanceAt(S.tx, S.settings));
   toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
 }
 
-// A short tick over the amount card so it is obvious the entry was saved (keyboard stays open).
-function flashSaved() {
-  const hero = document.querySelector('.hero-amt');
-  if (!hero) return;
-  const b = document.createElement('div');
-  b.className = 'saved-badge';
-  b.innerHTML = '<svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24" pathLength="1"/><path d="M15 27l7 7 15-16" pathLength="1"/></svg><span>ثبت شد</span>';
-  hero.appendChild(b);
-  setTimeout(() => b.remove(), 1300);
+// Saved: a black pill grows out of the top of the screen (where the iPhone's island sits),
+// draws a tick, names what was saved, then rolls the balance from old to new and folds back.
+function island(tx, before, after) {
+  document.querySelector('.island')?.remove();
+  const isIn = tx.dir === 'in';
+  const what = tx.type === 'expense' && tx.cat ? CATEGORIES[tx.cat].label : TYPES[tx.type]?.label || 'بدون دسته';
+  const el = document.createElement('div');
+  el.className = 'island';
+  el.innerHTML = `<svg class="is-tick ${isIn ? 'in' : ''}" viewBox="0 0 52 52"><circle cx="26" cy="26" r="23" pathLength="1"/><path d="M16 27l7 7 14-15" pathLength="1"/></svg>
+    <div class="is-txt"><div class="is-a"><b>${esc(tx.desc)}</b><small>${esc(what)}</small></div><div class="is-b"><small>موجودی</small><b class="is-bal" data-odo="${Math.round(after)}" data-odo-key="island" data-no-chip="1"></b></div></div>
+    <b class="is-amt ${isIn ? 'in' : ''}">${signedShort(tx.amount, isIn)}</b>`;
+  document.body.appendChild(el);
+  try { localStorage.setItem('odo:island', String(Math.round(before))); } catch {}
+  if (REDUCED()) { el.classList.add('open', 'two'); el.querySelector('.is-bal').textContent = fmt(after); setTimeout(() => el.remove(), 2200); return; }
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('open')));
+  setTimeout(() => { el.classList.add('two'); odometer(el.querySelector('.is-bal')); }, 1250);
+  setTimeout(() => el.classList.add('close'), 3300);
+  setTimeout(() => el.remove(), 3900);
+  el.onclick = () => el.classList.add('close');
 }
 
 async function commitNew(tx) {
+  const before = balanceAt(S.tx, S.settings);
   await putTx(tx);
   S.amount = '';
   S.dayBack = 0;
   render();
+  island(tx, before, balanceAt(S.tx, S.settings));
   toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
 }
 
@@ -1116,28 +1159,41 @@ function goalRows(T, key) {
   const daysAll = Math.round((end - start) / 864e5), dayNow = Math.min(daysAll, Math.floor((now - start) / 864e5) + 1), left = Math.max(1, daysAll - dayNow + 1);
   const disc = DISC.reduce((a, c) => a + (s.byCat[c] || 0), 0), discCap = g.spend * g.disc;
   const asset = s.asset || 0;
-  const pace = (g.spend - s.expense) / left;
+  const pace = (g.spend - s.expense) / left, tf = dayNow / daysAll;
   return [
-    { id: 'spend', t: 'هزینهٔ زندگی', v: s.expense, cap: g.spend, p: s.expense / g.spend,
+    { id: 'spend', t: 'هزینهٔ زندگی', tf, v: s.expense, cap: g.spend, p: s.expense / g.spend,
       st: proj <= g.spend ? 'g' : proj <= g.spend * 1.1 ? 'o' : 'r',
       note: pace > 0 ? `برای ماندن در سقف: روزی تا ${fmtShort(pace)} در ${faDigits(left)} روز باقی‌مانده` : `سقف رد شده؛ ${fmtShort(-pace * left)} بالاتر`,
       why: `پیش‌بینی پایان ماه ${fmtShort(proj)} است: ${fmtShort(s.expense)} تا امروز + میانگین روزانهٔ سه ماه اخیر (${fmtShort((base || 0) / 30)}) × ${faDigits(left)} روز.` },
-    { id: 'disc', t: 'هزینه‌های اختیاری', v: disc, cap: discCap, p: disc / discCap,
+    { id: 'disc', t: 'هزینه‌های اختیاری', tf, v: disc, cap: discCap, p: disc / discCap,
       st: disc <= discCap * (dayNow / daysAll) * 1.1 ? 'g' : disc <= discCap ? 'o' : 'r',
       note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه · تفریح، هدیه، شخصی، دخانیات`,
       why: `سقف این بخش = ${faDigits(Math.round(g.disc * 100))}٪ × ${fmtShort(g.spend)} = ${fmtShort(discCap)}. تا امروز ${fmtShort(disc)} از آن مصرف شده.` },
-    { id: 'asset', t: 'سرمایه‌گذاری', v: asset, cap: g.asset, p: asset / g.asset,
+    { id: 'asset', t: 'سرمایه‌گذاری', tf, v: asset, cap: g.asset, p: asset / g.asset,
       st: asset >= g.asset ? 'g' : asset >= g.asset * (dayNow / daysAll) ? 'o' : 'r',
       note: asset >= g.asset ? 'هدف این ماه کامل شد' : `${fmtShort(g.asset - asset)} مانده تا هدف، در ${faDigits(left)} روز`,
       why: 'دلار، طلا، نقره، باکس و رند بلو. سبز یعنی هدف کامل شده؛ نارنجی یعنی هم‌پای روزهای گذشتهٔ ماه.' },
   ];
 }
+// Three rings: the arc is what is used or saved, the small notch is where an even pace would be today.
+function ring(r, i) {
+  const p = Math.min(1, r.p || 0), a = r.tf * 2 * Math.PI, R = 34;
+  const nx = 40 + Math.sin(a) * R, ny = 40 - Math.cos(a) * R, ix = 40 + Math.sin(a) * (R - 7), iy = 40 - Math.cos(a) * (R - 7), ox = 40 + Math.sin(a) * (R + 7), oy = 40 - Math.cos(a) * (R + 7);
+  return `<div class="ring ${r.st}" style="--d:${(i * .12).toFixed(2)}s">
+    <div class="ring-box"><svg viewBox="0 0 80 80"><circle class="ring-track" cx="40" cy="40" r="${R}"/>
+      ${p > 0 ? `<circle class="ring-arc" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(p * 100).toFixed(1)}"/>` : ''}
+      ${r.p > 1 ? `<circle class="ring-over" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(Math.min(1, r.p - 1) * 100).toFixed(1)}"/>` : ''}
+      <line class="ring-notch" x1="${ix.toFixed(1)}" y1="${iy.toFixed(1)}" x2="${ox.toFixed(1)}" y2="${oy.toFixed(1)}"/>
+      <b class="ring-num" data-cu="${Math.round(r.v)}" data-f="short">${esc(fmtShort(r.v))}</b></div>
+    <span class="ring-t">${esc(r.t)}</span><small class="ring-c">${r.id === 'asset' ? 'هدف' : 'سقف'} ${esc(fmtShort(r.cap))}</small></div>`;
+}
 function goalsCard(T, key) {
   const R = goalRows(T, key), ok = R.filter(r => r.st === 'g').length;
   return `<button class="goals" data-act="goals">
     <div class="goals-head"><span class="b-label"><span class="live-dot"></span>هدف‌های ${esc(monthName(key))}</span><span class="sec">${faDigits(ok)} از ${faDigits(R.length)} در مسیر</span></div>
-    ${R.map(r => `<div class="goal"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div>
-      <div class="goal-bar"><i class="${r.st}" style="width:${Math.min(100, r.p * 100).toFixed(1)}%"></i></div><small class="goal-note">${esc(r.note)}</small></div>`).join('')}
+    <div class="rings">${R.map(ring).join('')}</div>
+    <p class="goal-line"><i class="kdot ${R[0].st}"></i>${esc(R[0].note)}</p>
+    <small class="goal-foot">شیار کوچک روی هر حلقه: جایی که با سرعت یکنواخت، امروز باید باشی.</small>
   </button>`;
 }
 // Suggested targets from your own last three months: 10% under the usual spend, optional share as it is now (max 40%), invest 10% of work income.
@@ -1200,55 +1256,34 @@ function newsItems(series, A) {
   return N;
 }
 
-// Frosted-glass bars: one per month, the running month faint.
+// Frosted-glass bars: one per month, the running month faint. Labels all in millions so they compare.
+const mil = v => faDigits(String(Math.round(v / 1e6 * (v < 1e7 ? 10 : 1)) / (v < 1e7 ? 10 : 1)).replace('.', '٫'));
 function glassBars(pts, pct) {
   const W = 320, H = 86, bw = W / pts.length, mx = Math.max(...pts.map(p => p.v), 1e-9);
   return `<svg viewBox="0 0 ${W} ${H}" class="glass-chart"><defs><linearGradient id="gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient></defs>
     ${pts.map((p, i) => { const h = Math.max(3, p.v / mx * (H - 26)), x = i * bw + bw * .16, w = bw * .68;
       return `<rect class="gbar${p.running ? ' run' : ''}" x="${x.toFixed(1)}" y="${(H - 16 - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" style="animation-delay:${(i * .05).toFixed(2)}s"/>
-        <text x="${(x + w / 2).toFixed(1)}" y="${(H - 19 - h).toFixed(1)}" text-anchor="middle" class="g-val">${p.v ? (pct ? faDigits(Math.round(p.v * 100)) + '٪' : fmtShort(p.v).split(' ')[0]) : ''}</text>
+        <text x="${(x + w / 2).toFixed(1)}" y="${(H - 19 - h).toFixed(1)}" text-anchor="middle" class="g-val">${p.v ? (pct ? faDigits(Math.round(p.v * 100)) + '٪' : mil(p.v)) : ''}</text>
         <text x="${(x + w / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle" class="spark-lbl">${esc(monthName(p.key))}</text>`; }).join('')}</svg>`;
 }
 
+// Headlines like stories: segments fill while a slide is shown, the kicker pill reshapes to the next
+// word, the headline arrives word by word. Tap or swipe for next, hold to pause.
+const words = t => esc(t).split(' ').map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(' ');
 function newsHero(N) {
   const top = N.slice(0, 4);
   if (!top.length) return '';
-  return `<section class="car b-primary news" data-carousel data-act="car-next"><div class="stripes"></div>
-    <div class="car-head"><span><span class="live-dot"></span>سرخط‌ها</span><span class="car-dots">${top.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</span></div>
-    <div class="car-stage">${top.map((x, i) => `<div class="car-slide${i ? '' : ' on'}"><span class="b-pill">${esc(x.k)}</span>
-      <h3 class="news-t">${esc(x.t)}</h3><p class="car-mean">${esc(x.d)}</p>${x.c ? glassBars(x.c, x.pct) : ''}</div>`).join('')}</div></section>`;
+  return `<section class="car b-primary news" data-carousel><div class="stripes"></div>
+    <div class="car-segs">${top.map((_, i) => `<i class="${i ? '' : 'on'}"><b></b></i>`).join('')}</div>
+    <div class="car-head"><span><span class="live-dot"></span>سرخط‌ها</span><span class="car-kick"><span>${esc(top[0].k)}</span></span></div>
+    <div class="car-stage">${top.map((x, i) => `<div class="car-slide${i ? '' : ' on'}" data-k="${esc(x.k)}">
+      <h3 class="news-t">${words(x.t)}</h3><p class="car-mean">${esc(x.d)}</p>${x.c ? glassBars(x.c, x.pct) : ''}</div>`).join('')}</div></section>`;
 }
 
 const newsCard = x => `<div class="news-card"><span class="news-k ${x.tone || ''}">${esc(x.k)}</span><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div>`;
 
 const TIER = { 1: 'اولویت ۱ · پایه‌ای', 2: 'اولویت ۲ · مهم', 3: 'اولویت ۳ · برای بهتر شدن' };
 const kpiNum = (k, v) => k.unit === 'pct' ? faDigits(Math.round(v * 100)) + '٪' : fmtShort(v);
-
-// Live hero: the key metrics one after another, each with its months as small bars.
-function kpiCarousel(K, A) {
-  if (!K.length) return '';
-  const slide = (k, i) => {
-    const pts = k.points, mx = Math.max(...pts.map(p => Math.abs(p.v)), 1e-9), W = 320, H = 92, bw = W / pts.length;
-    const bars = pts.map((p, j) => {
-      const h = Math.max(2, Math.abs(p.v) / mx * (H - 26)), x = j * bw + bw * .18, w = bw * .64;
-      const y = p.v >= 0 ? H - 16 - h : H - 16;
-      return `<rect class="spark-bar${p.running ? ' run' : ''}${p.v < 0 ? ' neg' : ''}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" style="animation-delay:${(j * .05).toFixed(2)}s"/>
-        <text x="${(x + w / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle" class="spark-lbl">${esc(monthName(p.key))}</text>`;
-    }).join('');
-    return `<div class="car-slide${i ? '' : ' on'}" data-i="${i}">
-      <span class="b-pill">${TIER[k.tier]}</span>
-      <p class="car-title"><i class="kdot ${k.status}"></i>${esc(k.title)}</p>
-      <h3 class="car-val">${esc(k.value)}</h3>
-      <p class="car-mean">${esc(k.mean)}</p>
-      <svg viewBox="0 0 ${W} ${H}" class="car-spark">${bars}</svg>
-    </div>`;
-  };
-  return `<section class="car b-primary" data-carousel data-act="car-next">
-    <div class="stripes"></div>
-    <div class="car-head"><span>${esc(monthName(A.first))} تا ${esc(monthName(A.last))} · ${faDigits(A.n)} ماه</span><span class="car-dots">${K.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</span></div>
-    <div class="car-stage">${K.map(slide).join('')}</div>
-  </section>`;
-}
 
 function kpiList(K) {
   return [1, 2].map(t => `<div class="section-title">${TIER[t]}</div><div class="group">${K.filter(k => k.tier === t).map(k =>
@@ -1262,11 +1297,36 @@ function kpiSheet(id) {
 }
 
 function advanceCarousel(el, step = 1) {
-  const slides = [...el.querySelectorAll('.car-slide')], dots = [...el.querySelectorAll('.car-dots i')];
+  const slides = [...el.querySelectorAll('.car-slide')], segs = [...el.querySelectorAll('.car-segs i')];
   if (slides.length < 2) return;
   const i = slides.findIndex(x => x.classList.contains('on')), j = (i + step + slides.length) % slides.length;
   slides[i].classList.remove('on'); slides[j].classList.add('on');
-  dots.forEach((d, n) => d.classList.toggle('on', n === j));
+  segs.forEach((d, n) => { d.classList.remove('on'); d.classList.toggle('done', n < j); });
+  void el.offsetWidth; segs[j].classList.add('on');
+  const kick = el.querySelector('.car-kick'), inner = kick.firstElementChild;
+  kick.style.width = kick.offsetWidth + 'px';
+  inner.classList.add('out');
+  setTimeout(() => {
+    inner.textContent = slides[j].dataset.k; inner.classList.remove('out');
+    kick.style.width = (inner.offsetWidth + 24) + 'px';
+  }, 180);
+}
+
+function bindCarousel() {
+  document.querySelectorAll('[data-carousel]').forEach(el => {
+    el.addEventListener('animationend', e => { if (e.target.matches('.car-segs i.on b')) advanceCarousel(el); });
+    let x0 = 0, y0 = 0, t0 = 0, holdT = null;
+    el.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); holdT = setTimeout(() => el.classList.add('hold'), 220); });
+    const end = e => {
+      clearTimeout(holdT);
+      const held = el.classList.contains('hold'); el.classList.remove('hold');
+      if (e.type !== 'pointerup' || held) return;
+      const dx = e.clientX - x0, dy = e.clientY - y0;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) advanceCarousel(el, dx > 0 ? 1 : -1);
+      else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && Date.now() - t0 < 400) advanceCarousel(el);
+    };
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => el.addEventListener(t, end));
+  });
 }
 
 // Plain-text report anyone can read: summary, month by month, critique, suggestions.
@@ -1379,7 +1439,6 @@ setInterval(() => {
     const i = items.findIndex(x => x.classList.contains('on'));
     items[i].classList.remove('on'); items[(i + 1) % items.length].classList.add('on');
   });
-  if (liveTick % 6 === 0 && Date.now() - (S.carHold || 0) > 15000) document.querySelectorAll('[data-carousel]').forEach(el => advanceCarousel(el));
   if (liveTick % 30 === 0) document.querySelectorAll('[data-ago]').forEach(el => { el.textContent = ago(el.dataset.ago); });
 }, 1000);
 
@@ -1900,7 +1959,6 @@ document.addEventListener('click', async e => {
     else if (a === 'as-edit') assetSheet(b.dataset.v);
     else if (a === 'as-prices') pricesSheet();
     else if (a === 'detail') openDetail(b.dataset.k, b.dataset.v);
-    else if (a === 'car-next') { S.carHold = Date.now(); advanceCarousel(b); }
     else if (a === 'kpi') kpiSheet(b.dataset.v);
     else if (a === 'kpi-all') openSheet(`<div class="sheet-nav"><span></span><b>شاخص‌ها</b><button class="link" data-close>بستن</button></div>${kpiList(kpis(monthsSeries(S.history, scoped(), S.settings.startDate), balanceAt(S.tx, S.settings), assetsTotal().held))}`, { kpi: v => { closeSheet(); kpiSheet(v); } });
     else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
