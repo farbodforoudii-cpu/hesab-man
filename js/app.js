@@ -4,9 +4,9 @@ import { buildTemplates, suggest, complete, bestTemplateForText } from './sugges
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
-import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
+import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
-import { createChart, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode, } from '../vendor/lightweight-charts.mjs';
+import { createChart, createSeriesMarkers, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode } from '../vendor/lightweight-charts.mjs';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
@@ -1274,7 +1274,7 @@ function newsItems(series, A) {
   N.push({ k: 'هزینه', t: `میانگین هزینهٔ زندگی: ماهانه ${fmtShort(exp / n)}`, d: `کمترین ${monthName(min(m => m.expense).key)} (${fmtShort(min(m => m.expense).expense)})، بیشترین ${monthName(max(m => m.expense).key)} (${fmtShort(max(m => m.expense).expense)}).`, c: pts(m => m.expense) });
   N.push({ k: 'پوشش', t: `درآمد کاری ${faDigits(Math.round(work / exp * 100))}٪ هزینه‌ها را پوشش داده`, d: `${fmtShort(work)} درآمد ÷ ${fmtShort(exp)} هزینه. از هر ۱۰۰ تومان هزینه، ${faDigits(Math.round(work / exp * 100))} تومان از کار بوده.`, c: pts(m => m.expense ? m.work / m.expense : 0), pct: true });
   N.push({ k: 'حمایت', t: `${fmtShort(fam)} حمایت خانواده`, d: `${faDigits(Math.round(fam / (work + fam) * 100))}٪ ورودیِ زندگی؛ ماهانه حدود ${fmtShort(fam / n)}.` });
-  N.push({ k: 'ذخیره', t: `موجودی نقد برای ${faDigits(runway.toFixed(1).replace('.', '٫'))} ماه هزینه`, d: `موجودی ${fmtShort(bal)} ÷ میانگین هزینهٔ ماهانه ${fmtShort(exp / n)}. هدف معمول: سه ماه.`, tone: runway < 1 ? 'r' : runway < 3 ? 'o' : 'g' });
+  N.push({ k: 'ذخیره', t: `موجودی نقد برای ${iso(faDigits(runway.toFixed(1).replace('.', '٫')))} ماه هزینه`, d: `موجودی ${fmtShort(bal)} ÷ میانگین هزینهٔ ماهانه ${fmtShort(exp / n)}. هدف معمول: سه ماه.`, tone: runway < 1 ? 'r' : runway < 3 ? 'o' : 'g' });
   const last = done.at(-1), lastOut = (last.outs || []).slice().sort((a, b) => b[1] - a[1])[0];
   if (lastOut) N.push({ k: 'رویداد', t: `${monthName(last.key)}: ${lastOut[0]}`, d: `${fmtShort(lastOut[1])}؛ بزرگ‌ترین پرداخت ماه.` });
   for (const x of A.critiques) N.push({ k: 'نقد', t: x.t, d: x.d, tone: 'r' });
@@ -1590,7 +1590,7 @@ function bindTrend() {
     autoSize: true,
     layout: { background: { color: 'transparent' }, textColor: 'rgba(235,235,245,.6)', fontFamily: 'Estedad, system-ui, sans-serif', fontSize: 11, attributionLogo: true },
     grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.06)' } },
-    rightPriceScale: { borderColor: 'rgba(255,255,255,.12)', scaleMargins: { top: cmps.length ? .34 : .22, bottom: .08 } },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.12)', scaleMargins: { top: cmps.length ? .42 : .24, bottom: .08 } },
     timeScale: { borderColor: 'rgba(255,255,255,.12)', tickMarkFormatter: tick, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
     crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: '#e9e9ee' }, horzLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: col } },
     localization: { priceFormatter: num, timeFormatter: full },
@@ -1600,14 +1600,18 @@ function bindTrend() {
     lineColor: col, topColor: col + '55', bottomColor: col + '00', lineWidth: 2,
     priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 },
     lastPriceAnimation: pts[pts.length - 1].running ? LastPriceAnimationMode.Continuous : LastPriceAnimationMode.Disabled,
-    crosshairMarkerRadius: 5, crosshairMarkerBorderColor: '#0b0c0e',
+    crosshairMarkerRadius: 5, crosshairMarkerBorderColor: '#0b0c0e', pointMarkersVisible: true, pointMarkersRadius: 2.5,
   });
   main.setData(rel(pts));
+  // Small value labels over the points; on busy frames only every few days plus the latest.
+  const vals = rel(pts), every = Math.ceil(pts.length / 8);
+  createSeriesMarkers(main, vals.map((d, i) => d.value == null || (i % every && i !== pts.length - 1) ? null
+    : { time: d.time, position: 'atPriceTop', price: d.value, shape: 'circle', size: 0, color: 'rgba(235,235,245,.75)', text: pctOn || Math.abs(d.value) < unit * 10 ? num(d.value) : faDigits(Math.round(d.value / unit)) }).filter(Boolean));
   const done = pts.filter(p => !p.running), avg = done.length > 1 ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
   if (avg && !pctOn) main.createPriceLine({ price: avg, color: 'rgba(255,255,255,.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین' });
   const last = pts[pts.length - 1];
   if (last.proj && !pctOn) main.createPriceLine({ price: last.proj, color: col, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: true, title: 'پیش‌بینی' });
-  for (const c of cmps) trChart.addSeries(LineSeries, { color: trColor(c.f), lineWidth: 2, priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 } }).setData(rel(c.pts));
+  for (const c of cmps) trChart.addSeries(LineSeries, { color: trColor(c.f), lineWidth: 2, pointMarkersVisible: true, pointMarkersRadius: 2, priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 } }).setData(rel(c.pts));
   trChart.timeScale().fitContent();
 
   // Legend above the chart follows the crosshair, like TradingView's top-left OHLC line.

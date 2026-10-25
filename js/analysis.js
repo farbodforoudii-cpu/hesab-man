@@ -3,7 +3,7 @@
 import { monthSummary, summarize, txMonth } from './stats.js';
 import { monthKey, shiftMonth, monthLabel, faDigits } from './jalali.js';
 import { CATEGORIES } from './model.js';
-import { fmtShort } from './format.js';
+import { fmtShort, iso } from './format.js';
 
 export function monthsSeries(history, txs, startDate, now = new Date()) {
   const H = (history && history.months) || {};
@@ -149,7 +149,7 @@ export function kpis(series, balance, held = 0) {
     `از کل پولی که برای زندگی اومده، این‌قدرش از خانواده بوده؛ ماهی حدود ${fmtShort(fam / n)}.`,
     m => m.family || 0, 'money', 'هدف: زیر ۱۰٪'));
   const runway = avgExp ? balance / avgExp : 0;
-  out.push(mk('runway', 2, 'ذخیرهٔ نقدی', `${faDigits(runway.toFixed(1).replace('.', '٫'))} ماه`, st(runway, 3, 1),
+  out.push(mk('runway', 2, 'ذخیرهٔ نقدی', `${iso(faDigits(runway.toFixed(1).replace('.', '٫')))} ماه`, st(runway, 3, 1),
     `با پولی که الان تو بلو داری (${fmtShort(balance)})، اگه هیچ پولی نیاد، چند ماه می‌تونی مثل الان خرج کنی.${held && avgExp ? ` اگه دلار و طلا و بقیهٔ دارایی‌ها رو هم حساب کنی: ${faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫'))} ماه.` : ' دلار و نقره حساب نشده.'}`,
     m => m.bank ? m.bank[1] : (m.running ? balance : 0), 'money', 'هدف: حداقل ۳ ماه'));
   out.push(mk('disc', 2, 'هزینه‌های اختیاری', P(disc / (exp || 1)), st(disc / (exp || 1), .25, .4, false),

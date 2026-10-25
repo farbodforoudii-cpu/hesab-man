@@ -44,13 +44,17 @@ export function fmt(n) {
   return faDigits((neg ? '-' : '') + g);
 }
 
-// Compact: 28,000,000 -> "۲۸ م" ; 1,250,000 -> "۱٫۳ م" ; 850,000 -> "۸۵۰ ه"
+// The number (sign, digits, decimal mark) is wrapped in invisible Unicode isolate marks, so the
+// text direction around it can never pull the unit word in between the digits (no «۵۴میلیون۲»).
+export const iso = s => '\u2066' + s + '\u2069';
+
+// Compact: 28,000,000 -> "۲۸ میلیون" ; 1,250,000 -> "۱٫۳ میلیون" ; 850,000 -> "۸۵۰ هزار"
 export function fmtShort(n) {
   const a = Math.abs(n), sign = n < 0 ? '−' : '';
-  if (a >= 1e9) return sign + faDigits(trim(a / 1e9)) + ' میلیارد';
-  if (a >= 1e6) return sign + faDigits(trim(a / 1e6)) + ' میلیون';
-  if (a >= 1e3) return sign + faDigits(Math.round(a / 1e3)) + ' هزار';
-  return sign + faDigits(Math.round(a));
+  if (a >= 1e9) return iso(sign + faDigits(trim(a / 1e9))) + ' میلیارد';
+  if (a >= 1e6) return iso(sign + faDigits(trim(a / 1e6))) + ' میلیون';
+  if (a >= 1e3) return iso(sign + faDigits(Math.round(a / 1e3))) + ' هزار';
+  return iso(sign + faDigits(Math.round(a)));
 }
 
 function trim(x) {
