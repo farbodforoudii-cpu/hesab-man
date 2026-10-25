@@ -263,7 +263,7 @@ function niceNum(el) {
 function animateNumbers(root) {
   root.querySelectorAll('[data-cu]').forEach(el => {
     const to = Number(el.dataset.cu), f = el.dataset.f;
-    if (!to) return;
+    if (!to || el.dataset.raw) return;
     const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : fmtShort(v); if (el.matches(NICE)) niceNum(el); };
     const t0 = performance.now(), dur = 700;
     const step = now => { const k = Math.min(1, (now - t0) / dur); show(to * easeOut(k)); if (k < 1) requestAnimationFrame(step); };
@@ -777,7 +777,6 @@ function viewHistory(key) {
   const days = h.days || Object.entries(h.byCat).map(([c, v]) => [(CATEGORIES[c] || CATEGORIES.other).label, v]);
   return `<div class="view wide">
     ${pageHead('خلاصه', monthNav(key))}
-    <p class="hist-note">قبل از شروع · ${S.history.source === 'numbers' ? 'از جدول Numbers · ' : ''}بدون نام</p>
     ${histUnlock()}
     ${storyHtml(key, { ins: ins.sort((a, b) => b[1] - a[1]), outs, days, h, bank: h.bank, lateNet: lateIn })}
     <div id="trend">${trendCard()}</div>
@@ -839,9 +838,9 @@ function storyFull(key, { ins, outs, days, h, bank, hero = true, live = false, l
   const back = ins.filter(x => /Seenzhin|اشخاص|پس گرفتن/.test(x[0]));
   const big = [...outs.filter(x => !passRe.test(x[0]) && !assetRe.test(x[0])), ...(days || [])].sort((a, b) => b[1] - a[1]);
   const lines = [];
-  if (!h.work) lines.push('این ماه از کار پولی درنیاوردی.');
-  else lines.push(`از کار ${fmtShort(h.work)} درآوردی و ${fmtShort(h.expense)} خرج زندگی کردی؛ ${h.work >= h.expense ? 'درآمدت خرجت رو کامل پوشوند' : `درآمدت فقط ${faDigits(Math.round(h.work / h.expense * 100))}٪ خرجت رو پوشوند`}.`);
-  if (h.family) lines.push(`${fmtShort(h.family)} از خانواده گرفتی${h.work ? '' : '؛ ماه با همین و پول تو حساب گذشت'}.`);
+  if (!h.work) lines.push('این ماه درآمد کاری ثبت نشده.');
+  else lines.push(`درآمد کاری ${fmtShort(h.work)} و هزینهٔ زندگی ${fmtShort(h.expense)} بود؛ ${h.work >= h.expense ? 'درآمد کاری همهٔ هزینه‌ها را پوشش داد' : `درآمد کاری ${faDigits(Math.round(h.work / h.expense * 100))}٪ هزینه‌ها را پوشش داد`}.`);
+  if (h.family) lines.push(`${fmtShort(h.family)} حمایت خانواده${h.work ? '' : '؛ هزینه‌ها از همین و موجودی تأمین شد'}.`);
   if (big.length) lines.push(`بیشترین خرج‌ها: ${big.slice(0, 3).map(x => `${x[0]} (${fmtShort(x[1])})`).join('، ')}.`);
   if (assets.length) lines.push(`${fmtShort(sum(assets))} خرج نشد، تبدیل شد به دارایی: ${assets.map(x => x[0]).join('، ')}.`);
   // Seenzhin is a running account: money paid for it comes back later, often the next month.
@@ -849,33 +848,96 @@ function storyFull(key, { ins, outs, days, h, bank, hero = true, live = false, l
   if (szOut || szIn) {
     const owed = seenzhinOwed(key);
     const forgiven = (S.settings.szForgive || {})[key];
-    lines.push(`Seenzhin: این ماه ${szOut ? `${fmtShort(szOut)} بهش دادی` : 'چیزی بهش ندادی'}${szIn ? ` و ${fmtShort(szIn)} ازش گرفتی` : ''}${szIn > szOut ? ' (تسویهٔ پول‌هایی که ماه قبل داده بودی هم توشه)' : ''}. ${forgiven ? `${fmtShort(forgiven)} که هنوز بدهکار بود رو بخشیدی، به‌عنوان کمک؛ حسابت باهاش صافه.` : Math.abs(owed) < 5e5 ? 'حسابت باهاش صافه.' : owed > 0 ? `تا آخر این ماه هنوز حدود ${fmtShort(owed)} بهت بدهکاره.` : `تا آخر این ماه حدود ${fmtShort(-owed)} بیشتر ازش گرفتی.`} اینا خرج و درآمد زندگی‌ت حساب نشدن.`);
+    lines.push(`Seenzhin: این ماه ${szOut ? `${fmtShort(szOut)} پرداخت` : 'پرداختی نبود'}${szIn ? ` و ${fmtShort(szIn)} دریافت` : ''}${szIn > szOut ? ' (شامل تسویهٔ ماه قبل)' : ''}. ${forgiven ? `${fmtShort(forgiven)} باقی‌مانده به‌عنوان کمک بخشیده شد؛ حساب تسویه است.` : Math.abs(owed) < 5e5 ? 'حساب تسویه است.' : owed > 0 ? `تا پایان ماه حدود ${fmtShort(owed)} طلب باقی است.` : `تا پایان ماه حدود ${fmtShort(-owed)} بیش از پرداخت‌ها دریافت شده.`} این مبالغ جزو هزینه و درآمد زندگی حساب نمی‌شوند.`);
   }
   const prOut = sum(pass.filter(x => !/Seenzhin/.test(x[0]))), prIn = sum(back.filter(x => !/Seenzhin/.test(x[0])));
-  if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} دادی` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} گرفتی` : ''}؛ جدا از خرج و درآمد حساب شدن.`);
-  lines.push((net < 0 ? `در کل ${fmtShort(-net)} بیشتر از اونی که اومد، رفت.` : `در کل ${fmtShort(net)} بیشتر از اونی که رفت، اومد.`)
-    + (lateNet ? ` (${fmtShort(lateNet)}ش دیر رسید و در واقع ماه بعد به حسابت اومد؛ بدون اون: ${net - lateNet < 0 ? '−' : '+'}${fmtShort(Math.abs(net - lateNet))}.)` : ''));
+  if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} پرداخت` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} دریافت` : ''}؛ جدا از هزینه و درآمد حساب می‌شوند.`);
+  lines.push((net < 0 ? `تراز ماه: ${fmtShort(-net)} منفی.` : `تراز ماه: ${fmtShort(net)} مثبت.`)
+    + (lateNet ? ` (${fmtShort(lateNet)} از آن دیرتر، در ماه بعد واریز شد؛ بدون آن: ${net - lateNet < 0 ? '−' : '+'}${fmtShort(Math.abs(net - lateNet))}.)` : ''));
   if (bank) {
-    lines.push(`اول ماه ${fmtShort(bank[0])} تو حساب داشتی؛ با ${fmtShort(inT)} که اومد، کلاً ${fmtShort(bank[0] + inT)} دستت بود.`);
+    lines.push(`موجودی اول ماه ${fmtShort(bank[0])} بود؛ با ${fmtShort(inT)} ورودی، در مجموع ${fmtShort(bank[0] + inT)} در دسترس بود.`);
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
     const gap = (bank[1] - bank[0]) - (net - lateNet);
     if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(-gap)} خرج هست که تو جدول ننوشتی.` : `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(gap)} پول بیشتر از جدولت تو حسابه (احتمالاً یه واریزی که ننوشتی).`);
   }
   const kindOf = { in: 'in', out: 'out', day: 'day' };
   const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${l === LATE_LABEL ? 'late' : live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
+  if (compact) return insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe });
   return `${hero ? `<section class="bento an-hero">
       <div class="b-primary tap" data-act="detail" data-k="net"><div class="stripes"></div>
         <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${net < 0 ? '−' : '+'}${fmtShort(Math.abs(net))}</h3></div>
-        <p class="b-note story-io"><span class="green">${fmtShort(inT)} اومد</span> · <span class="red">${fmtShort(outT)} رفت</span></p></div>
+        <p class="b-note story-io"><span class="green">${fmtShort(inT)} ورودی</span> · <span class="red">${fmtShort(outT)} خروجی</span></p></div>
     </section>` : ''}
     ${compact ? `<div class="section-title">چه اتفاقی افتاد</div>
       <div class="group story">${lines.slice(0, 3).map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}
         <button class="cell more-row" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button></div>` : `
       <div class="group story">${lines.map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}</div>
-      <div class="section-title">از کجا اومد · ${fmtShort(inT)}</div>
-      <div class="group">${ins.length ? bars(ins, 'in') : '<div class="cell"><span class="sec">پولی نیومد</span></div>'}</div>
+      <div class="section-title">ورودی‌ها · ${fmtShort(inT)}</div>
+      <div class="group">${ins.length ? bars(ins, 'in') : '<div class="cell"><span class="sec">ورودی‌ای ثبت نشده</span></div>'}</div>
       ${outs.length ? `<div class="section-title">پرداخت‌های بزرگ · ${fmtShort(sum(outs))}</div><div class="group">${bars(outs, 'out')}</div>` : ''}
       ${days && days.length ? `<div class="section-title">${h.days ? 'خرج‌های روزانه' : 'خرج‌ها'} · ${fmtShort(sum(days))}</div><div class="group">${bars(days.slice().sort((a, b) => b[1] - a[1]), 'day')}</div>` : ''}`}`;
+}
+
+// ----- Month at a glance: first the logic (what happened), then the numbers, then the trend -----
+function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe }) {
+  const sum = a => a.reduce((x, y) => x + y[1], 0);
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate);
+  const m = series.find(x => x.key === key) || {};
+  const running = !!m.running;
+  const rest = series.filter(x => x.key !== key && !x.running && (x.expense || x.work));
+  const usual = f => rest.length ? rest.reduce((a, x) => a + (f(x) || 0), 0) / rest.length : null;
+  const asset = sum(outs.filter(x => assetRe.test(x[0])));
+  const loan = sum(outs.filter(x => /قسط|صندوق/.test(x[0])));
+  const exp = h.expense || 0, work = h.work || 0, fam = h.family || 0;
+  const uExp = usual(x => x.expense);
+  const span = rest.length ? `${faDigits(rest.length)} ماه دیگر (${monthName(rest[0].key)} تا ${monthName(rest.at(-1).key)})` : '';
+
+  // 1) Logic: a few short sentences, biggest first.
+  const L = [];
+  if (asset >= 5e6) L.push(`${fmtShort(asset)} به دارایی تبدیل شد.`);
+  if (running) L.push(`تا امروز ${fmtShort(exp)} هزینهٔ زندگی ثبت شده.`);
+  else if (uExp) { const d = (exp - uExp) / uExp; L.push(`هزینهٔ زندگی ${fmtShort(exp)} بود؛ ${Math.abs(d) < .08 ? 'در حد میانگین' : `${faDigits(Math.round(Math.abs(d) * 100))}٪ ${d > 0 ? 'بالاتر' : 'پایین‌تر'} از میانگین`}.`); }
+  if (!running && (work || fam)) L.push(work >= exp ? `درآمد کاری (${fmtShort(work)}) همهٔ هزینه‌ها را پوشش داد.` : work ? `درآمد کاری ${fmtShort(work)} بود و باقی هزینه‌ها را حمایت خانواده پوشش داد.` : 'درآمد کاری نداشتی؛ هزینه‌ها از حمایت خانواده و موجودی تأمین شد.');
+  if (!running) L.push(net >= 0 ? `در پایان ماه ${fmtShort(net)} به موجودی اضافه شد.` : `در پایان ماه ${fmtShort(-net)} از موجودی کم شد.`);
+
+  // 2) Numbers: this month, the average of the other months, and the change.
+  const rows = [
+    { g: 'جریان نقدی' },
+    { l: 'ورودی', v: inT, u: usual(x => x.inT), dir: 1 },
+    { l: 'خروجی', v: outT, u: usual(x => x.outT), dir: -1 },
+    { l: 'تراز ماه', v: net, u: usual(x => (x.inT || 0) - (x.outT || 0)), dir: 1, signed: true, strong: true },
+    { g: 'اجزا' },
+    { l: 'درآمد کاری', v: work, u: usual(x => x.work), dir: 1, k: 'work' },
+    { l: 'حمایت خانواده', v: fam, u: usual(x => x.family), dir: 0, k: 'family' },
+    { l: 'هزینهٔ زندگی', v: exp, u: uExp, dir: -1, k: 'expense' },
+    { l: 'سرمایه‌گذاری', v: asset, u: usual(x => x.asset), dir: 1 },
+    { l: 'اقساط', v: loan, u: usual(x => x.loanPay), dir: 0 },
+  ];
+  const num = (v, signed) => {
+    if (!signed || !v) return fmtShort(v);
+    const [n, ...u] = fmtShort(Math.abs(v)).split(' ');
+    return `<bdi dir="ltr">${v < 0 ? '−' : '+'}${n}</bdi> ${u.join(' ')}`;
+  };
+  const delta = r => {
+    if (running || r.u == null || !r.u || r.signed) return '';
+    const d = (r.v - r.u) / Math.abs(r.u);
+    if (Math.abs(d) < .05) return '<span class="dl">—</span>';
+    const tone = !r.dir ? '' : (d > 0) === (r.dir > 0) ? 'green' : 'red';
+    return `<span class="dl ${tone}"><bdi dir="ltr">${d > 0 ? '▲' : '▼'} ${faDigits(Math.min(999, Math.round(Math.abs(d) * 100)))}٪</bdi></span>`;
+  };
+  const body = rows.map((r, i) => r.g ? `<div class="nt-g">${r.g}</div>` : `<${r.k ? `button data-act="detail" data-k="series" data-v="${r.k}"` : 'div'} class="nt-row${r.strong ? ' strong' : ''}" style="animation-delay:${(i * .04).toFixed(2)}s">
+      <span class="nt-l">${r.l}</span><b data-cu="${Math.abs(Math.round(r.v))}" data-f="short"${r.signed ? ' data-raw="1"' : ''}>${num(r.v, r.signed)}</b>${running ? '' : `<span class="nt-u">${r.u == null ? '' : num(r.u, r.signed)}</span>${delta(r)}`}</${r.k ? 'button' : 'div'}>`).join('');
+
+  return `<div class="ins-card">
+      <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(name)}${running ? ' · در جریان' : ''}</p>
+      <ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
+    </div>
+    <div class="ins-card nt${running ? ' run' : ''}">
+      <div class="nt-row nt-head"><span></span><span>${running ? 'تا امروز' : 'این ماه'}</span>${running ? '' : '<span>میانگین</span><span>تغییر</span>'}</div>
+      ${body}
+      ${running || !span ? '' : `<p class="nt-foot">میانگین = ${span}. تغییر = (این ماه − میانگین) ÷ میانگین.</p>`}
+    </div>
+    <button class="cell more-row ins-more" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button>`;
 }
 
 // The same story for months recorded in the app, built from transactions.
@@ -983,11 +1045,12 @@ function viewAnalysis() {
   if (!A) return `<div class="view wide">${head}${unlock}<p class="empty">هنوز ماه کاملی برای تحلیل نیست.</p></div>`;
   const key = series.some(m => m.key === S.anKey) ? S.anKey : A.last;
   const K = kpis(series, balanceAt(S.tx, S.settings), assetsTotal().held);
+  const N = newsItems(series, A);
   const max = Math.max(...series.map(m => Math.max(m.inT || 0, m.outT || 0)), 1);
   // Month cards: what came in, what went out and the net, the same totals as the Numbers sheets.
   const card = m => {
     const net = (m.inT || 0) - (m.outT || 0);
-    const tag = m.running ? 'در جریان' : m.asset > 0 ? `دارایی ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرخرج' : net >= 0 ? 'پول اضافه موند' : 'کم آوردی';
+    const tag = m.running ? 'در جریان' : m.asset > 0 ? `سرمایه‌گذاری ${fmtShort(m.asset)}` : m.expense > A.avgExp * 1.25 ? 'پرهزینه' : net >= 0 ? 'تراز مثبت' : 'تراز منفی';
     return `<button class="tl-card${m.key === key ? ' on' : ''}" data-act="an-month" data-v="${m.key}">
       <span class="tl-go">${ICON.arrow}</span>
       <span class="tl-name">${esc(monthName(m.key))}</span>
@@ -1008,14 +1071,12 @@ function viewAnalysis() {
   ].filter(Boolean);
   return `<div class="view wide">
     ${head}${unlock}
-    ${kpiCarousel(K, A)}
-    <div class="group"><button class="cell more-row" data-act="kpi-all"><span class="grow tint">همهٔ شاخص‌ها به ترتیب اهمیت</span><span class="kpi-dots">${K.map(k => `<i class="kdot ${k.status}"></i>`).join('')}</span>${ICON.chevL}</button></div>
+    ${newsHero(N)}
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
-    <p class="foot legend-foot"><span><i style="background:#34c759"></i>پولی که اومد</span><span><i style="background:var(--tint)"></i>پولی که رفت</span><span>عدد بالا: اومد منهای رفت (مثل جدول Numbers)</span></p>
-    <div class="section-title">چی خوبه، چی نه</div>
-    <div class="segmented an-tabs">${[['bad', 'انتقاد', A.critiques], ['tip', 'پیشنهاد', A.tips], ['ok', 'خوب‌ها', A.good]].filter(x => x[2].length).map(([k, l]) => `<button data-act="an-tab" data-v="${k}" class="${(S.anTab || 'bad') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="group">${list({ bad: A.critiques, tip: A.tips, ok: A.good }[S.anTab || 'bad'] || [], S.anTab || 'bad')}</div>
+    <p class="foot legend-foot"><span><i style="background:#34c759"></i>ورودی</span><span><i style="background:var(--tint)"></i>خروجی</span><span>عدد بالا: تراز ماه</span></p>
+    <div class="section-title">خبرها و نکته‌ها</div>
+    <div class="feed">${N.slice(4).map(newsCard).join('')}</div>
     <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
     ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join(' · ')}.</p>` : ''}
   </div>`;
@@ -1029,7 +1090,7 @@ function monthCompareSheet(key) {
   const arrow = (d, a, upGood = false) => !a || !Math.round(d / a * 100) ? '' : `<span class="${(d > 0) === upGood ? 'green' : 'red'} sec">${d > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d / a * 100)))}٪</span>`;
   const net = (m.inT || 0) - (m.outT || 0);
   openSheet(`<div class="sheet-nav"><span></span><b>${esc(monthLabel(key))}</b><button class="link" data-close>بستن</button></div>
-    <div class="det-head"><span class="sec">اومد منهای رفت</span><b class="${net >= 0 ? 'green' : 'red'}">${net >= 0 ? '+' : '−'}${fmtShort(Math.abs(net))}</b></div>
+    <div class="det-head"><span class="sec">تراز ماه</span><b class="${net >= 0 ? 'green' : 'red'}">${net >= 0 ? '+' : '−'}${fmtShort(Math.abs(net))}</b></div>
     ${C ? `<div class="section-title">در برابر یه ماه معمولی</div>
     <div class="group">
       <div class="cell"><span class="grow">درآمد کاری<small class="avg-line">معمولاً ${fmtShort(C.work.a)}</small></span>${arrow(C.work.v - C.work.a, C.work.a, true)}<b>${fmtShort(C.work.v)}</b></div>
@@ -1041,45 +1102,70 @@ function monthCompareSheet(key) {
     { open: () => { closeSheet(); S.month = key; S.view = 'dash'; S.tr.hover = null; render(); window.scrollTo(0, 0); } });
 }
 
-// Monthly goals: spending ceiling, share of discretionary spending, and money turned into assets.
+// Monthly goals with their arithmetic in plain view.
+// spend: ceiling for living costs · disc: share of that ceiling for optional spending · asset: amount to invest.
 const GOAL_DEF = { spend: 160e6, disc: .35, asset: 10e6 };
 const goals = () => ({ ...GOAL_DEF, ...(S.settings.goals || {}) });
+const DISC = ['weekend', 'gift', 'habits', 'personal'];
 function goalRows(T, key) {
   const g = goals(), s = monthSummary(T, key), now = new Date();
   const series = monthsSeries(S.history, T, S.settings.startDate);
-  const proj = projectMonth(key, s.expense, baseline(series, m => m.expense || 0), now) || s.expense;
-  const disc = ['weekend', 'gift', 'habits', 'personal'].reduce((a, c) => a + (s.byCat[c] || 0), 0);
-  const dShare = s.expense ? disc / s.expense : 0, asset = s.asset || 0;
-  const { start, end } = monthRange(key), k = Math.min(1, (now - start) / (end - start));
+  const base = baseline(series, m => m.expense || 0);
+  const proj = projectMonth(key, s.expense, base, now) || s.expense;
+  const { start, end } = monthRange(key);
+  const daysAll = Math.round((end - start) / 864e5), dayNow = Math.min(daysAll, Math.floor((now - start) / 864e5) + 1), left = Math.max(1, daysAll - dayNow + 1);
+  const disc = DISC.reduce((a, c) => a + (s.byCat[c] || 0), 0), discCap = g.spend * g.disc;
+  const asset = s.asset || 0;
+  const pace = (g.spend - s.expense) / left;
   return [
-    { id: 'spend', t: 'خرج زندگی', v: fmtShort(s.expense), goal: `سقف ${fmtShort(g.spend)}`, p: s.expense / g.spend,
-      st: proj <= g.spend ? 'g' : proj <= g.spend * 1.1 ? 'o' : 'r', note: `پیش‌بینی آخر ماه: ${fmtShort(proj)}` },
-    { id: 'disc', t: 'خرج دلبخواهی', v: faDigits(Math.round(dShare * 100)) + '٪', goal: `زیر ${faDigits(Math.round(g.disc * 100))}٪`, p: dShare / g.disc,
-      st: dShare <= g.disc ? 'g' : dShare <= g.disc + .07 ? 'o' : 'r', note: 'تفریح، هدیه، شخصی و دخانیات' },
-    { id: 'asset', t: 'دارایی‌سازی', v: fmtShort(asset), goal: `حداقل ${fmtShort(g.asset)}`, p: asset / g.asset,
-      st: asset >= g.asset ? 'g' : asset >= g.asset * k ? 'o' : 'r', note: 'دلار، نقره، رند و باکس' },
+    { id: 'spend', t: 'هزینهٔ زندگی', v: s.expense, cap: g.spend, p: s.expense / g.spend,
+      st: proj <= g.spend ? 'g' : proj <= g.spend * 1.1 ? 'o' : 'r',
+      note: pace > 0 ? `برای ماندن در سقف: روزی تا ${fmtShort(pace)} در ${faDigits(left)} روز باقی‌مانده` : `سقف رد شده؛ ${fmtShort(-pace * left)} بالاتر`,
+      why: `پیش‌بینی پایان ماه ${fmtShort(proj)} است: ${fmtShort(s.expense)} تا امروز + میانگین روزانهٔ سه ماه اخیر (${fmtShort((base || 0) / 30)}) × ${faDigits(left)} روز.` },
+    { id: 'disc', t: 'هزینه‌های اختیاری', v: disc, cap: discCap, p: disc / discCap,
+      st: disc <= discCap * (dayNow / daysAll) * 1.1 ? 'g' : disc <= discCap ? 'o' : 'r',
+      note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه · تفریح، هدیه، شخصی، دخانیات`,
+      why: `سقف این بخش = ${faDigits(Math.round(g.disc * 100))}٪ × ${fmtShort(g.spend)} = ${fmtShort(discCap)}. تا امروز ${fmtShort(disc)} از آن مصرف شده.` },
+    { id: 'asset', t: 'سرمایه‌گذاری', v: asset, cap: g.asset, p: asset / g.asset,
+      st: asset >= g.asset ? 'g' : asset >= g.asset * (dayNow / daysAll) ? 'o' : 'r',
+      note: asset >= g.asset ? 'هدف این ماه کامل شد' : `${fmtShort(g.asset - asset)} مانده تا هدف، در ${faDigits(left)} روز`,
+      why: 'دلار، طلا، نقره، باکس و رند بلو. سبز یعنی هدف کامل شده؛ نارنجی یعنی هم‌پای روزهای گذشتهٔ ماه.' },
   ];
 }
 function goalsCard(T, key) {
   const R = goalRows(T, key), ok = R.filter(r => r.st === 'g').length;
   return `<button class="goals" data-act="goals">
-    <div class="goals-head"><span class="b-label">هدف‌های ${esc(monthName(key))}</span><span class="sec">${faDigits(ok)} از ${faDigits(R.length)} در مسیر</span></div>
-    ${R.map(r => `<div class="goal"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(r.v)} <small>/ ${esc(r.goal)}</small></b></div>
-      <div class="goal-bar"><i class="${r.st}" style="width:${Math.min(100, r.p * 100).toFixed(0)}%"></i></div>${r.id === 'spend' ? `<small class="goal-note">${esc(r.note)}</small>` : ''}</div>`).join('')}
+    <div class="goals-head"><span class="b-label"><span class="live-dot"></span>هدف‌های ${esc(monthName(key))}</span><span class="sec">${faDigits(ok)} از ${faDigits(R.length)} در مسیر</span></div>
+    ${R.map(r => `<div class="goal"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div>
+      <div class="goal-bar"><i class="${r.st}" style="width:${Math.min(100, r.p * 100).toFixed(1)}%"></i></div><small class="goal-note">${esc(r.note)}</small></div>`).join('')}
   </button>`;
 }
+// Suggested targets from your own last three months: 10% under the usual spend, optional share as it is now (max 40%), invest 10% of work income.
+function goalSuggest(T) {
+  const series = monthsSeries(S.history, T, S.settings.startDate).filter(m => !m.running && (m.expense || m.work)).slice(-3);
+  if (!series.length) return null;
+  const avg = f => series.reduce((a, m) => a + f(m), 0) / series.length;
+  const exp = avg(m => m.expense || 0), work = avg(m => m.work || 0), disc = avg(m => DISC.reduce((a, c) => a + ((m.byCat || {})[c] || 0), 0));
+  const r5 = v => Math.round(v / 5e6) * 5e6;
+  return { spend: r5(exp * .9), disc: Math.min(.4, Math.round(disc / exp * 20) / 20 || .35), asset: Math.max(5e6, r5(work * .1)), exp, work };
+}
 function goalsSheet() {
-  const T = scoped(), key = monthKey(new Date()), R = goalRows(T, key), g = goals();
+  const T = scoped(), key = monthKey(new Date()), R = goalRows(T, key), g = goals(), sg = goalSuggest(T);
   openSheet(`<div class="sheet-nav"><button class="link" data-close>بستن</button><b>هدف‌های ماه</b><button class="link strong" data-act="save">ذخیره</button></div>
-    <div class="group">${R.map(r => `<div class="cell col"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(r.v)}</b></div><small class="sec">${esc(r.note)}</small></div>`).join('')}</div>
-    <div class="section-title">تغییر هدف‌ها</div>
+    <div class="group">${R.map(r => `<div class="cell col"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div><small class="sec why">${esc(r.why)}</small></div>`).join('')}</div>
+    ${sg ? `<div class="section-title">پیشنهاد بر اساس سه ماه اخیر</div>
+    <div class="group"><div class="cell col"><small class="sec why">میانگین هزینه ${fmtShort(sg.exp)} و درآمد کاری ${fmtShort(sg.work)}. سقف هزینه ۱۰٪ زیر میانگین، سهم اختیاری همان سهم فعلی (حداکثر ۴۰٪) و سرمایه‌گذاری ۱۰٪ درآمد کاری.</small>
+      <div class="goal-top" style="margin-top:8px"><span>${fmtShort(sg.spend)} · ${faDigits(Math.round(sg.disc * 100))}٪ · ${fmtShort(sg.asset)}</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
+    <div class="section-title">تنظیم دستی</div>
     <div class="group">
-      <div class="cell"><span>سقف خرج زندگی (تومان)</span><input class="bare end" id="g-spend" inputmode="numeric" value="${fmt(g.spend)}"></div>
-      <div class="cell"><span>سقف خرج دلبخواهی (٪)</span><input class="bare end" id="g-disc" inputmode="numeric" value="${faDigits(Math.round(g.disc * 100))}"></div>
-      <div class="cell"><span>حداقل دارایی‌سازی (تومان)</span><input class="bare end" id="g-asset" inputmode="numeric" value="${fmt(g.asset)}"></div>
-    </div>`, { save: async () => {
+      <div class="cell"><span>سقف هزینهٔ زندگی (تومان)</span><input class="bare end" id="g-spend" inputmode="numeric" value="${fmt(g.spend)}"></div>
+      <div class="cell"><span>سهم اختیاری از سقف (٪)</span><input class="bare end" id="g-disc" inputmode="numeric" value="${faDigits(Math.round(g.disc * 100))}"></div>
+      <div class="cell"><span>سرمایه‌گذاری ماهانه (تومان)</span><input class="bare end" id="g-asset" inputmode="numeric" value="${fmt(g.asset)}"></div>
+    </div>`, {
+    use: () => { document.getElementById('g-spend').value = fmt(sg.spend); document.getElementById('g-disc').value = faDigits(Math.round(sg.disc * 100)); document.getElementById('g-asset').value = fmt(sg.asset); },
+    save: async () => {
       const sp = parseAmount(document.getElementById('g-spend').value), d = parseAmount(document.getElementById('g-disc').value), as = parseAmount(document.getElementById('g-asset').value);
-      S.settings.goals = { spend: sp || GOAL_DEF.spend, disc: d ? d / 100 : GOAL_DEF.disc, asset: as || GOAL_DEF.asset };
+      S.settings.goals = { spend: sp || GOAL_DEF.spend, disc: d ? Math.min(.9, d / 100) : GOAL_DEF.disc, asset: as || GOAL_DEF.asset };
       await saveSettings(); closeSheet(); render(); toast('هدف‌ها ذخیره شد');
     } }, root => ['g-spend', 'g-asset'].forEach(id => { const i = root.querySelector('#' + id); i.addEventListener('input', () => { const v = parseAmount(i.value); i.value = v ? fmt(v) : ''; }); }));
 }
@@ -1088,6 +1174,52 @@ function assetTile() {
   const A = assetsState(), { cash, held } = assetsTotal();
   return `<button class="asset-tile" data-act="go-assets"><span class="grow"><span class="b-label">همهٔ دارایی‌ات</span><b>${fmtShort(cash + held)}</b><small>${A.items.length ? `نقد ${fmtShort(cash)} · دلار، طلا و بقیه ${fmtShort(held)}` : 'دلار، طلا، نقره و باکس را اضافه کن'}</small></span>${ICON.chevL}</button>`;
 }
+
+// ----- Analysis as a news feed: totals so far, averages, records, events, critiques and suggestions -----
+function newsItems(series, A) {
+  const done = series.filter(m => !m.running && (m.expense || m.work)), n = done.length;
+  if (!n) return [];
+  const sum = f => done.reduce((a, m) => a + (f(m) || 0), 0), pts = f => series.map(m => ({ key: m.key, running: m.running, v: f(m) || 0 }));
+  const span = `${monthName(done[0].key)} تا ${monthName(done.at(-1).key)}`;
+  const max = f => done.reduce((x, m) => (f(m) > f(x) ? m : x), done[0]), min = f => done.reduce((x, m) => (f(m) < f(x) ? m : x), done[0]);
+  const work = sum(m => m.work), exp = sum(m => m.expense), fam = sum(m => m.family), inv = sum(m => m.asset);
+  const invMonths = done.filter(m => m.asset > 0), lastInv = invMonths.at(-1);
+  const bal = balanceAt(S.tx, S.settings), runway = exp ? bal / (exp / n) : 0;
+  const N = [];
+  N.push({ k: 'پیشرفت', t: `تا امروز ${fmtShort(inv)} سرمایه‌گذاری`, d: `در ${faDigits(invMonths.length)} ماه از ${faDigits(n)} ماه${lastInv ? `؛ آخرین بار ${monthName(lastInv.key)} (${fmtShort(lastInv.asset)})` : ''}.`, c: pts(m => m.asset) });
+  N.push({ k: 'درآمد', t: `میانگین درآمد کاری: ماهانه ${fmtShort(work / n)}`, d: `جمعاً ${fmtShort(work)} از ${span}؛ بهترین ماه ${monthName(max(m => m.work).key)} با ${fmtShort(max(m => m.work).work)}.`, c: pts(m => m.work) });
+  N.push({ k: 'هزینه', t: `میانگین هزینهٔ زندگی: ماهانه ${fmtShort(exp / n)}`, d: `کمترین ${monthName(min(m => m.expense).key)} (${fmtShort(min(m => m.expense).expense)})، بیشترین ${monthName(max(m => m.expense).key)} (${fmtShort(max(m => m.expense).expense)}).`, c: pts(m => m.expense) });
+  N.push({ k: 'پوشش', t: `درآمد کاری ${faDigits(Math.round(work / exp * 100))}٪ هزینه‌ها را پوشش داده`, d: `${fmtShort(work)} درآمد ÷ ${fmtShort(exp)} هزینه. از هر ۱۰۰ تومان هزینه، ${faDigits(Math.round(work / exp * 100))} تومان از کار بوده.`, c: pts(m => m.expense ? m.work / m.expense : 0), pct: true });
+  N.push({ k: 'حمایت', t: `${fmtShort(fam)} حمایت خانواده`, d: `${faDigits(Math.round(fam / (work + fam) * 100))}٪ ورودیِ زندگی؛ ماهانه حدود ${fmtShort(fam / n)}.` });
+  N.push({ k: 'ذخیره', t: `موجودی نقد برای ${faDigits(runway.toFixed(1).replace('.', '٫'))} ماه هزینه`, d: `موجودی ${fmtShort(bal)} ÷ میانگین هزینهٔ ماهانه ${fmtShort(exp / n)}. هدف معمول: سه ماه.`, tone: runway < 1 ? 'r' : runway < 3 ? 'o' : 'g' });
+  const last = done.at(-1), lastOut = (last.outs || []).slice().sort((a, b) => b[1] - a[1])[0];
+  if (lastOut) N.push({ k: 'رویداد', t: `${monthName(last.key)}: ${lastOut[0]}`, d: `${fmtShort(lastOut[1])}؛ بزرگ‌ترین پرداخت ماه.` });
+  for (const x of A.critiques) N.push({ k: 'نقد', t: x.t, d: x.d, tone: 'r' });
+  for (const x of A.tips) N.push({ k: 'پیشنهاد', t: x.t, d: x.d });
+  for (const x of A.good) N.push({ k: 'خبر خوب', t: x.t, d: x.d, tone: 'g' });
+  return N;
+}
+
+// Frosted-glass bars: one per month, the running month faint.
+function glassBars(pts, pct) {
+  const W = 320, H = 86, bw = W / pts.length, mx = Math.max(...pts.map(p => p.v), 1e-9);
+  return `<svg viewBox="0 0 ${W} ${H}" class="glass-chart"><defs><linearGradient id="gl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity=".08"/></linearGradient></defs>
+    ${pts.map((p, i) => { const h = Math.max(3, p.v / mx * (H - 26)), x = i * bw + bw * .16, w = bw * .68;
+      return `<rect class="gbar${p.running ? ' run' : ''}" x="${x.toFixed(1)}" y="${(H - 16 - h).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5" style="animation-delay:${(i * .05).toFixed(2)}s"/>
+        <text x="${(x + w / 2).toFixed(1)}" y="${(H - 19 - h).toFixed(1)}" text-anchor="middle" class="g-val">${p.v ? (pct ? faDigits(Math.round(p.v * 100)) + '٪' : fmtShort(p.v).split(' ')[0]) : ''}</text>
+        <text x="${(x + w / 2).toFixed(1)}" y="${H - 3}" text-anchor="middle" class="spark-lbl">${esc(monthName(p.key))}</text>`; }).join('')}</svg>`;
+}
+
+function newsHero(N) {
+  const top = N.slice(0, 4);
+  if (!top.length) return '';
+  return `<section class="car b-primary news" data-carousel data-act="car-next"><div class="stripes"></div>
+    <div class="car-head"><span><span class="live-dot"></span>سرخط‌ها</span><span class="car-dots">${top.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</span></div>
+    <div class="car-stage">${top.map((x, i) => `<div class="car-slide${i ? '' : ' on'}"><span class="b-pill">${esc(x.k)}</span>
+      <h3 class="news-t">${esc(x.t)}</h3><p class="car-mean">${esc(x.d)}</p>${x.c ? glassBars(x.c, x.pct) : ''}</div>`).join('')}</div></section>`;
+}
+
+const newsCard = x => `<div class="news-card"><span class="news-k ${x.tone || ''}">${esc(x.k)}</span><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div>`;
 
 const TIER = { 1: 'اولویت ۱ · پایه‌ای', 2: 'اولویت ۲ · مهم', 3: 'اولویت ۳ · برای بهتر شدن' };
 const kpiNum = (k, v) => k.unit === 'pct' ? faDigits(Math.round(v * 100)) + '٪' : fmtShort(v);
@@ -1146,7 +1278,7 @@ function analysisReport() {
   const L = [`گزارش مالی — ${monthLabel(A.first)} تا ${monthLabel(A.last)} (${faDigits(A.n)} ماه، تومان)`, ''];
   L.push('خلاصه', `• ${A.verdict}`, `• میانگین ماهانه: درآمد کاری ${m(A.avgWork)} · خرج ${m(A.avgExp)}`,
     `• کمک خانواده در کل دوره: ${m(A.family)} (${faDigits(Math.round(A.famShare * 100))}٪ پول ورودی)`, `• دارایی خریده‌شده (دلار، نقره، دوچرخه): ${m(A.asset)}`, '');
-  L.push('ماه به ماه (اومد / رفت / نتیجه · درآمد کاری · خرج زندگی)');
+  L.push('ماه به ماه (ورودی / خروجی / تراز · درآمد کاری · هزینهٔ زندگی)');
   for (const x of series) { const net = (x.inT || 0) - (x.outT || 0); L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.inT)} / ${m(x.outT)} / ${net >= 0 ? '+' : '−'}${m(Math.abs(net))} · کار ${m(x.work)} · خرج ${m(x.expense)}`); }
   const K = kpis(series, balanceAt(S.tx, S.settings), assetsTotal().held);
   L.push('', 'شاخص‌های مهم');
@@ -1204,12 +1336,8 @@ function viewDash() {
       </div>
     </section>
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
-    <div class="duo">
-      <button class="mb-tile tap" data-act="detail" data-k="work"><p class="b-label">درآمد کاری</p><p class="mb-num">${fmtShort(s.work)}</p><p class="b-sub">${s.family ? `+ ${fmtShort(s.family)} خانواده` : '&nbsp;'}</p></button>
-      <button class="mb-tile tap" data-act="detail" data-k="day" data-v="__all"><p class="b-label">خرج زندگی</p><p class="mb-num">${fmtShort(s.expense)}</p><p class="b-sub">${faDigits(s.count - s.rounds)} تراکنش</p></button>
-    </div>
-    ${assetTile()}
     ${liveStory(T, key)}
+    ${assetTile()}
     <div id="trend">${trendCard()}</div>
   </div>`;
 }
@@ -1227,7 +1355,7 @@ function liveLines(T, chk) {
   const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
   if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
   const lb = S.settings.lastBackup;
-  if (!isTablet() && (!lb || Date.now() - new Date(lb) > 7 * 864e5)) lines.push(`${lb ? 'یه هفته‌ست' : 'هنوز'} پشتیبان نگرفتی؛ تنظیمات ← ذخیرهٔ پشتیبان`);
+  if (!isTablet() && (!lb || Date.now() - new Date(lb) > 7 * 864e5)) lines.push(`${lb ? 'یک هفته از آخرین پشتیبان گذشته' : 'هنوز پشتیبانی گرفته نشده'}؛ تنظیمات ← ذخیرهٔ پشتیبان`);
   if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
   return lines;
 }
@@ -1499,7 +1627,7 @@ const missingPrice = it => ASSET_KINDS[it.kind].price && !assetsState().prices[A
 function viewAssets() {
   const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = A.prices.usd;
   const owed = seenzhinOwed(monthKey(new Date()));
-  const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: هرچه بهش دادی منهای هرچه پس داده', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
+  const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: پرداخت‌ها منهای بازپرداخت‌ها', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
     `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? ' · قیمت وارد نشده' : ''}`, it.id])];
   const mx = Math.max(1, ...rows.map(r => r[1]));
   const old = !A.pricesAt || Date.now() - new Date(A.pricesAt) > 7 * 864e5;
