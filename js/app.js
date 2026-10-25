@@ -6,11 +6,12 @@ import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.j
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
+import { createChart, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode, } from '../vendor/lightweight-charts.mjs';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
   view: 'entry', amount: '', dayBack: 0, step: 'amount', dir: 'out', what: '',
-  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, tr: { field: 'expense', cmp: null, frame: 'all', hover: null, a: null, b: null, measure: false, picking: false },
+  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, tr: { field: 'expense', cmps: [], pct: false, frame: 'all', hover: null, picking: false },
 };
 const $app = document.getElementById('app');
 const $tabs = document.getElementById('tabs');
@@ -975,12 +976,42 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
       <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(name)}${running ? ' · در جریان' : ''}</p>
       <ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
     </div>
+    ${flowCard({ work, fam, inT, outT, exp, asset, loan, net, running })}
     <div class="ins-card nt${running ? ' run' : ''}">
       <div class="nt-row nt-head"><span></span><span>${running ? 'تا امروز' : 'این ماه'}</span>${running ? '' : '<span>میانگین</span><span>تغییر</span>'}</div>
       ${body}
       ${running || !span ? '' : `<p class="nt-foot">میانگین = ${span}. تغییر = (این ماه − میانگین) ÷ میانگین.</p>`}
     </div>
     <button class="cell more-row ins-more" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button>`;
+}
+
+// Money flow: where the month's money came from (right), through the month (centre), to where it went
+// (left). Line thickness is the amount; dots keep moving along the lines so the month reads as a stream.
+function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running }) {
+  const pos = v => Math.max(0, v || 0);
+  const src = [['درآمد کاری', pos(work)], ['حمایت خانواده', pos(fam)], ['سایر ورودی‌ها', pos(inT - work - fam)]].filter(x => x[1] >= 1e5);
+  const dst = [['هزینهٔ زندگی', pos(exp)], ['سرمایه‌گذاری', pos(asset)], ['اقساط', pos(loan)], ['سایر خروجی‌ها', pos(outT - exp - asset - loan)]].filter(x => x[1] >= 1e5);
+  if (!src.length && !dst.length) return '';
+  const rows = Math.max(src.length, dst.length, 2), H = rows * 46 + 16, hy = H / 2, mx = Math.max(...src.map(x => x[1]), ...dst.map(x => x[1]), 1);
+  const w = v => Math.max(1.5, v / mx * 12), ys = (n, i) => (H - n * 46) / 2 + 23 + i * 46;
+  const side = (list, out) => list.map(([l, v], i) => {
+    const y = ys(list.length, i), hyO = hy + (i - (list.length - 1) / 2) * 7;
+    const d = out ? `M140,${hyO.toFixed(1)} C118,${hyO.toFixed(1)} 122,${y} 100,${y}` : `M240,${y} C218,${y} 222,${hyO.toFixed(1)} 200,${hyO.toFixed(1)}`;
+    const n = Math.max(1, Math.round(v / mx * 3)), dur = (2.6 - v / mx).toFixed(2);
+    const pk = REDUCED() ? '' : Array.from({ length: n }, (_, k) => `<circle r="2.2" class="fl-pkt"><animateMotion dur="${dur}s" begin="${(k * dur / n + i * .3).toFixed(2)}s" repeatCount="indefinite" path="${d}"/></circle>`).join('');
+    const tx = out ? 8 : 332, an = out ? 'start' : 'end';
+    return `<path d="${d}" class="fl-line ${out ? 'out' : 'in'}" stroke-width="${w(v).toFixed(1)}" style="--i:${i}"/>${pk}
+      <text x="${tx}" y="${y - 3}" text-anchor="${an}" class="fl-l">${esc(l)}</text><text x="${tx}" y="${y + 13}" text-anchor="${an}" class="fl-v">${esc(fmtShort(v))}</text>`;
+  }).join('');
+  const [nn, ...nu] = fmtShort(Math.abs(net)).split(' ');
+  return `<div class="ins-card flow"><span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br2"></span>
+    <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}جریان پول</p>
+    <svg viewBox="0 0 340 ${H}" class="fl-svg" role="img" aria-label="جریان پول ماه">${side(src, false)}${side(dst, true)}
+      <rect x="140" y="${(hy - 26).toFixed(1)}" width="60" height="52" rx="12" class="fl-hub"/>
+      <text x="170" y="${(hy + 1).toFixed(1)}" text-anchor="middle" class="fl-v ${net >= 0 ? 'up' : 'down'}" direction="ltr">${net >= 0 ? '+' : '−'}${esc(nn)}</text>
+      <text x="170" y="${(hy + 15).toFixed(1)}" text-anchor="middle" class="fl-l">${esc(nu.join(' ') || 'تومان')}</text>
+      <text x="170" y="${(hy - 33).toFixed(1)}" text-anchor="middle" class="fl-l">تراز</text></svg>
+    <p class="nt-foot">ضخامت هر خط = سهم آن از بزرگ‌ترین رقم ماه. عدد وسط: ورودی − خروجی${running ? ' تا امروز' : ''}.</p></div>`;
 }
 
 // The same story for months recorded in the app, built from transactions.
@@ -1175,15 +1206,13 @@ function goalRows(T, key) {
       why: 'دلار، طلا، نقره، باکس و رند بلو. سبز یعنی هدف کامل شده؛ نارنجی یعنی هم‌پای روزهای گذشتهٔ ماه.' },
   ];
 }
-// Three rings: the arc is what is used or saved, the small notch is where an even pace would be today.
+// Three rings: the arc is what is used or saved; the details and arithmetic live in the goals sheet.
 function ring(r, i) {
-  const p = Math.min(1, r.p || 0), a = r.tf * 2 * Math.PI, R = 34;
-  const nx = 40 + Math.sin(a) * R, ny = 40 - Math.cos(a) * R, ix = 40 + Math.sin(a) * (R - 7), iy = 40 - Math.cos(a) * (R - 7), ox = 40 + Math.sin(a) * (R + 7), oy = 40 - Math.cos(a) * (R + 7);
+  const p = Math.min(1, r.p || 0), R = 34;
   return `<div class="ring ${r.st}" style="--d:${(i * .12).toFixed(2)}s">
     <div class="ring-box"><svg viewBox="0 0 80 80"><circle class="ring-track" cx="40" cy="40" r="${R}"/>
       ${p > 0 ? `<circle class="ring-arc" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(p * 100).toFixed(1)}"/>` : ''}
       ${r.p > 1 ? `<circle class="ring-over" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(Math.min(1, r.p - 1) * 100).toFixed(1)}"/>` : ''}
-      <line class="ring-notch" x1="${ix.toFixed(1)}" y1="${iy.toFixed(1)}" x2="${ox.toFixed(1)}" y2="${oy.toFixed(1)}"/>
       <b class="ring-num" data-cu="${Math.round(r.v)}" data-f="short">${esc(fmtShort(r.v))}</b></div>
     <span class="ring-t">${esc(r.t)}</span><small class="ring-c">${r.id === 'asset' ? 'هدف' : 'سقف'} ${esc(fmtShort(r.cap))}</small></div>`;
 }
@@ -1192,8 +1221,6 @@ function goalsCard(T, key) {
   return `<button class="goals" data-act="goals">
     <div class="goals-head"><span class="b-label"><span class="live-dot"></span>هدف‌های ${esc(monthName(key))}</span><span class="sec">${faDigits(ok)} از ${faDigits(R.length)} در مسیر</span></div>
     <div class="rings">${R.map(ring).join('')}</div>
-    <p class="goal-line"><i class="kdot ${R[0].st}"></i>${esc(R[0].note)}</p>
-    <small class="goal-foot">شیار کوچک روی هر حلقه: جایی که با سرعت یکنواخت، امروز باید باشی.</small>
   </button>`;
 }
 // Suggested targets from your own last three months: 10% under the usual spend, optional share as it is now (max 40%), invest 10% of work income.
@@ -1462,7 +1489,7 @@ const TR_FIELDS = [['expense', 'کل خرج'], ['work', 'درآمد کاری'], 
   ...PICKABLE_CATS.map(c => [c, CATEGORIES[c].label])];
 const TR_FRAMES = [['1w', '۷ روز'], ['1m', 'این ماه'], ['3m', '۳ ماه'], ['6m', '۶ ماه'], ['all', 'همه']];
 const trLabel = f => (TR_FIELDS.find(x => x[0] === f) || [, ''])[1];
-const trColor = f => f === 'work' ? '#30d158' : f === 'family' ? '#ff9f0a' : f === 'expense' ? '#f2f2f4' : CATEGORIES[f].color;
+const trColor = f => f === 'work' ? '#30d158' : f === 'family' ? '#ff9f0a' : f === 'expense' ? '#2962ff' : CATEGORIES[f].color;
 const upGood = f => f === 'work' || f === 'family';
 
 // Money of one field inside a transaction (daily frames) or a month record (monthly frames).
@@ -1472,6 +1499,7 @@ const txValue = (t, f) => f === 'expense' ? (t.type === 'expense' ? t.amount : 0
   : (t.type === 'expense' && t.cat === f ? t.amount : 0);
 const monthValue = (m, f) => ['expense', 'work', 'family'].includes(f) ? (m[f] || 0) : ((m.byCat || {})[f] || 0);
 
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function trendPoints(field, frame) {
   const T = scoped(), now = new Date();
   if (frame === '1w' || frame === '1m') {
@@ -1479,7 +1507,7 @@ function trendPoints(field, frame) {
     const pts = [];
     for (let i = n - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      pts.push({ d, label: frame === '1w' ? WEEKDAY_SHORT[d.getDay()] : faDigits(toJalali(d).jd), full: formatJalali(d), value: 0, running: i === 0 });
+      pts.push({ d, time: isoDay(d), label: frame === '1w' ? WEEKDAY_SHORT[d.getDay()] : faDigits(toJalali(d).jd), full: formatJalali(d), value: 0, running: i === 0 });
     }
     for (const t of T) {
       const d = new Date(t.ts), idx = Math.floor((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - pts[0].d) / 864e5);
@@ -1491,7 +1519,7 @@ function trendPoints(field, frame) {
   const keep = frame === '3m' ? 3 : frame === '6m' ? 6 : series.length;
   const base = baseline(series, m => monthValue(m, field));
   return series.slice(-keep).map(m => {
-    const p = { key: m.key, label: monthLabel(m.key).split(' ')[0], full: monthLabel(m.key), value: monthValue(m, field), running: !!m.running };
+    const p = { key: m.key, time: isoDay(monthRange(m.key).start), label: monthLabel(m.key).split(' ')[0], full: monthLabel(m.key), value: monthValue(m, field), running: !!m.running };
     if (m.running && !upGood(field)) p.proj = projectMonth(m.key, p.value, base, now);
     return p;
   });
@@ -1519,125 +1547,91 @@ function niceScale(max) {
   return { step, top: Math.ceil(max / step) * step };
 }
 
+// The chart itself is TradingView's own open-source engine (Lightweight Charts, Apache-2.0), vendored so it
+// works offline: same price scale, crosshair, pinch-zoom, pan and pulsing last price as on tradingview.com.
+// Around it: field picker, timeframes, compare, and a legend that follows the crosshair.
+let trChart = null;
 function trendCard() {
-  const tr = S.tr;
-  const pts = trendPoints(tr.field, tr.frame);
-  const cmp = tr.cmp ? trendPoints(tr.cmp, tr.frame) : null;
-  const n = pts.length;
-  const W = Math.max(300, Math.round(S.trW || 340)), H = 300;
-  const pad = { t: 28, b: 36, l: 8, r: 62 }, inset = 18;
-  const PW = W - pad.l - pad.r, PH = H - pad.t - pad.b;
-  const vals = [...pts.map(p => Math.max(p.value, p.proj || 0)), ...(cmp ? cmp.map(p => p.value) : [])];
-  const { step, top } = niceScale(Math.max(1, ...vals));
-  const unit = top >= 2e6 ? 1e6 : 1e3, unitName = unit === 1e6 ? 'میلیون تومان' : 'هزار تومان';
-  const num = v => faDigits(String(Math.round(v / unit * 10) / 10).replace('.', '٫'));
-  const X = i => pad.l + inset + (n === 1 ? (PW - 2 * inset) / 2 : i * (PW - 2 * inset) / (n - 1));
-  const Y = v => pad.t + PH * (1 - v / top);
-  const path = arr => arr.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(' ');
-  const focus = pts.findIndex(p => p.key === S.month);
-  const hi = tr.hover == null || tr.hover >= n ? (focus >= 0 ? focus : n - 1) : tr.hover;
-  const cur = pts[hi], prev = pts[hi - 1], last = pts[n - 1];
-  const daily = tr.frame === '1w' || tr.frame === '1m';
-  const curV = cur.running && cur.proj ? cur.proj : cur.value;
-  const delta = prev && prev.value && !(cur.running && !cur.proj && !daily) ? (curV - prev.value) / prev.value : null;
-  const good = delta == null ? null : (delta > 0) === upGood(tr.field);
-  const done = pts.filter(p => !p.running);
-  const avg = done.length > 1 ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
-  const col = trColor(tr.field);
-  const A = tr.a != null && tr.a < n ? tr.a : null, B = tr.b != null && tr.b < n ? tr.b : null;
-  let measure = '';
-  tr.mText = '';
-  if (A != null && B != null) {
-    const [i, j] = A < B ? [A, B] : [B, A], va = pts[i].value, vb = pts[j].value, ch = va ? (vb - va) / va : null;
-    tr.mGood = ch == null ? null : (ch > 0) === upGood(tr.field);
-    measure = `<rect x="${X(i)}" y="${pad.t}" width="${X(j) - X(i)}" height="${PH}" class="tr-measure ${tr.mGood === null ? '' : tr.mGood ? 'up' : 'down'}"/>`;
-    tr.mText = `از ${pts[i].label} تا ${pts[j].label}: ${ch == null ? '' : `${ch > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(ch * 100)))}٪ · `}${vb >= va ? '+' : '−'}${fmtShort(Math.abs(vb - va))}`;
-  } else if (A != null) tr.mText = `${pts[A].label} انتخاب شد. نقطهٔ دوم را بزن.`;
-  const ticks = []; for (let v = 0; v <= top + 1; v += step) ticks.push(v);
-  const showVal = i => n <= 8 || i % Math.ceil(n / 8) === 0 || i === n - 1 || i === hi;
-  // Time labels: keep the newest, then walk back and drop any label that would touch its neighbour.
-  const tw = i => pts[i].label.length * 6.4 + 8;
-  const timeKeep = new Set();
-  for (let i = n - 1, lastX = Infinity, lastW = 0; i >= 0; i--) {
-    if (lastX - X(i) >= (tw(i) + lastW) / 2) { timeKeep.add(i); lastX = X(i); lastW = tw(i); }
-  }
-  const showTime = i => timeKeep.has(i) && Math.abs(X(i) - X(hi)) >= (tw(i) + 68) / 2;
-  const tag = (y, text, fill, ink) => `<rect x="${W - pad.r + 2}" y="${(y - 10).toFixed(1)}" width="${pad.r - 4}" height="20" rx="4" fill="${fill}"/><text x="${W - pad.r / 2}" y="${(y + 4).toFixed(1)}" text-anchor="middle" class="tv-tag" fill="${ink}">${text}</text>`;
-  const timeTag = `<rect x="${(X(hi) - 34).toFixed(1)}" y="${H - pad.b + 5}" width="68" height="20" rx="4" fill="#e9e9ee"/><text x="${X(hi).toFixed(1)}" y="${H - pad.b + 19}" text-anchor="middle" class="tv-tag" fill="#0b0c0e">${esc(cur.label)}</text>`;
-  const svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="tv-svg" id="tr-svg">
-    <defs><linearGradient id="tvA" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
-    <text x="${W - pad.r + 6}" y="14" class="tv-unit">${unitName}</text>
-    ${ticks.map(v => `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(v)}" y2="${Y(v)}" class="tv-grid"/><text x="${W - pad.r + 8}" y="${Y(v) + 4}" class="tv-scale">${num(v)}</text>`).join('')}
-    ${pts.map((_, i) => `<line x1="${X(i)}" x2="${X(i)}" y1="${pad.t}" y2="${H - pad.b}" class="tv-grid v"/>`).join('')}
-    <line x1="${W - pad.r}" x2="${W - pad.r}" y1="${pad.t - 8}" y2="${H - pad.b}" class="tv-axis"/>
-    <line x1="${pad.l}" x2="${W - pad.r}" y1="${H - pad.b}" y2="${H - pad.b}" class="tv-axis"/>
-    ${measure}
-    ${avg ? `<line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(avg)}" y2="${Y(avg)}" class="tv-avg"/>` : ''}
-    <path d="${path(pts)} L${X(n - 1)},${H - pad.b} L${X(0)},${H - pad.b} Z" fill="url(#tvA)"/>
-    ${cmp ? `<path d="${path(cmp)}" fill="none" stroke="${trColor(tr.cmp)}" stroke-width="2" stroke-linejoin="round"/>${cmp.map((p, i) => `<circle cx="${X(i)}" cy="${Y(p.value)}" r="2.5" fill="${trColor(tr.cmp)}"/>`).join('')}` : ''}
-    <path d="${path(pts)}" pathLength="1" class="draw" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
-    ${last.proj ? `<line x1="${X(n - 1)}" y1="${Y(last.value)}" x2="${X(n - 1)}" y2="${Y(last.proj)}" stroke="${col}" stroke-width="1.6" stroke-dasharray="3 4"/><circle cx="${X(n - 1)}" cy="${Y(last.proj)}" r="4" fill="#0b0c0e" stroke="${col}" stroke-width="1.6"/><text x="${X(n - 1) - 8}" y="${Y(last.proj) + 4}" text-anchor="end" class="tv-note">پیش‌بینی ${num(last.proj)}</text>` : ''}
-    ${pts.map((p, i) => `<circle cx="${X(i)}" cy="${Y(p.value)}" r="${i === hi ? 5 : 3}" fill="${i === hi ? '#fff' : col}" stroke="#0b0c0e" stroke-width="1.5"/>${showVal(i) ? `<text x="${X(i)}" y="${Y(p.value) - 10}" text-anchor="middle" class="tv-val${i === hi ? ' on' : ''}">${num(p.value)}</text>` : ''}`).join('')}
-    ${last.running ? `<circle cx="${X(n - 1)}" cy="${Y(last.value)}" r="4" fill="${col}" class="tr-pulse"/>` : ''}
-    ${[A, B].filter(x => x != null).map(i => `<circle cx="${X(i)}" cy="${Y(pts[i].value)}" r="7" fill="none" stroke="#fff" stroke-width="2"/>`).join('')}
-    <line x1="${X(hi)}" x2="${X(hi)}" y1="${pad.t}" y2="${H - pad.b}" class="tv-cross"/>
-    <line x1="${pad.l}" x2="${W - pad.r}" y1="${Y(cur.value)}" y2="${Y(cur.value)}" class="tv-cross"/>
-    ${pts.map((p, i) => showTime(i) ? `<text x="${X(i)}" y="${H - pad.b + 19}" text-anchor="middle" class="tv-time">${esc(p.label)}</text>` : '').join('')}
-    ${hi !== n - 1 ? tag(Y(last.value), num(last.value), 'none', col).replace('fill="none"', `fill="#0b0c0e" stroke="${col}"`) : ''}
-    ${tag(Y(cur.value), num(cur.value), col, '#0b0c0e')}
-    ${timeTag}
-  </svg>`;
+  const tr = S.tr, pts = trendPoints(tr.field, tr.frame), col = trColor(tr.field);
   const frames = TR_FRAMES.map(([k, l]) => `<button data-act="tr-frame" data-v="${k}" class="${tr.frame === k ? 'on' : ''}">${l}</button>`).join('');
+  const last = pts[pts.length - 1];
   return `<div class="tv">
     <div class="tv-bar">
       <button class="tv-field" data-act="tr-pick"><i style="background:${col}"></i>${esc(trLabel(tr.field))}<span class="sec">▾</span></button>
-      <div class="tv-tools">
-        <button class="tv-ico ${tr.cmp || tr.picking ? 'on' : ''}" data-act="tr-cmp" aria-label="مقایسه">${ICON.layers}</button>
-        <button class="tv-ico ${tr.measure ? 'on' : ''}" data-act="tr-measure" aria-label="اندازه‌گیری">${ICON.ruler}</button>
-      </div>
     </div>
     <div class="tv-frames">${frames}</div>
-    <div class="tv-legend">
-      <span class="sec">${esc(cur.full)}${cur.running ? ' · <span class="live-dot"></span>تا الان' : ''}</span>
-      <button class="tv-num" data-act="detail" data-k="trend"><b>${fmtShort(cur.value)}</b>${ICON.chevL}</button>
-      ${delta != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${delta > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(delta * 100)))}٪ ${cur.running && cur.proj ? 'پیش‌بینی ' : ''}نسبت به ${esc(daily ? 'روز قبل' : prev.label)}</span>` : ''}
-      ${avg ? `<span class="tv-cmp"><i class="dash"></i>میانگین ${fmtShort(avg)}</span>` : ''}
-      ${cmp ? `<span class="tv-cmp"><i style="background:${trColor(tr.cmp)}"></i>${esc(trLabel(tr.cmp))}: ${fmtShort(cmp[hi] ? cmp[hi].value : 0)}</span>` : ''}
-    </div>
-    <div class="tv-chart" id="tr-wrap">${svg}</div>
-    ${tr.picking ? `<div class="tr-fields tr-cmp">${TR_FIELDS.filter(x => x[0] !== tr.field).map(([k, l]) => `<button data-act="tr-cmpf" data-v="${k}" class="${tr.cmp === k ? 'on' : ''}"><i style="background:${trColor(k)}"></i>${l}</button>`).join('')}</div>` : ''}
-    ${tr.mText ? `<p class="tr-mtext ${tr.mGood === true ? 'good' : tr.mGood === false ? 'bad' : ''}">${esc(tr.mText)}</p>` : ''}
-    <p class="tv-hint">${tr.measure ? 'اندازه‌گیری: روی دو نقطه بزن.' : 'انگشتت را روی نمودار بکش تا عدد هر نقطه را ببینی.'}${last.proj ? ' پیش‌بینی = خرج تا امروز + میانگین ۳ ماه اخیر برای روزهای باقی‌مانده.' : ''}</p>
+    <div class="tv-legend" id="tr-legend"></div>
+    <div class="tv-stage"><div class="tv-chart lw" id="tr-wrap"></div><div class="tv-ov" id="tr-ov"></div></div>
+    ${tr.picking ? `<div class="tr-fields tr-cmp">${TR_FIELDS.filter(x => x[0] !== tr.field).map(([k, l]) => `<button data-act="tr-cmpf" data-v="${k}" class="${tr.cmps.includes(k) ? 'on' : ''}"><i style="background:${trColor(k)}"></i>${l}</button>`).join('')}</div>` : ''}
+    ${tr.cmps.length ? `<p class="tv-hint">${tr.pct ? 'حالت ٪: هر خط از اولین ماهی که عدد داشته صفر شروع می‌شود؛ عدد = (این ماه ÷ همان ماه − ۱) × ۱۰۰.' : 'حالت تومان: همهٔ خط‌ها روی یک مقیاس. «٪» را بزن تا رشدها مقایسه شوند، نه مبلغ‌ها.'}</p>` : ''}
+    <p class="tv-hint">بکش تا جابه‌جا شود، با دو انگشت بزرگ و کوچک کن، انگشتت را نگه دار تا عدد هر نقطه را ببینی.${last && last.proj ? ' خط‌چین «پیش‌بینی» = خرج تا امروز + میانگین ۳ ماه اخیر برای روزهای باقی‌مانده.' : ''}</p>
   </div>`;
 }
 
-function redrawTrend() { const el = document.getElementById('trend'); if (el) el.innerHTML = trendCard(); }
+function redrawTrend() { const el = document.getElementById('trend'); if (el) { el.innerHTML = trendCard(); bindTrend(); } }
 
 function bindTrend() {
-  const el = document.getElementById('trend');
-  if (!el) return;
-  const box = el.querySelector('.tv-chart');
-  if (box && Math.abs(box.clientWidth - (S.trW || 0)) > 4) { S.trW = box.clientWidth; redrawTrend(); }
-  const idxAt = e => {
-    const svg = document.getElementById('tr-svg');
-    if (!svg) return null;
-    const r = svg.getBoundingClientRect(), n = trendPoints(S.tr.field, S.tr.frame).length;
-    const W = Math.max(300, Math.round(S.trW || 340)), span = W - 8 - 62 - 36;
-    const x = (e.clientX - r.left) / r.width * W - 8 - 18;
-    return Math.max(0, Math.min(n - 1, Math.round(x / (span / Math.max(1, n - 1)))));
-  };
-  el.addEventListener('pointermove', e => {
-    if (!e.target.closest('#tr-wrap')) return;
-    const i = idxAt(e);
-    if (i != null && i !== S.tr.hover) { S.tr.hover = i; redrawTrend(); }
+  const wrap = document.getElementById('tr-wrap');
+  if (trChart) { try { trChart.remove(); } catch {} trChart = null; }
+  if (!wrap) return;
+  const tr = S.tr, pts = trendPoints(tr.field, tr.frame), cmps = tr.cmps.map(f => ({ f, pts: trendPoints(f, tr.frame) }));
+  if (!pts.length) return;
+  const daily = tr.frame === '1w' || tr.frame === '1m', col = trColor(tr.field);
+  const top = Math.max(1, ...pts.map(p => Math.max(p.value, p.proj || 0)), ...cmps.flatMap(c => c.pts.map(p => p.value)));
+  const unit = top >= 2e6 ? 1e6 : 1e3;
+  // ٪ mode: each line becomes its change from its own first non-zero value, so growth compares, not size.
+  const pctOn = tr.pct && cmps.length;
+  const num = pctOn ? v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${faDigits(Math.abs(Math.round(v)))}٪` : v => faDigits(String(Math.round(v / unit * 10) / 10).replace('.', '٫'));
+  const rel = arr => { const k = arr.findIndex(p => p.value > 0), b = k >= 0 ? arr[k].value : 0; return arr.map((p, i) => !pctOn ? { time: p.time, value: p.value } : i < k || !b ? { time: p.time } : { time: p.time, value: (p.value / b - 1) * 100 }); };
+  const toDate = t => typeof t === 'string' ? new Date(t + 'T12:00') : t.year ? new Date(t.year, t.month - 1, t.day, 12) : new Date(t * 1000);
+  const tick = t => { const d = toDate(t), j = toJalali(d); return daily ? faDigits(j.jd) : monthLabel(monthKey(d)).split(' ')[0]; };
+  const full = t => { const d = toDate(t); return daily ? formatJalali(d) : monthLabel(monthKey(d)); };
+  trChart = createChart(wrap, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: 'rgba(235,235,245,.6)', fontFamily: 'Estedad, system-ui, sans-serif', fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.06)' } },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.12)', scaleMargins: { top: cmps.length ? .34 : .22, bottom: .08 } },
+    timeScale: { borderColor: 'rgba(255,255,255,.12)', tickMarkFormatter: tick, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
+    crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: '#e9e9ee' }, horzLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: col } },
+    localization: { priceFormatter: num, timeFormatter: full },
+    handleScroll: { vertTouchDrag: false },
   });
-  el.addEventListener('pointerdown', e => {
-    if (!e.target.closest('#tr-wrap')) return;
-    const i = idxAt(e);
-    if (i == null) return;
-    S.tr.hover = i;
-    if (S.tr.measure) { if (S.tr.a == null || S.tr.b != null) { S.tr.a = i; S.tr.b = null; } else S.tr.b = i; }
-    redrawTrend();
+  const main = trChart.addSeries(AreaSeries, {
+    lineColor: col, topColor: col + '55', bottomColor: col + '00', lineWidth: 2,
+    priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 },
+    lastPriceAnimation: pts[pts.length - 1].running ? LastPriceAnimationMode.Continuous : LastPriceAnimationMode.Disabled,
+    crosshairMarkerRadius: 5, crosshairMarkerBorderColor: '#0b0c0e',
+  });
+  main.setData(rel(pts));
+  const done = pts.filter(p => !p.running), avg = done.length > 1 ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
+  if (avg && !pctOn) main.createPriceLine({ price: avg, color: 'rgba(255,255,255,.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین' });
+  const last = pts[pts.length - 1];
+  if (last.proj && !pctOn) main.createPriceLine({ price: last.proj, color: col, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: true, title: 'پیش‌بینی' });
+  for (const c of cmps) trChart.addSeries(LineSeries, { color: trColor(c.f), lineWidth: 2, priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 } }).setData(rel(c.pts));
+  trChart.timeScale().fitContent();
+
+  // Legend above the chart follows the crosshair, like TradingView's top-left OHLC line.
+  const legend = document.getElementById('tr-legend');
+  const show = i => {
+    const p = pts[i], prev = pts[i - 1]; S.tr.hover = i;
+    const v = p.running && p.proj ? p.proj : p.value, d = prev && prev.value && !(p.running && !p.proj && !daily) ? (v - prev.value) / prev.value : null;
+    const good = d == null ? null : (d > 0) === upGood(tr.field);
+    legend.innerHTML = `<span class="sec">${esc(p.full)}${p.running ? ' · <span class="live-dot"></span>تا الان' : ''}</span>
+      <button class="tv-num" data-act="detail" data-k="trend"><b>${fmtShort(p.value)}</b>${ICON.chevL}</button>
+      ${d != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${d > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d * 100)))}٪ ${p.running && p.proj ? 'پیش‌بینی ' : ''}نسبت به ${esc(daily ? 'روز قبل' : prev.label)}</span>` : ''}
+      ${avg ? `<span class="tv-cmp"><i class="dash"></i>میانگین ${fmtShort(avg)}</span>` : ''}
+`;
+    // On the chart itself, like TradingView's top-left legend: one row per line, + to add, × to remove.
+    const ov = document.getElementById('tr-ov');
+    if (ov) ov.innerHTML = `<div class="ov-row"><i style="background:${col}"></i><span>${esc(trLabel(tr.field))}</span><b>${fmtShort(p.value)}</b></div>
+      ${cmps.map(c => `<div class="ov-row"><i style="background:${trColor(c.f)}"></i><span>${esc(trLabel(c.f))}</span><b>${fmtShort(c.pts[i] ? c.pts[i].value : 0)}</b><button data-act="tr-cmpx" data-v="${c.f}" aria-label="حذف">×</button></div>`).join('')}
+      <div class="ov-tools"><button data-act="tr-cmp" class="${tr.picking ? 'on' : ''}">+ مقایسه</button>${cmps.length ? `<button data-act="tr-pct" class="${tr.pct ? 'on' : ''}">٪</button>` : ''}</div>`;
+  };
+  const focus = pts.findIndex(p => p.key === S.month), home = focus >= 0 ? focus : pts.length - 1;
+  show(home);
+  trChart.subscribeCrosshairMove(param => {
+    const i = param && param.time ? pts.findIndex(p => p.time === (typeof param.time === 'string' ? param.time : isoDay(toDate(param.time)))) : -1;
+    show(i >= 0 ? i : home);
   });
 }
 
@@ -1946,7 +1940,7 @@ document.addEventListener('click', async e => {
     else if (a === 'mon') { S.month = shiftMonth(S.month, +b.dataset.v); S.tr.hover = null; render(); }
     else if (a === 'tr-pick') openSheet(`<div class="sheet-nav"><span></span><b>نمودارِ چه چیزی؟</b><button class="link" data-close>بستن</button></div>
       <div class="group">${TR_FIELDS.map(([k, l]) => `<button class="cell" data-act="pick" data-v="${k}"><i class="dot" style="background:${trColor(k)}"></i><span class="grow">${l}</span>${S.tr.field === k ? ICON.ok : ''}</button>`).join('')}</div>`,
-      { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, a: null, b: null, cmp: S.tr.cmp === v ? null : S.tr.cmp }); redrawTrend(); } });
+      { pick: v => { closeSheet(); Object.assign(S.tr, { field: v, hover: null, cmps: S.tr.cmps.filter(x => x !== v) }); redrawTrend(); } });
     else if (a === 'month-pick') openMonthPicker();
     else if (a === 'story-more' && S.storyArgs) {
       const { key: k, args } = S.storyArgs;
@@ -1961,11 +1955,12 @@ document.addEventListener('click', async e => {
     else if (a === 'detail') openDetail(b.dataset.k, b.dataset.v);
     else if (a === 'kpi') kpiSheet(b.dataset.v);
     else if (a === 'kpi-all') openSheet(`<div class="sheet-nav"><span></span><b>شاخص‌ها</b><button class="link" data-close>بستن</button></div>${kpiList(kpis(monthsSeries(S.history, scoped(), S.settings.startDate), balanceAt(S.tx, S.settings), assetsTotal().held))}`, { kpi: v => { closeSheet(); kpiSheet(v); } });
-    else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, a: null, b: null, cmp: S.tr.cmp === b.dataset.v ? null : S.tr.cmp }); redrawTrend(); }
-    else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null, a: null, b: null }); redrawTrend(); }
-    else if (a === 'tr-measure') { Object.assign(S.tr, { measure: !S.tr.measure, a: null, b: null }); redrawTrend(); }
-    else if (a === 'tr-cmp') { if (S.tr.cmp) Object.assign(S.tr, { cmp: null, picking: false }); else S.tr.picking = !S.tr.picking; redrawTrend(); }
-    else if (a === 'tr-cmpf') { Object.assign(S.tr, { cmp: b.dataset.v, picking: false }); redrawTrend(); }
+    else if (a === 'tr-field') { Object.assign(S.tr, { field: b.dataset.v, hover: null, cmps: S.tr.cmps.filter(x => x !== b.dataset.v) }); redrawTrend(); }
+    else if (a === 'tr-frame') { Object.assign(S.tr, { frame: b.dataset.v, hover: null }); redrawTrend(); }
+    else if (a === 'tr-cmp') { S.tr.picking = !S.tr.picking; redrawTrend(); }
+    else if (a === 'tr-cmpf') { const v = b.dataset.v, c = S.tr.cmps; S.tr.cmps = c.includes(v) ? c.filter(x => x !== v) : [...c, v].slice(-3); S.tr.picking = false; redrawTrend(); }
+    else if (a === 'tr-cmpx') { S.tr.cmps = S.tr.cmps.filter(x => x !== b.dataset.v); if (!S.tr.cmps.length) S.tr.pct = false; redrawTrend(); }
+    else if (a === 'tr-pct') { S.tr.pct = !S.tr.pct; redrawTrend(); }
     else if (a === 'toggle') {
       const k = b.dataset.v;
       S.settings[k] = !S.settings[k];

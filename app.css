@@ -784,7 +784,7 @@ button.nt-row:active { opacity: .6; }
 .is-amt.in { color: var(--green); }
 
 /* Goal rings */
-.rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 4px 0 12px; }
+.rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 4px 0 4px; }
 .ring { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }
 .ring-box { position: relative; width: 92px; height: 92px; }
 .ring svg { width: 100%; height: 100%; transform: rotate(0deg); overflow: visible; }
@@ -792,7 +792,6 @@ button.nt-row:active { opacity: .6; }
 .ring-arc, .ring-over { fill: none; stroke-width: 7; stroke-linecap: round; stroke-dasharray: var(--p) 100; transform: rotate(-90deg); transform-origin: 40px 40px; }
 .ring.g .ring-arc { stroke: var(--green); } .ring.o .ring-arc { stroke: var(--orange); } .ring.r .ring-arc { stroke: var(--red); }
 .ring-over { stroke: #ff6b61; opacity: .9; filter: drop-shadow(0 0 3px rgba(255, 80, 80, .6)); }
-.ring-notch { stroke: var(--label); stroke-width: 2; stroke-linecap: round; opacity: .75; transform-origin: center; transform-box: fill-box; }
 .ring-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 19px; font-weight: 600; line-height: 1.05; direction: rtl; }
 .ring-num .unit { font-size: 10px; font-weight: 500; color: var(--sec); margin-top: 2px; }
 .ring-num .dim { opacity: 1; }
@@ -800,10 +799,7 @@ button.nt-row:active { opacity: .6; }
 .ring-c { font-size: 11.5px; color: var(--sec); }
 .anim .ring-arc, .anim .ring-over { animation: ringIn 1.3s var(--out) calc(var(--d) + .2s) both; }
 .anim .ring-over { animation-delay: calc(var(--d) + 1.3s); }
-.anim .ring-notch { animation: pop .5s var(--spring) calc(var(--d) + .9s) both; }
-@keyframes ringIn { from { stroke-dasharray: 0 100; } }
-.goal-line { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; padding-top: 10px; border-top: 1px solid var(--sep); }
-.goal-foot { display: block; margin-top: 6px; font-size: 11px; color: var(--ter); }
+.anim @keyframes ringIn { from { stroke-dasharray: 0 100; } }
 
 /* Headlines as stories */
 .car-segs { position: relative; display: flex; gap: 4px; margin: -6px 0 12px; direction: rtl; }
@@ -838,3 +834,38 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 @media (prefers-reduced-motion: reduce) {
   .island, .island > *, .car-segs i.on b, .odo-chip, .anim .b-primary::before { animation: none !important; transition: none !important; }
 }
+
+/* Money flow card (corner brackets spread on press) */
+.flow { position: relative; padding-bottom: 12px; }
+.flow .br { position: absolute; width: 12px; height: 12px; border: 0 solid var(--ter); pointer-events: none; transition: transform .35s var(--spring), border-color .3s; }
+.flow .tl { top: -5px; right: -5px; border-top-width: 1.5px; border-right-width: 1.5px; }
+.flow .tr { top: -5px; left: -5px; border-top-width: 1.5px; border-left-width: 1.5px; }
+.flow .bl { bottom: -5px; right: -5px; border-bottom-width: 1.5px; border-right-width: 1.5px; }
+.flow .br2 { bottom: -5px; left: -5px; border-bottom-width: 1.5px; border-left-width: 1.5px; }
+.flow:active .br { border-color: var(--label); }
+.flow:active .tl { transform: translate(3px, -3px); } .flow:active .tr { transform: translate(-3px, -3px); }
+.flow:active .bl { transform: translate(3px, 3px); } .flow:active .br2 { transform: translate(-3px, 3px); }
+.fl-svg { direction: ltr; width: 100%; height: auto; display: block; overflow: visible; margin: 4px 0 2px; }
+.fl-line { fill: none; stroke-linecap: round; opacity: .55; }
+.fl-line.in { stroke: var(--green); } .fl-line.out { stroke: #ff6b61; }
+.anim .fl-line { stroke-dasharray: 400; animation: flDraw 1.1s var(--out) calc(var(--i) * .1s + .2s) both; }
+@keyframes flDraw { from { stroke-dashoffset: 400; } to { stroke-dashoffset: 0; } }
+.fl-pkt { fill: var(--label); opacity: .9; }
+.fl-svg .fl-hub { fill: var(--card-hi, #222327); stroke: rgba(255,255,255,.12); }
+.fl-l, .fl-v, .fl-pkt, .fl-hub { stroke: none; }
+.fl-l { font-size: 10.5px; fill: var(--sec); font-family: inherit; }
+.fl-v { font-size: 12.5px; font-weight: 600; fill: var(--label); font-family: inherit; }
+.fl-v.up { fill: var(--green); } .fl-v.down { fill: #ff6b61; }
+
+/* TradingView Lightweight Charts container */
+.tv-chart.lw { height: 300px; direction: ltr; touch-action: pan-y; }
+.tv-legend { min-height: 54px; }
+.tv-stage { position: relative; }
+.tv-ov { position: absolute; top: 4px; left: 6px; z-index: 3; display: flex; flex-direction: column; gap: 3px; direction: rtl; pointer-events: none; max-width: 72%; }
+.ov-row { display: flex; align-items: center; gap: 6px; font-size: 12px; background: rgba(14, 15, 17, .72); padding: 2px 8px; border-radius: 6px; width: fit-content; pointer-events: auto; animation: fadeUp .35s var(--out) both; }
+.ov-row i { width: 8px; height: 8px; border-radius: 2px; }
+.ov-row span { color: var(--sec); } .ov-row b { font-weight: 600; }
+.ov-row button { color: var(--sec); font-size: 15px; line-height: 1; padding: 0 2px; }
+.ov-tools { display: flex; gap: 4px; pointer-events: auto; }
+.ov-tools button { font-size: 12px; padding: 3px 9px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(14, 15, 17, .72); color: var(--label); }
+.ov-tools button.on { background: #2962ff; border-color: #2962ff; }
