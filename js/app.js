@@ -50,6 +50,7 @@ async function boot() {
   }
   await fixAban1();
   await fixLateMehr();
+  await fixBlu0803();
   await forgiveSeenzhin();
   refresh();
   S.view = (isTablet() || window.innerWidth >= 820) && S.settings.startDate ? 'dash' : 'entry';
@@ -93,6 +94,26 @@ async function fixAban1() {
   }
   if (moved.length) await db.putManyTx(moved);
   S.settings.fixAban1 = true;
+  await saveSettings();
+}
+
+// One-off reconciliation with the Blu statement of 1405/08/01–03 (confirmed by Farbod):
+// the 7.666M to Seenzhin was a loan out, not money back; the start balance is the bank's; a missed VPN
+// purchase and three card-transfer fees are added. Afterwards the app equals the bank to the toman.
+async function fixBlu0803() {
+  if (S.settings.fixBlu0803) return;
+  const sz = S.tx.find(t => t.ctx === 'seenzhin' && t.type === 'reimburse' && t.amount === 7666000 && txMonth(t) === '1405-08');
+  if (!sz) return;
+  const now = new Date().toISOString(), at = (h, m) => fromJalali(1405, 8, 3, h, m).toISOString();
+  Object.assign(sz, { dir: 'out', type: 'on_behalf', desc: 'قرض به Seenzhin', cp: 'Seenzhin', ts: at(12, 17), updated: now });
+  const add = [
+    { id: 'blu0803-vpn', ts: at(20, 4), dir: 'out', amount: 1162000, desc: 'VPN', cp: '', type: 'expense', cat: 'digital', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' },
+    { id: 'blu0803-fee', ts: at(20, 11), dir: 'out', amount: 6100, desc: 'کارمزد کارت‌به‌کارت (۳ مورد)', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' },
+  ].filter(t => !S.tx.some(x => x.id === t.id));
+  S.tx.push(...add);
+  await db.putManyTx([sz, ...add]);
+  if (S.settings.openingBalance === 52615249) S.settings.openingBalance = 54274098.5;
+  S.settings.fixBlu0803 = true;
   await saveSettings();
 }
 
@@ -789,7 +810,7 @@ function listBody() {
     groups.at(-1).items.push(t);
   }
   return groups.map(g => `<div class="section-title">${esc(dayLabel(g.d))}</div>
-    <div class="group">${g.items.map(itemHtml).join('')}</div>`).join('')
+    <div class="group">${g.items.map(t => itemHtml(t)).join('')}</div>`).join('')
     + (items.length > shown.length ? `<button class="btn-plain" data-act="more">بیشتر</button>` : '');
 }
 
