@@ -128,7 +128,7 @@ export function dayLabel(date, now = new Date()) {
   const diff = Math.round((b - a) / 86400000);
   const j = toJalali(date);
   const base = `${WEEKDAYS[date.getDay()]} ${faDigits(j.jd)} ${MONTHS[j.jm - 1]}`;
-  if (diff === 0) return `امروز · ${base}`;
-  if (diff === 1) return `دیروز · ${base}`;
+  if (diff === 0) return `امروز، ${base}`;
+  if (diff === 1) return `دیروز، ${base}`;
   return base;
 }

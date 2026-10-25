@@ -137,29 +137,29 @@ export function kpis(series, balance, held = 0) {
   const P = x => (x < 0 ? '−' : '') + faDigits(Math.abs(Math.round(x * 100))) + '٪';
   const out = [];
   out.push(mk('self', 1, 'پوشش هزینه با درآمد کاری', P(work / exp), st(work / exp, 1, .8),
-    `درآمد کاری‌ات چند درصدِ خرج زندگی‌ات رو می‌پوشونه. ${work >= exp ? 'خرجت رو کامل از کار خودت درمیاری.' : `یعنی از هر ۱۰۰ تومن خرج، ${faDigits(Math.round(work / exp * 100))} تومنش از کار خودته.`}`,
+    `درآمد کاری چند درصد هزینهٔ زندگی را پوشش می‌دهد. ${work >= exp ? 'همهٔ هزینه‌ها از درآمد کاری تأمین شده است.' : `یعنی از هر ۱۰۰ تومان هزینه، ${faDigits(Math.round(work / exp * 100))} تومان از کار بوده است.`}`,
     m => m.expense ? (m.work || 0) / m.expense : 0, 'pct', 'هدف: ۱۰۰٪ یا بیشتر'));
   out.push(mk('save', 1, 'نرخ پس‌انداز از درآمد', P(own ? ownLeft / own : 0), st(own ? ownLeft / own : 0, .2, 0),
-    'از پولی که خودت درآوردی (کار + فروش)، بعد از خرج چقدر موند. منفی یعنی بیشتر از درآمدت خرج کردی.',
+    'از درآمد خودت (کار + فروش)، پس از هزینه‌ها چه سهمی باقی ماند. منفی یعنی هزینه از درآمد بیشتر بوده است.',
     m => m.self || 0, 'money', 'هدف: حداقل ۲۰٪'));
   out.push(mk('spend', 1, 'میانگین هزینهٔ ماهانه', fmtShort(avgExp), 'o',
-    `به‌طور میانگین ماهی ${fmtShort(avgExp)} خرج زندگی داری (بدون قسط و دارایی و پول بقیه).`,
-    m => m.expense || 0, 'money', 'این عدد باید کم‌کم پایین بیاد یا ثابت بمونه'));
+    `میانگین هزینهٔ زندگی ماهانه ${fmtShort(avgExp)} است (بدون اقساط، سرمایه‌گذاری و پرداخت برای دیگران).`,
+    m => m.expense || 0, 'money', 'بهتر است ثابت بماند یا کم‌کم پایین بیاید'));
   out.push(mk('family', 1, 'وابستگی به خانواده', P(fam / ((own + fam) || 1)), st(fam / ((own + fam) || 1), .1, .3, false),
-    `از کل پولی که برای زندگی اومده، این‌قدرش از خانواده بوده؛ ماهی حدود ${fmtShort(fam / n)}.`,
+    `سهم حمایت خانواده از کل ورودیِ زندگی؛ ماهانه حدود ${fmtShort(fam / n)}.`,
     m => m.family || 0, 'money', 'هدف: زیر ۱۰٪'));
   const runway = avgExp ? balance / avgExp : 0;
   out.push(mk('runway', 2, 'ذخیرهٔ نقدی', `${iso(faDigits(runway.toFixed(1).replace('.', '٫')))} ماه`, st(runway, 3, 1),
-    `با پولی که الان تو بلو داری (${fmtShort(balance)})، اگه هیچ پولی نیاد، چند ماه می‌تونی مثل الان خرج کنی.${held && avgExp ? ` اگه دلار و طلا و بقیهٔ دارایی‌ها رو هم حساب کنی: ${faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫'))} ماه.` : ' دلار و نقره حساب نشده.'}`,
+    `موجودی فعلی بلو (${fmtShort(balance)}) بدون هیچ ورودی تازه، چند ماه هزینه را با روال فعلی پوشش می‌دهد.${held && avgExp ? ` با احتساب دلار، طلا و بقیهٔ دارایی‌ها: ${iso(faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫')))} ماه.` : ' دلار و نقره در این عدد نیست.'}`,
     m => m.bank ? m.bank[1] : (m.running ? balance : 0), 'money', 'هدف: حداقل ۳ ماه'));
   out.push(mk('disc', 2, 'هزینه‌های اختیاری', P(disc / (exp || 1)), st(disc / (exp || 1), .25, .4, false),
-    'تفریح و سفر، هدیه، شخصی و دخانیات؛ خرج‌هایی که دست خودته و می‌شه کمشون کرد.',
+    'تفریح و سفر، هدیه، شخصی و دخانیات؛ هزینه‌هایی که در اختیار خودت است و قابل کم کردن است.',
     m => DISCRETIONARY.reduce((a, c) => a + ((m.byCat || {})[c] || 0), 0), 'money', 'هدف: زیر ۲۵٪ کل خرج'));
   const assetMonths = done.filter(m => (m.asset || 0) > 0).length;
   out.push(mk('asset', 2, 'سرمایه‌گذاری', fmtShort(asset), assetMonths >= n * .6 ? 'g' : assetMonths ? 'o' : 'r',
-    `${fmtShort(asset)} پول رو دلار و نقره و … کردی؛ تو ${faDigits(assetMonths)} ماه از ${faDigits(n)} ماه.`,
-    m => m.asset || 0, 'money', 'هدف: هر ماه یه مقدار، نه یهویی'));
+    `${fmtShort(asset)} به دلار، نقره و دیگر دارایی‌ها تبدیل شد؛ در ${faDigits(assetMonths)} ماه از ${faDigits(n)} ماه.`,
+    m => m.asset || 0, 'money', 'هدف: هر ماه کمی، نه یک‌باره'));
   out.push(mk('debt', 2, 'قسط نسبت به درآمد', P(work ? loan / work : 0), st(work ? loan / work : 0, .15, .3, false),
-    `ماهی حدود ${fmtShort(loan / n)} قسط وام می‌دی.`, m => (m.loanPay || 0), 'money', 'هدف: زیر ۱۵٪ درآمد'));
+    `ماهانه حدود ${fmtShort(loan / n)} قسط پرداخت می‌شود.`, m => (m.loanPay || 0), 'money', 'هدف: زیر ۱۵٪ درآمد'));
   return out;
 }

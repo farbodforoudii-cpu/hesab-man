@@ -209,7 +209,7 @@ function entryDate() {
 
 function roundNote(t) {
   const c = S.tx.find(x => x.ru === t.id);
-  return c ? ` · رند ${esc(fmtShort(c.amount))}` : '';
+  return c ? `، رند ${esc(fmtShort(c.amount))}` : '';
 }
 
 function subtitle(t) {
@@ -254,7 +254,7 @@ const easeOut = t => 1 - Math.pow(1 - t, 3);
 
 // Count numbers up from zero; roll the balance digits like an odometer.
 // Big numbers read like the reference: the whole part bright, decimals and units faded.
-const NICE = '.b-hero, .b-value, .bc-total, .mb-num, .tl-self, .ring-num';
+const NICE = '.b-hero, .b-value, .bc-total, .mb-num, .tl-self';
 function niceNum(el) {
   el.innerHTML = esc(el.textContent)
     .replace(/(٫[۰-۹]+)/, '<span class="dim">$1</span>')
@@ -265,7 +265,7 @@ function animateNumbers(root) {
   root.querySelectorAll('[data-cu]').forEach(el => {
     const to = Number(el.dataset.cu), f = el.dataset.f;
     if (!to || el.dataset.raw) return;
-    const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : fmtShort(v); if (el.matches(NICE)) niceNum(el); };
+    const show = v => { el.textContent = f === 'int' ? faDigits(Math.round(v)) : f === 'full' ? fmt(v) : f === 'ring' ? ringNum(v, +el.dataset.div) : fmtShort(v); if (el.matches(NICE)) niceNum(el); };
     const t0 = performance.now(), dur = 700;
     const step = now => { const k = Math.min(1, (now - t0) / dur); show(to * easeOut(k)); if (k < 1) requestAnimationFrame(step); };
     show(0); requestAnimationFrame(step);
@@ -276,6 +276,8 @@ function animateNumbers(root) {
 // Odometer: every digit rolls from the value you saw last time to the value now, so a change is
 // visible the moment the screen opens. Unchanged digits stay still; a chip shows the difference.
 const DIG = '۰۱۲۳۴۵۶۷۸۹';
+// «+۵۶٫۲ میلیون» as plain text: the sign sits inside the number's isolate, so it never drifts to the unit's side.
+const sgnShort = v => v < 0 ? fmtShort(v) : fmtShort(v).replace('\u2066', '\u2066+');
 // «−۲۵۰ هزار»: sign glued to the digits in their own LTR island, the unit after them.
 const signedShort = (v, plus = v > 0) => { const [n, ...u] = fmtShort(Math.abs(v)).split(' '); return `<bdi dir="ltr">${plus ? '+' : '−'}${n}</bdi> ${u.join(' ')}`; };
 function odometer(el) {
@@ -373,7 +375,7 @@ function viewEntry() {
   }
   const amt = Number(S.amount || 0);
   const top = `<div class="entry-top">
-      <button class="today${S.dayBack ? ' back' : ''}" data-act="day">${S.dayBack ? ICON.back : ''}<span>${esc(dayLabel(entryDate()).replace('امروز · ', ''))}</span></button>
+      <button class="today${S.dayBack ? ' back' : ''}" data-act="day">${S.dayBack ? ICON.back : ''}<span>${esc(dayLabel(entryDate()).replace('امروز، ', ''))}</span></button>
       <button class="icon-round" data-act="tab" data-v="${isWide() ? 'dash' : 'dash'}" aria-label="خلاصه">${ICON.chart}</button>
     </div>`;
   if (S.step === 'what') {
@@ -389,7 +391,7 @@ function viewEntry() {
   return `<div class="view entry">${top}
     <label class="hero-amt" for="amt">
       <div class="stripes"></div>
-      <span class="b-pill">${S.linkWhat ? `چقدر؟ · ${esc(S.linkWhat)}` : 'چقدر؟'}</span>
+      <span class="b-pill">${S.linkWhat ? `چقدر؟، ${esc(S.linkWhat)}` : 'چقدر؟'}</span>
       <input id="amt" class="amt-input" inputmode="numeric" enterkeyhint="next" autocomplete="off" placeholder="۰" value="${amt ? fmt(amt) : ''}">
       <div class="hero-words" id="amt-words">${amt ? esc(tomanWords(amt)) : 'تومان'}</div>
     </label>
@@ -425,7 +427,7 @@ function guessHtml() {
   if (!S.what.trim()) return '<p class="hint-line">بنویس و «ثبت» را بزن. اپ خودش دسته را پیدا می‌کند.</p>';
   const what = g.type === 'expense' ? (g.cat ? CATEGORIES[g.cat].label : 'بعداً دسته‌بندی می‌شود') : g.type ? TYPES[g.type].label : 'بعداً بررسی می‌شود';
   return `<div class="guess ${g.sure ? '' : 'unsure'}"><i class="dot" style="background:${g.type === 'expense' && g.cat ? CATEGORIES[g.cat].color : g.dir === 'in' ? '#34c759' : '#c7c7cc'}"></i>
-    <span>${g.dir === 'in' ? 'دریافت' : 'پرداخت'} · ${esc(what)}</span>
+    <span>${g.dir === 'in' ? 'دریافت' : 'پرداخت'}، ${esc(what)}</span>
     <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
 }
 
@@ -506,7 +508,7 @@ async function saveWhat(m) {
   const before = balanceAt(S.tx, S.settings);
   await putTx(tx);
   island(tx, before, balanceAt(S.tx, S.settings));
-  toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
+  toast(`ثبت شد، ${tx.desc}`, async () => { await delTx(tx.id); });
 }
 
 // Saved: a black pill grows out of the top of the screen (where the iPhone's island sits),
@@ -537,7 +539,7 @@ async function commitNew(tx) {
   S.dayBack = 0;
   render();
   island(tx, before, balanceAt(S.tx, S.settings));
-  toast(`ثبت شد · ${tx.desc}`, async () => { await delTx(tx.id); });
+  toast(`ثبت شد، ${tx.desc}`, async () => { await delTx(tx.id); });
 }
 
 async function useTemplate(key, amount, ts) {
@@ -793,10 +795,10 @@ function listBody() {
 
 function itemHtml(t, withDay = false) {
   const d = new Date(t.ts);
-  const time = (withDay ? dayLabel(d).replace(/^(امروز|دیروز) · /, '$1 ') + ' · ' : '') + faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+  const time = (withDay ? dayLabel(d).replace(/^(امروز|دیروز)، /, '$1 ') + '، ' : '') + faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
   return `<button class="cell tx ${t.id === S.lastId ? 'new' : ''}" data-act="edit" data-id="${t.id}">
     <i class="dot" style="background:${dotColor(t)}"></i>
-    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))} · ${time}${roundNote(t)}</span></span>
+    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))}، ${time}${roundNote(t)}</span></span>
     ${amountHtml(t)}</button>`;
 }
 
@@ -835,7 +837,7 @@ const monthNav = key => `<div class="month"><button data-act="mon" data-v="-1">$
 function openMonthPicker() {
   const series = monthsSeries(S.history, scoped(), S.settings.startDate).slice().reverse();
   openSheet(`<div class="sheet-nav"><span></span><b>کدام ماه؟</b><button class="link" data-close>بستن</button></div>
-    <div class="group">${series.map(m => `<button class="cell" data-act="pick" data-v="${m.key}"><span class="grow">${monthLabel(m.key)}${m.running ? ' <small>· در جریان</small>' : ''}</span><small>خرج ${fmtShort(m.expense || 0)}</small>${m.key === S.month ? ICON.ok : ''}</button>`).join('')}</div>`,
+    <div class="group">${series.map(m => `<button class="cell" data-act="pick" data-v="${m.key}"><span class="grow">${monthLabel(m.key)}${m.running ? ' <small>، در جریان</small>' : ''}</span><small>خرج ${fmtShort(m.expense || 0)}</small>${m.key === S.month ? ICON.ok : ''}</button>`).join('')}</div>`,
     { pick: v => { closeSheet(); S.month = v; S.tr.hover = null; S.view = 'dash'; render(); window.scrollTo(0, 0); } });
 }
 
@@ -897,7 +899,7 @@ function storyFull(key, { ins, outs, days, h, bank, hero = true, live = false, l
   const prOut = sum(pass.filter(x => !/Seenzhin/.test(x[0]))), prIn = sum(back.filter(x => !/Seenzhin/.test(x[0])));
   if (prOut || prIn) lines.push(`پول‌های رفت‌وبرگشتی با اشخاص: ${prOut ? `${fmtShort(prOut)} پرداخت` : ''}${prOut && prIn ? ' و ' : ''}${prIn ? `${fmtShort(prIn)} دریافت` : ''}؛ جدا از هزینه و درآمد حساب می‌شوند.`);
   lines.push((net < 0 ? `تراز ماه: ${fmtShort(-net)} منفی.` : `تراز ماه: ${fmtShort(net)} مثبت.`)
-    + (lateNet ? ` (${fmtShort(lateNet)} از آن دیرتر، در ماه بعد واریز شد؛ بدون آن: ${net - lateNet < 0 ? '−' : '+'}${fmtShort(Math.abs(net - lateNet))}.)` : ''));
+    + (lateNet ? ` (${fmtShort(lateNet)} از آن دیرتر، در ماه بعد واریز شد؛ بدون آن: ${sgnShort(net - lateNet)}.)` : ''));
   if (bank) {
     lines.push(`موجودی اول ماه ${fmtShort(bank[0])} بود؛ با ${fmtShort(inT)} ورودی، در مجموع ${fmtShort(bank[0] + inT)} در دسترس بود.`);
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
@@ -909,17 +911,17 @@ function storyFull(key, { ins, outs, days, h, bank, hero = true, live = false, l
   if (compact) return insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe });
   return `${hero ? `<section class="bento an-hero">
       <div class="b-primary tap" data-act="detail" data-k="net"><div class="stripes"></div>
-        <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${net < 0 ? '−' : '+'}${fmtShort(Math.abs(net))}</h3></div>
-        <p class="b-note story-io"><span class="green">${fmtShort(inT)} ورودی</span> · <span class="red">${fmtShort(outT)} خروجی</span></p></div>
+        <div><span class="b-pill">${esc(name)} در یک نگاه</span><h3 class="b-hero">${sgnShort(net)}</h3></div>
+        <p class="b-note story-io"><span class="green">${fmtShort(inT)} ورودی</span>، <span class="red">${fmtShort(outT)} خروجی</span></p></div>
     </section>` : ''}
     ${compact ? `<div class="section-title">چه اتفاقی افتاد</div>
       <div class="group story">${lines.slice(0, 3).map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}
         <button class="cell more-row" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button></div>` : `
       <div class="group story">${lines.map(l => `<div class="cell"><span>${esc(l)}</span></div>`).join('')}</div>
-      <div class="section-title">ورودی‌ها · ${fmtShort(inT)}</div>
+      <div class="section-title">ورودی‌ها، ${fmtShort(inT)}</div>
       <div class="group">${ins.length ? bars(ins, 'in') : '<div class="cell"><span class="sec">ورودی‌ای ثبت نشده</span></div>'}</div>
-      ${outs.length ? `<div class="section-title">پرداخت‌های بزرگ · ${fmtShort(sum(outs))}</div><div class="group">${bars(outs, 'out')}</div>` : ''}
-      ${days && days.length ? `<div class="section-title">${h.days ? 'خرج‌های روزانه' : 'خرج‌ها'} · ${fmtShort(sum(days))}</div><div class="group">${bars(days.slice().sort((a, b) => b[1] - a[1]), 'day')}</div>` : ''}`}`;
+      ${outs.length ? `<div class="section-title">پرداخت‌های بزرگ، ${fmtShort(sum(outs))}</div><div class="group">${bars(outs, 'out')}</div>` : ''}
+      ${days && days.length ? `<div class="section-title">${h.days ? 'خرج‌های روزانه' : 'خرج‌ها'}، ${fmtShort(sum(days))}</div><div class="group">${bars(days.slice().sort((a, b) => b[1] - a[1]), 'day')}</div>` : ''}`}`;
 }
 
 // ----- Month at a glance: first the logic (what happened), then the numbers, then the trend -----
@@ -973,7 +975,7 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
       <span class="nt-l">${r.l}</span><b data-cu="${Math.abs(Math.round(r.v))}" data-f="short"${r.signed ? ' data-raw="1"' : ''}>${num(r.v, r.signed)}</b>${running ? '' : `<span class="nt-u">${r.u == null ? '' : num(r.u, r.signed)}</span>${delta(r)}`}</${r.k ? 'button' : 'div'}>`).join('');
 
   return `<div class="ins-card">
-      <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(name)}${running ? ' · در جریان' : ''}</p>
+      <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(name)}${running ? '، در جریان' : ''}</p>
       <ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
     </div>
     ${flowCard({ work, fam, inT, outT, exp, asset, loan, net, running })}
@@ -1040,7 +1042,7 @@ function txSheet(title, sub, list, note = '') {
     <div class="det-head"><span class="sec">${esc(sub)}</span><b>${fmt(Math.abs(total))} <small>تومان</small></b><span class="sec">${faDigits(list.length)} تراکنش</span></div>
     ${note ? `<p class="foot det-note">${note}</p>` : ''}
     <div class="group">${list.length ? list.map(t => itemHtml(t, true)).join('') : '<div class="cell"><span class="sec">چیزی نیست</span></div>'}</div>
-    <p class="foot">روی هر ردیف بزنی، ویرایش باز می‌شود.</p>`,
+    <p class="foot">با زدن روی هر ردیف، ویرایش باز می‌شود.</p>`,
     { edit: (v, b) => { if (!canEdit()) return readOnlyToast(); const t = S.tx.find(x => x.id === b.dataset.id); if (t) { closeSheet(); openTxSheet({ ...t }); } } });
 }
 
@@ -1057,21 +1059,21 @@ function openDetail(kind, v) {
   if (kind === 'count') return txSheet(`تراکنش‌های ${mName}`, 'خالص (آمد منهای رفت)', M);
   if (kind === 'cov') {
     const s = monthSummary(T, key);
-    return infoSheet('درآمد کاری در برابر خرج', [['درآمد کاری', fmt(s.work), 'green'], ['خرج زندگی', fmt(s.expense), 'red'], ['نسبت', s.expense ? faDigits(Math.round(s.work / s.expense * 100)) + '٪' : '—']],
-      'یعنی درآمد کاری این ماه چند درصدِ خرج زندگی را پوشش داده. بالای ۱۰۰٪ یعنی از کار خودت چیزی هم مانده. اول ماه این عدد بالاست چون هنوز خرج زیادی ثبت نشده.');
+    return infoSheet('درآمد کاری در برابر هزینه', [['درآمد کاری', fmt(s.work), 'green'], ['هزینهٔ زندگی', fmt(s.expense), 'red'], ['نسبت', s.expense ? faDigits(Math.round(s.work / s.expense * 100)) + '٪' : '—']],
+      'یعنی درآمد کاری این ماه چند درصد هزینهٔ زندگی را پوشش داده. بالای ۱۰۰٪ یعنی از کار خودت چیزی هم مانده. اول ماه این عدد بالاست چون هنوز خرج زیادی ثبت نشده.');
   }
   if (kind === 'bal') {
     const st = S.settings, all = S.tx.filter(t => t.ts >= (st.openingDate || ''));
     const inn = all.filter(t => t.dir === 'in').reduce((a, t) => a + t.amount, 0), out = all.filter(t => t.dir === 'out' && !isRound(t)).reduce((a, t) => a + t.amount, 0);
     const rnd = all.filter(isRound).reduce((a, t) => a + t.amount, 0);
-    return infoSheet('موجودی بلو از کجا آمده', [
+    return infoSheet('ترکیب موجودی بلو', [
       [`موجودی شروع (${formatJalali(new Date(st.openingDate))})`, fmt(st.openingBalance || 0)],
-      ['+ همهٔ پول‌هایی که آمد', fmt(inn), 'green'], ['− همهٔ پول‌هایی که رفت', fmt(out), 'red'],
+      ['+ همهٔ ورودی‌ها', fmt(inn), 'green'], ['− همهٔ خروجی‌ها', fmt(out), 'red'],
       ...(rnd ? [['− رند بلو (رفت به باکس)', fmt(rnd), 'red']] : []), ['= موجودی الان', fmt(balanceAt(S.tx, st))]],
       'برای دیدن تک‌تک تراکنش‌ها، به «تراکنش‌ها» برو.');
   }
   if (kind === 'late') return txSheet(`حساب ${mName}، دیر رسیده`, 'جمع', S.tx.filter(t => t.period === key), 'این پول‌ها بعداً به حساب آمدند ولی مال این ماه‌اند. در موجودی، روز واریز حساب شده‌اند.');
-  if (kind === 'day' && v === '__all') return txSheet(`خرج زندگی ${mName}`, 'جمع', M.filter(t => t.type === 'expense'));
+  if (kind === 'day' && v === '__all') return txSheet(`هزینهٔ زندگی ${mName}`, 'جمع', M.filter(t => t.type === 'expense'));
   if (kind === 'in' || kind === 'out' || kind === 'day') {
     const [keep, f] = STORY_GROUPS[kind];
     return txSheet(v, mName, monthTx(T, key).filter(t => keep(t) && f(t) === v));
@@ -1091,7 +1093,7 @@ function openDetail(kind, v) {
     if (p.d) { const d0 = p.d, d1 = new Date(d0); d1.setDate(d1.getDate() + 1); list = T.filter(t => { const d = new Date(t.ts); return d >= d0 && d < d1 && match(t); }); }
     else if (S.history && S.history.months[p.key] && (!S.settings.startDate || p.key < monthKey(new Date(S.settings.startDate)))) return openDetail('series', tr.field);
     else list = monthTx(T, p.key).filter(match);
-    return txSheet(`${trLabel(tr.field)} · ${p.full}`, 'جمع', list.filter(t => !isRound(t)));
+    return txSheet(`${trLabel(tr.field)}، ${p.full}`, 'جمع', list.filter(t => !isRound(t)));
   }
   if (kind === 'series') {
     // One field month by month (history months have totals only).
@@ -1102,9 +1104,9 @@ function openDetail(kind, v) {
   if (kind === 'net') {
     const h = S.history.months[key], sum = a => (a || []).reduce((x, y) => x + y[1], 0);
     const inT = sum(h.ins), outT = sum(h.outs) + sum(h.days);
-    return infoSheet(`${mName} در یک نگاه`, [['پولی که آمد', fmt(inT), 'green'], ['پولی که رفت', fmt(outT), 'red'], ['نتیجه', (inT - outT < 0 ? '−' : '+') + fmt(Math.abs(inT - outT))],
+    return infoSheet(`${mName} در یک نگاه`, [['ورودی', fmt(inT), 'green'], ['خروجی', fmt(outT), 'red'], ['تراز ماه', (inT - outT < 0 ? '−' : '+') + fmt(Math.abs(inT - outT))],
       ...(h.bank ? [['موجودی بلو اول ماه', fmt(h.bank[0])], ['موجودی بلو آخر ماه', fmt(h.bank[1])]] : [])],
-      '«آمد» و «رفت» همان جمع‌های جدول Numbers توست (بدون Opening). موجودی بلو از صورت‌حساب بانک است.');
+      'ورودی و خروجی همان جمع‌های جدول Numbers است (بدون Opening). موجودی بلو از صورت‌حساب بانک است.');
   }
 }
 
@@ -1128,7 +1130,7 @@ function viewAnalysis() {
     return `<button class="tl-card${m.key === key ? ' on' : ''}" data-act="an-month" data-v="${m.key}">
       <span class="tl-go">${ICON.arrow}</span>
       <span class="tl-name">${esc(monthName(m.key))}</span>
-      <span class="tl-self ${net >= 0 ? 'green' : 'red'}">${net >= 0 ? '+' : '−'}${fmtShort(Math.abs(net))}</span>
+      <span class="tl-self ${net >= 0 ? 'green' : 'red'}">${sgnShort(net)}</span>
       <span class="tl-bar"><i style="width:${((m.inT || 0) / max * 100).toFixed(0)}%;background:#34c759"></i></span>
       <span class="tl-bar"><i style="width:${((m.outT || 0) / max * 100).toFixed(0)}%;background:var(--tint)"></i></span>
       <span class="tl-tag">${tag}</span></button>`;
@@ -1152,7 +1154,7 @@ function viewAnalysis() {
     <div class="section-title">خبرها و نکته‌ها</div>
     <div class="feed">${N.slice(4).map(newsCard).join('')}</div>
     <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
-    ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join(' · ')}.</p>` : ''}
+    ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join('، ')}.</p>` : ''}
   </div>`;
 }
 
@@ -1164,11 +1166,11 @@ function monthCompareSheet(key) {
   const arrow = (d, a, upGood = false) => !a || !Math.round(d / a * 100) ? '' : `<span class="${(d > 0) === upGood ? 'green' : 'red'} sec">${d > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d / a * 100)))}٪</span>`;
   const net = (m.inT || 0) - (m.outT || 0);
   openSheet(`<div class="sheet-nav"><span></span><b>${esc(monthLabel(key))}</b><button class="link" data-close>بستن</button></div>
-    <div class="det-head"><span class="sec">تراز ماه</span><b class="${net >= 0 ? 'green' : 'red'}">${net >= 0 ? '+' : '−'}${fmtShort(Math.abs(net))}</b></div>
-    ${C ? `<div class="section-title">در برابر یه ماه معمولی</div>
+    <div class="det-head"><span class="sec">تراز ماه</span><b class="${net >= 0 ? 'green' : 'red'}">${sgnShort(net)}</b></div>
+    ${C ? `<div class="section-title">در برابر یک ماه معمول</div>
     <div class="group">
       <div class="cell"><span class="grow">درآمد کاری<small class="avg-line">معمولاً ${fmtShort(C.work.a)}</small></span>${arrow(C.work.v - C.work.a, C.work.a, true)}<b>${fmtShort(C.work.v)}</b></div>
-      <div class="cell"><span class="grow">خرج زندگی<small class="avg-line">معمولاً ${fmtShort(C.expense.a)}</small></span>${arrow(C.expense.v - C.expense.a, C.expense.a)}<b>${fmtShort(C.expense.v)}</b></div>
+      <div class="cell"><span class="grow">هزینهٔ زندگی<small class="avg-line">معمولاً ${fmtShort(C.expense.a)}</small></span>${arrow(C.expense.v - C.expense.a, C.expense.a)}<b>${fmtShort(C.expense.v)}</b></div>
       ${C.rows.map(r => `<div class="cell"><i class="dot" style="background:${CATEGORIES[r.c].color}"></i><span class="grow">${CATEGORIES[r.c].label}<small class="avg-line">معمولاً ${fmtShort(r.a)}</small></span>${arrow(r.d, r.a)}<b>${fmtShort(r.v)}</b></div>`).join('')}
     </div>` : ''}
     ${dayStrip(m)}
@@ -1177,7 +1179,7 @@ function monthCompareSheet(key) {
 }
 
 // Monthly goals with their arithmetic in plain view.
-// spend: ceiling for living costs · disc: share of that ceiling for optional spending · asset: amount to invest.
+// spend: ceiling for living costs، disc: share of that ceiling for optional spending، asset: amount to invest.
 const GOAL_DEF = { spend: 160e6, disc: .35, asset: 10e6 };
 const goals = () => ({ ...GOAL_DEF, ...(S.settings.goals || {}) });
 const DISC = ['weekend', 'gift', 'habits', 'personal'];
@@ -1198,7 +1200,7 @@ function goalRows(T, key) {
       why: `پیش‌بینی پایان ماه ${fmtShort(proj)} است: ${fmtShort(s.expense)} تا امروز + میانگین روزانهٔ سه ماه اخیر (${fmtShort((base || 0) / 30)}) × ${faDigits(left)} روز.` },
     { id: 'disc', t: 'هزینه‌های اختیاری', tf, v: disc, cap: discCap, p: disc / discCap,
       st: disc <= discCap * (dayNow / daysAll) * 1.1 ? 'g' : disc <= discCap ? 'o' : 'r',
-      note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه · تفریح، هدیه، شخصی، دخانیات`,
+      note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه، تفریح، هدیه، شخصی، دخانیات`,
       why: `سقف این بخش = ${faDigits(Math.round(g.disc * 100))}٪ × ${fmtShort(g.spend)} = ${fmtShort(discCap)}. تا امروز ${fmtShort(disc)} از آن مصرف شده.` },
     { id: 'asset', t: 'سرمایه‌گذاری', tf, v: asset, cap: g.asset, p: asset / g.asset,
       st: asset >= g.asset ? 'g' : asset >= g.asset * (dayNow / daysAll) ? 'o' : 'r',
@@ -1207,13 +1209,15 @@ function goalRows(T, key) {
   ];
 }
 // Three rings: the arc is what is used or saved; the details and arithmetic live in the goals sheet.
+// Ring centre: the number on one line, its unit under it (both in the unit of the final value).
+const ringNum = (v, div) => { const x = v / div; return iso(faDigits(x >= 100 || div === 1 ? Math.round(x) : Math.round(x * 10) / 10).replace('.', '٫')); };
 function ring(r, i) {
-  const p = Math.min(1, r.p || 0), R = 34;
+  const p = Math.min(1, r.p || 0), R = 34, div = r.v >= 1e6 ? 1e6 : r.v >= 1e3 ? 1e3 : 1, unit = div === 1e6 ? 'میلیون' : div === 1e3 ? 'هزار' : 'تومان';
   return `<div class="ring ${r.st}" style="--d:${(i * .12).toFixed(2)}s">
     <div class="ring-box"><svg viewBox="0 0 80 80"><circle class="ring-track" cx="40" cy="40" r="${R}"/>
       ${p > 0 ? `<circle class="ring-arc" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(p * 100).toFixed(1)}"/>` : ''}
       ${r.p > 1 ? `<circle class="ring-over" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(Math.min(1, r.p - 1) * 100).toFixed(1)}"/>` : ''}
-      <b class="ring-num" data-cu="${Math.round(r.v)}" data-f="short">${esc(fmtShort(r.v))}</b></div>
+      <b class="ring-num"><span data-cu="${Math.round(r.v)}" data-f="ring" data-div="${div}">${ringNum(r.v, div)}</span><small>${unit}</small></b></div>
     <span class="ring-t">${esc(r.t)}</span><small class="ring-c">${r.id === 'asset' ? 'هدف' : 'سقف'} ${esc(fmtShort(r.cap))}</small></div>`;
 }
 function goalsCard(T, key) {
@@ -1238,7 +1242,7 @@ function goalsSheet() {
     <div class="group">${R.map(r => `<div class="cell col"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div><small class="sec why">${esc(r.why)}</small></div>`).join('')}</div>
     ${sg ? `<div class="section-title">پیشنهاد بر اساس سه ماه اخیر</div>
     <div class="group"><div class="cell col"><small class="sec why">میانگین هزینه ${fmtShort(sg.exp)} و درآمد کاری ${fmtShort(sg.work)}. سقف هزینه ۱۰٪ زیر میانگین، سهم اختیاری همان سهم فعلی (حداکثر ۴۰٪) و سرمایه‌گذاری ۱۰٪ درآمد کاری.</small>
-      <div class="goal-top" style="margin-top:8px"><span>${fmtShort(sg.spend)} · ${faDigits(Math.round(sg.disc * 100))}٪ · ${fmtShort(sg.asset)}</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
+      <div class="goal-top" style="margin-top:8px"><span>${fmtShort(sg.spend)}، ${faDigits(Math.round(sg.disc * 100))}٪، ${fmtShort(sg.asset)}</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
     <div class="section-title">تنظیم دستی</div>
     <div class="group">
       <div class="cell"><span>سقف هزینهٔ زندگی (تومان)</span><input class="bare end" id="g-spend" inputmode="numeric" value="${fmt(g.spend)}"></div>
@@ -1255,7 +1259,7 @@ function goalsSheet() {
 
 function assetTile() {
   const A = assetsState(), { cash, held } = assetsTotal();
-  return `<button class="asset-tile" data-act="go-assets"><span class="grow"><span class="b-label">همهٔ دارایی‌ات</span><b>${fmtShort(cash + held)}</b><small>${A.items.length ? `نقد ${fmtShort(cash)} · دلار، طلا و بقیه ${fmtShort(held)}` : 'دلار، طلا، نقره و باکس را اضافه کن'}</small></span>${ICON.chevL}</button>`;
+  return `<button class="asset-tile" data-act="go-assets"><span class="grow"><span class="b-label">همهٔ دارایی‌ات</span><b>${fmtShort(cash + held)}</b><small>${A.items.length ? `نقد ${fmtShort(cash)}، دلار، طلا و بقیه ${fmtShort(held)}` : 'دلار، طلا، نقره و باکس را اضافه کن'}</small></span>${ICON.chevL}</button>`;
 }
 
 // ----- Analysis as a news feed: totals so far, averages, records, events, critiques and suggestions -----
@@ -1309,7 +1313,7 @@ function newsHero(N) {
 
 const newsCard = x => `<div class="news-card"><span class="news-k ${x.tone || ''}">${esc(x.k)}</span><b>${esc(x.t)}</b><p>${esc(x.d)}</p></div>`;
 
-const TIER = { 1: 'اولویت ۱ · پایه‌ای', 2: 'اولویت ۲ · مهم', 3: 'اولویت ۳ · برای بهتر شدن' };
+const TIER = { 1: 'اولویت ۱، پایه‌ای', 2: 'اولویت ۲، مهم', 3: 'اولویت ۳، برای بهتر شدن' };
 const kpiNum = (k, v) => k.unit === 'pct' ? faDigits(Math.round(v * 100)) + '٪' : fmtShort(v);
 
 function kpiList(K) {
@@ -1363,10 +1367,10 @@ function analysisReport() {
   if (!A) return 'هنوز داده‌ای برای گزارش نیست.';
   const m = v => fmtShort(v || 0);
   const L = [`گزارش مالی — ${monthLabel(A.first)} تا ${monthLabel(A.last)} (${faDigits(A.n)} ماه، تومان)`, ''];
-  L.push('خلاصه', `• ${A.verdict}`, `• میانگین ماهانه: درآمد کاری ${m(A.avgWork)} · خرج ${m(A.avgExp)}`,
+  L.push('خلاصه', `• ${A.verdict}`, `• میانگین ماهانه: درآمد کاری ${m(A.avgWork)}، خرج ${m(A.avgExp)}`,
     `• کمک خانواده در کل دوره: ${m(A.family)} (${faDigits(Math.round(A.famShare * 100))}٪ پول ورودی)`, `• دارایی خریده‌شده (دلار، نقره، دوچرخه): ${m(A.asset)}`, '');
-  L.push('ماه به ماه (ورودی / خروجی / تراز · درآمد کاری · هزینهٔ زندگی)');
-  for (const x of series) { const net = (x.inT || 0) - (x.outT || 0); L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.inT)} / ${m(x.outT)} / ${net >= 0 ? '+' : '−'}${m(Math.abs(net))} · کار ${m(x.work)} · خرج ${m(x.expense)}`); }
+  L.push('ماه به ماه (ورودی / خروجی / تراز، درآمد کاری، هزینهٔ زندگی)');
+  for (const x of series) { const net = (x.inT || 0) - (x.outT || 0); L.push(`• ${monthLabel(x.key)}${x.running ? ' (در جریان)' : ''}: ${m(x.inT)} / ${m(x.outT)} / ${net >= 0 ? '+' : '−'}${m(Math.abs(net))}، کار ${m(x.work)}، خرج ${m(x.expense)}`); }
   const K = kpis(series, balanceAt(S.tx, S.settings), assetsTotal().held);
   L.push('', 'شاخص‌های مهم');
   for (const k of K) L.push(`• ${k.title}: ${k.value} (${k.status === 'g' ? 'خوب' : k.status === 'o' ? 'متوسط' : 'ضعیف'}) — ${k.target}`);
@@ -1376,7 +1380,7 @@ function analysisReport() {
   const sec = (t, list) => list.length && L.push('', t, ...list.map(x => `• ${x.t}: ${x.d}`));
   sec('انتقاد', A.critiques); sec('پیشنهاد', A.tips); sec('خوب‌ها', A.good);
   const f = A.flags, notes = [f.unknown && `${m(f.unknown)} ورودی نامشخص جزو درآمد نیست`, f.assumed && `${m(f.assumed)} با حدس درآمد کاری حساب شده`, f.vague && `${m(f.vague)} خرج با عنوان نامعلوم شخصی حساب شده`].filter(Boolean);
-  if (notes.length) L.push('', 'دقت داده: ' + notes.join(' · '));
+  if (notes.length) L.push('', 'دقت داده: ' + notes.join('، '));
   L.push('', 'منبع: جدول Numbers تا مهر، ثبت‌های اپ از آبان. فقط جمع‌ها، بدون نام.');
   return L.join('\n');
 }
@@ -1436,9 +1440,9 @@ function liveLines(T, chk) {
   const last = T.filter(t => t.src === 'manual').sort((a, b) => b.ts.localeCompare(a.ts))[0];
   const ms = monthSummary(T, monthKey(now));
   const lines = [];
-  lines.push(today.length ? `امروز ${faDigits(today.length)} خرج · ${fmtShort(today.reduce((a, t) => a + t.amount, 0))}` : 'امروز هنوز خرجی ثبت نشده');
-  if (last) lines.push(`آخرین ثبت: <span data-ago="${last.ts}">${ago(last.ts)}</span> · ${esc(last.desc)}`);
-  lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)} · ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
+  lines.push(today.length ? `امروز ${faDigits(today.length)} خرج، ${fmtShort(today.reduce((a, t) => a + t.amount, 0))}` : 'امروز هنوز خرجی ثبت نشده');
+  if (last) lines.push(`آخرین ثبت: <span data-ago="${last.ts}">${ago(last.ts)}</span>، ${esc(last.desc)}`);
+  lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)}، ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
   const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
   if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
   const lb = S.settings.lastBackup;
@@ -1620,7 +1624,7 @@ function bindTrend() {
     const p = pts[i], prev = pts[i - 1]; S.tr.hover = i;
     const v = p.running && p.proj ? p.proj : p.value, d = prev && prev.value && !(p.running && !p.proj && !daily) ? (v - prev.value) / prev.value : null;
     const good = d == null ? null : (d > 0) === upGood(tr.field);
-    legend.innerHTML = `<span class="sec">${esc(p.full)}${p.running ? ' · <span class="live-dot"></span>تا الان' : ''}</span>
+    legend.innerHTML = `<span class="sec">${esc(p.full)}${p.running ? '، <span class="live-dot"></span>تا الان' : ''}</span>
       <button class="tv-num" data-act="detail" data-k="trend"><b>${fmtShort(p.value)}</b>${ICON.chevL}</button>
       ${d != null ? `<span class="tr-delta ${good ? 'good' : 'bad'}">${d > 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d * 100)))}٪ ${p.running && p.proj ? 'پیش‌بینی ' : ''}نسبت به ${esc(daily ? 'روز قبل' : prev.label)}</span>` : ''}
       ${avg ? `<span class="tv-cmp"><i class="dash"></i>میانگین ${fmtShort(avg)}</span>` : ''}
@@ -1685,7 +1689,7 @@ function viewAssets() {
   const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = A.prices.usd;
   const owed = seenzhinOwed(monthKey(new Date()));
   const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: پرداخت‌ها منهای بازپرداخت‌ها', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
-    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? ' · قیمت وارد نشده' : ''}`, it.id])];
+    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? '، قیمت وارد نشده' : ''}`, it.id])];
   const mx = Math.max(1, ...rows.map(r => r[1]));
   const old = !A.pricesAt || Date.now() - new Date(A.pricesAt) > 7 * 864e5;
   const usedPrices = [...new Set(['usd', ...A.items.map(it => ASSET_KINDS[it.kind].price).filter(Boolean)])];
@@ -1693,7 +1697,7 @@ function viewAssets() {
     <div class="page-head"><h1 class="large">دارایی‌ها</h1><div class="row"><button class="chip-btn" data-act="tab" data-v="dash">بازگشت</button></div></div>
     <section class="bento an-hero"><div class="b-primary"><div class="stripes"></div>
       <div><span class="b-pill">همهٔ دارایی‌ات</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
-      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار · ` : ''}نقد ${fmtShort(cash)} · بقیه ${fmtShort(held)}</p></div></section>
+      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار، ` : ''}نقد ${fmtShort(cash)}، بقیه ${fmtShort(held)}</p></div></section>
     ${old && A.items.length ? `<button class="warn-box" data-act="as-prices">قیمت‌ها ${A.pricesAt ? `از ${formatJalali(new Date(A.pricesAt))}` : 'هنوز وارد نشده'}؛ برای عدد درست، به‌روزشان کن ←</button>` : ''}
     <div class="dash">
       <div class="span-6">
@@ -1774,7 +1778,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <button class="cell" data-act="device" data-v="role"><span>نقش این دستگاه</span><span class="sec">${isTablet() ? 'آیپد: فقط تحلیل و گزارش' : 'گوشی: ثبت و همه‌چیز'}</span></button>
       ${isTablet() ? `<button class="cell" data-act="device" data-v="edit"><span>ویرایش روی این دستگاه</span><i class="switch ${canEdit() ? 'on' : ''}"></i></button>` : ''}
     </div>
-    <p class="foot">${isTablet() ? 'روی آیپد ثبت و ویرایش خاموشه. داده‌ها با «وارد کردن فایل پشتیبان» از گوشی میان؛ دارایی‌ها و هدف‌ها هم همراهش.' : 'اگه این آیپده و می‌خوای فقط تحلیل ببینی، نقش رو عوض کن.'}</p>
+    <p class="foot">${isTablet() ? 'روی آیپد ثبت و ویرایش خاموش است. داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.' : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
