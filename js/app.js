@@ -51,7 +51,7 @@ async function boot() {
   await fixLateMehr();
   await forgiveSeenzhin();
   refresh();
-  S.view = window.innerWidth >= 820 && S.settings.startDate ? 'dash' : 'entry';
+  S.view = (isTablet() || window.innerWidth >= 820) && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
   openLink();
   render();
@@ -314,8 +314,15 @@ function render() {
 
 // Page header with a quick way back to entry (entry itself is not a tab).
 function pageHead(title, extra = '') {
-  return `<div class="page-head"><h1 class="large">${title}</h1><div class="row">${extra}<button class="add-pill" data-act="go-entry">${ICON.add}<span>ثبت</span></button></div></div>`;
+  return `<div class="page-head"><h1 class="large">${title}</h1><div class="row">${extra}${canEdit() ? `<button class="add-pill" data-act="go-entry">${ICON.add}<span>ثبت</span></button>` : ''}</div></div>`;
 }
+
+// iPad is for reading: analysis and reports only. Recording happens on the phone, unless editing is
+// switched on for this device in Settings. Kept in localStorage so a backup from the phone never changes it.
+const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const isTablet = () => LS('deviceRole') ? LS('deviceRole') === 'tablet' : Math.min(screen.width, screen.height) >= 700;
+const canEdit = () => !isTablet() || LS('editHere') === '1';
+const readOnlyToast = () => toast('روی آیپد فقط نمایشه؛ برای تغییر، تنظیمات ← «ویرایش روی این دستگاه»');
 
 // ----- Entry: «چقدر؟» then «برای چی؟» -----
 function viewEntry() {
@@ -898,7 +905,7 @@ function txSheet(title, sub, list, note = '') {
     ${note ? `<p class="foot det-note">${note}</p>` : ''}
     <div class="group">${list.length ? list.map(t => itemHtml(t, true)).join('') : '<div class="cell"><span class="sec">چیزی نیست</span></div>'}</div>
     <p class="foot">روی هر ردیف بزنی، ویرایش باز می‌شود.</p>`,
-    { edit: (v, b) => { const t = S.tx.find(x => x.id === b.dataset.id); if (t) { closeSheet(); openTxSheet({ ...t }); } } });
+    { edit: (v, b) => { if (!canEdit()) return readOnlyToast(); const t = S.tx.find(x => x.id === b.dataset.id); if (t) { closeSheet(); openTxSheet({ ...t }); } } });
 }
 
 function infoSheet(title, rows, note = '') {
@@ -1220,7 +1227,7 @@ function liveLines(T, chk) {
   const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
   if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
   const lb = S.settings.lastBackup;
-  if (!lb || Date.now() - new Date(lb) > 7 * 864e5) lines.push(`${lb ? 'یه هفته‌ست' : 'هنوز'} پشتیبان نگرفتی؛ تنظیمات ← ذخیرهٔ پشتیبان`);
+  if (!isTablet() && (!lb || Date.now() - new Date(lb) > 7 * 864e5)) lines.push(`${lb ? 'یه هفته‌ست' : 'هنوز'} پشتیبان نگرفتی؛ تنظیمات ← ذخیرهٔ پشتیبان`);
   if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
   return lines;
 }
@@ -1563,19 +1570,26 @@ function viewSettings() {
     ${pageHead('تنظیمات')}
     <div class="section-title">پشتیبان</div>
     <div class="group">
-      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>
+${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>` : ''}
       <button class="cell" data-act="pick-json"><span class="tint">وارد کردن فایل پشتیبان</span></button>
     </div>
     <p class="foot">برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.</p>
 
-    <div class="section-title">بانک</div>
+    ${canEdit() ? `    <div class="section-title">بانک</div>
     <div class="group">
       <button class="cell" data-act="pick-xlsx"><span class="tint">وارد کردن صورت‌حساب بلو</span></button>
       <div class="cell"><span>موجودی واقعی بلو</span><input class="bare end" id="bank-bal" inputmode="numeric" placeholder="مبلغ"></div>
       <button class="cell" data-act="check"><span class="tint">مقایسه با موجودی اپ</span><span class="sec" id="check-res">${fmt(balanceAt(S.tx, S.settings))}</span></button>
       ${toggle('roundUp', 'رند بلو (تا ۱۰۰ هزار تومان)')}
     </div>
-    <p class="foot">${st.roundUp ? `از ${esc(formatJalali(new Date(st.roundSince)))}، با هر خرج، فرقش تا ۱۰۰ هزار تومان بعدی خودکار «پس‌انداز باکس» حساب می‌شود؛ مثل خود بلو.` : 'اگر «رند» در بلو روشن است، این را روشن کن تا موجودی اپ با بلو یکی بماند.'}</p>
+    <p class="foot">${st.roundUp ? `از ${esc(formatJalali(new Date(st.roundSince)))}، با هر خرج، فرقش تا ۱۰۰ هزار تومان بعدی خودکار «پس‌انداز باکس» حساب می‌شود؛ مثل خود بلو.` : 'اگر «رند» در بلو روشن است، این را روشن کن تا موجودی اپ با بلو یکی بماند.'}</p>` : ''}
+
+    <div class="section-title">این دستگاه</div>
+    <div class="group">
+      <button class="cell" data-act="device" data-v="role"><span>نقش این دستگاه</span><span class="sec">${isTablet() ? 'آیپد: فقط تحلیل و گزارش' : 'گوشی: ثبت و همه‌چیز'}</span></button>
+      ${isTablet() ? `<button class="cell" data-act="device" data-v="edit"><span>ویرایش روی این دستگاه</span><i class="switch ${canEdit() ? 'on' : ''}"></i></button>` : ''}
+    </div>
+    <p class="foot">${isTablet() ? 'روی آیپد ثبت و ویرایش خاموشه. داده‌ها با «وارد کردن فایل پشتیبان» از گوشی میان؛ دارایی‌ها و هدف‌ها هم همراهش.' : 'اگه این آیپده و می‌خوای فقط تحلیل ببینی، نقش رو عوض کن.'}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
@@ -1647,7 +1661,14 @@ async function importBackupData(data) {
     add.push(t);
   }
   if (data.settings) {
-    for (const k of ['openingBalance', 'openingDate', 'startDate']) if (S.settings[k] == null && data.settings[k] != null) S.settings[k] = data.settings[k];
+    if (isTablet() && !canEdit()) {
+      // A read-only tablet mirrors the phone: balance, start, assets, goals, round-up, one-off fixes.
+      const keep = { lastBackup: S.settings.lastBackup };
+      S.settings = { ...data.settings, ...keep };
+    } else {
+      for (const k of ['openingBalance', 'openingDate', 'startDate']) if (S.settings[k] == null && data.settings[k] != null) S.settings[k] = data.settings[k];
+      for (const k of ['assets', 'goals', 'roundUp', 'roundSince', 'szForgive']) if (S.settings[k] == null && data.settings[k] != null) S.settings[k] = data.settings[k];
+    }
     await saveSettings();
   }
   if (data.rules) {
@@ -1704,6 +1725,15 @@ document.addEventListener('click', async e => {
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
+    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx'].includes(a)) readOnlyToast();
+    else if (a === 'device') {
+      try {
+        if (b.dataset.v === 'role') localStorage.setItem('deviceRole', isTablet() ? 'phone' : 'tablet');
+        else localStorage.setItem('editHere', canEdit() ? '0' : '1');
+      } catch {}
+      if (!canEdit() && S.view === 'entry') S.view = 'dash';
+      render();
+    }
     else if (a === 'go-entry') { S.view = 'entry'; S.step = 'amount'; render(); window.scrollTo(0, 0); }
     else if (a === 'next') goWhat(b.dataset.dir);
     else if (a === 'back') { S.step = 'amount'; render(); }
