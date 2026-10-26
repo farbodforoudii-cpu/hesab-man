@@ -20,22 +20,51 @@ export async function fetchMarket() {
 
 const pctOf = (a, b) => (b ? a / b - 1 : null);
 
-// Last price, change over 7 / 30 / 365 days and distance from the 90-day average.
+const avgOf = a => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+export const maSeries = (h, n) => h.map((r, i) => (i + 1 >= n ? [r[0], avgOf(h.slice(i + 1 - n, i + 1).map(x => x[1]))] : null)).filter(Boolean);
+// RSI over 14 days (Wilder): 100 − 100 / (1 + average gain ÷ average loss). Under 35 = sold off, over 70 = overheated.
+export function rsiSeries(h, n = 14) {
+  const out = []; let g = 0, l = 0;
+  for (let i = 1; i < h.length; i++) {
+    const d = h[i][1] - h[i - 1][1], up = Math.max(0, d), dn = Math.max(0, -d);
+    if (i <= n) { g += up / n; l += dn / n; if (i < n) continue; }
+    else { g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n; }
+    out.push([h[i][0], l ? 100 - 100 / (1 + g / l) : 100]);
+  }
+  return out;
+}
+
+// Last price, change over 7 / 30 / 365 days, 20- and 90-day averages, trend and RSI.
 export function stats(M, k) {
   const h = (M && M.hist && M.hist[k]) || [], now = M && M.now && M.now[k];
   const last = now ? now.p : h.length ? h[h.length - 1][1] : null;
   if (!last) return null;
   const back = n => (h.length > n ? h[h.length - 1 - n][1] : null);
-  const tail = h.slice(-90), ma90 = tail.length ? tail.reduce((a, r) => a + r[1], 0) / tail.length : null;
-  return { k, last, day: now ? now.dp / 100 : null, w: pctOf(last, back(7)), m: pctOf(last, back(30)), y: pctOf(last, back(365)), ma90, pos: pctOf(last, ma90) };
+  const ma = n => avgOf(h.slice(-n).map(r => r[1]));
+  const ma20 = ma(20), ma90 = ma(90), r = rsiSeries(h);
+  return { k, last, day: now ? now.dp / 100 : null, w: pctOf(last, back(7)), m: pctOf(last, back(30)), y: pctOf(last, back(365)),
+    ma20, ma90, pos: pctOf(last, ma90), trend: ma20 && ma90 ? (ma20 > ma90 * 1.01 ? 1 : ma20 < ma90 * 0.99 ? -1 : 0) : 0, rsi: r.length ? r[r.length - 1][1] : null };
 }
 
-// Buy signal from the distance to the 90-day average: below it buys a little more, far above a little less.
+// One signal from three readings, each explained:
+//  trend   = 20-day average vs 90-day average (up, flat, down);
+//  RSI(14) = how stretched the last two weeks are (under 35 sold off, over 70 overheated);
+//  gap     = distance of today's price from the 90-day average.
 export function signal(s) {
-  if (!s || s.pos == null) return { tilt: 1, tag: '', note: '' };
-  if (s.pos < -0.05) return { tilt: 1.25, tag: 'فرصت خرید', tone: 'g', note: `${pctTxt(-s.pos)} زیر میانگین ۹۰ روزه؛ سهم این ماه کمی بیشتر.` };
-  if (s.pos > 0.12) return { tilt: 0.8, tag: 'گران‌تر از معمول', tone: 'o', note: `${pctTxt(s.pos)} بالای میانگین ۹۰ روزه؛ فقط سهم عادی، نه بیشتر.` };
-  return { tilt: 1, tag: 'عادی', tone: '', note: `نزدیک میانگین ۹۰ روزه (${s.pos >= 0 ? '+' : '−'}${pctTxt(Math.abs(s.pos))}).` };
+  if (!s || s.pos == null) return { tilt: 1, tag: '', note: '', score: 0 };
+  const r = s.rsi ?? 50, gap = s.pos;
+  let score = 0;
+  if (r < 35) score += 2; else if (r < 45) score += 1; else if (r > 70) score -= 2; else if (r > 62) score -= 1;
+  if (gap < -0.05) score += 1; else if (gap > 0.12) score -= 1;
+  if (s.trend > 0 && r < 55) score += 1; // a pause inside an uptrend
+  if (s.trend < 0 && r > 50) score -= 1;
+  const rr = Math.round(r).toLocaleString('fa-IR');
+  const why = `روند ${s.trend > 0 ? 'صعودی' : s.trend < 0 ? 'نزولی' : 'بی‌جهت'}، RSI ${rr}، ${gap >= 0 ? '' : '−'}${pctTxt(Math.abs(gap))} ${gap >= 0 ? 'بالای' : 'زیر'} میانگین ۹۰ روزه.`;
+  if (score >= 3) return { tilt: 1.4, tag: 'خرید قوی', tone: 'g', score, note: why };
+  if (score >= 1) return { tilt: 1.2, tag: 'خرید', tone: 'g', score, note: why };
+  if (score <= -2) return { tilt: 0.7, tag: 'داغ؛ صبر', tone: 'r', score, note: why };
+  if (score <= -1) return { tilt: 0.85, tag: 'گران‌تر از معمول', tone: 'o', score, note: why };
+  return { tilt: 1, tag: 'عادی', tone: '', score, note: why };
 }
 const pctTxt = v => `${Math.round(v * 100).toLocaleString('fa-IR')}٪`;
 

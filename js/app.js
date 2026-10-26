@@ -7,7 +7,7 @@ import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.j
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
-import { MK, TARGET, fetchMarket, stats as mstats, signal as msignal, plan as mplan } from './market.js';
+import { MK, TARGET, fetchMarket, stats as mstats, signal as msignal, plan as mplan, maSeries, rsiSeries } from './market.js';
 import { createChart, createSeriesMarkers, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode } from '../vendor/lightweight-charts.mjs';
 
 const S = {
@@ -21,6 +21,7 @@ const $ov = document.getElementById('overlay');
 
 // ---------- icons (simple line glyphs) ----------
 const ICON = {
+  coins: '<svg viewBox="0 0 24 24"><ellipse cx="9" cy="6.5" rx="6" ry="2.5"/><path d="M3 6.5v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4"/><path d="M9 13v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4"/><path d="M15 10.5c3.3 0 6 1.1 6 2.5s-2.7 2.5-6 2.5"/></svg>',
   add: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>',
   ruler: '<svg viewBox="0 0 24 24"><path d="M4 16L16 4l4 4L8 20z"/><path d="M8 12l2 2M11 9l2 2M14 6l2 2"/></svg>',
@@ -438,9 +439,9 @@ function render() {
   const n = pendingList().length + sync.lifeInbox().length;
   const entry = S.view === 'entry' || !S.settings.startDate;
   document.body.classList.toggle('no-tabs', entry);
-  const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
+  const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['assets', 'coins', 'دارایی'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
   $tabs.innerHTML = entry ? '' : `<div class="inner">${tabs.map(([v, ic, l]) =>
-    `<button data-act="tab" data-v="${v}" class="${S.view === v || (v === 'dash' && S.view === 'assets') ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
+    `<button data-act="tab" data-v="${v}" class="${S.view === v ? 'on' : ''}">${ICON[ic]}<span>${l}</span>${v === 'list' && n ? `<i class="badge">${faDigits(n)}</i>` : ''}</button>`).join('')}</div>`;
   const views = { entry: viewEntry, list: viewList, dash: viewDash, an: viewAnalysis, settings: viewSettings, assets: viewAssets };
   const fresh = S.view !== S.shownView || S.month !== S.shownMonth;
   $tabs.classList.toggle('pop', S.view !== S.shownView);
@@ -471,7 +472,7 @@ function pageHead(title, extra = '') {
 const LS = k => { try { return localStorage.getItem(k); } catch { return null; } };
 const isTablet = () => LS('deviceRole') ? LS('deviceRole') === 'tablet' : Math.min(screen.width, screen.height) >= 700;
 const canEdit = () => !isTablet() || LS('editHere') === '1';
-const readOnlyToast = () => toast('روی آیپد فقط نمایشه؛ برای تغییر، تنظیمات ← «ویرایش روی این دستگاه»');
+const readOnlyToast = () => toast('آیپد فقط برای دیدن است');
 
 // ----- Entry: «چقدر؟» then «برای چی؟» -----
 function viewEntry() {
@@ -479,7 +480,7 @@ function viewEntry() {
     return `<div class="view">
       <h1 class="large">شروع</h1>
       <div class="group"><div class="cell col">
-        <p class="foot" style="margin:0 0 10px">موجودی بلو را در لحظهٔ شروع بنویس. برای روزی قبل از امروز، موجودی آخر شب قبلش.</p>
+        <p class="foot" style="margin:0 0 10px">موجودی بلو در لحظهٔ شروع.</p>
         <input class="field" id="start-bal" inputmode="numeric" placeholder="موجودی بلو (تومان)">
       </div><div class="cell col">
         <div class="cell" style="padding:0 0 10px"><span>از تاریخ</span><input class="bare end" id="start-date" inputmode="numeric" value="${formatJalali(new Date())}"></div>
@@ -719,7 +720,7 @@ function txSheetHtml() {
       <div class="cell"><span>ساعت</span><input class="bare end" id="f-time" value="${faDigits(F.time)}" inputmode="numeric"></div>
       <div class="cell"><span>حساب ماهِ</span><select class="bare end" id="f-period">${periodOptions()}</select></div>
     </div>
-    <p class="foot" style="margin-bottom:14px">اگر پولی دیر رسید (مثلاً حق کلاس مهر که آبان واریز شد)، ماهِ واقعی‌اش را انتخاب کن تا در همان ماه حساب شود.</p>
+    <p class="foot" style="margin-bottom:14px">پول دیررسیده را به ماه واقعی‌اش بده.</p>
     ${edit ? '<div class="group"><button class="cell danger" data-f="delete">حذف تراکنش</button></div>' : ''}`;
 }
 
@@ -868,7 +869,7 @@ function lifeInbox() {
     <div class="group life-inbox">${L.map(b => `<div class="cell li-row">
       <span class="li-txt"><b>${esc(b.name)}</b><small>${b.paid ? 'در «زندگی من» پرداخت شده؛ این‌جا ثبت نشده' : `${esc(b.period)}، ${faDigits(b.count)} جلسه`}${b.missing ? `، ${faDigits(b.missing)} بدون قیمت` : ''}</small></span>
       <span class="li-end"><b class="li-amt">${fmtShort(b.total)}</b><span class="row li-acts"><button class="li-more" data-act="bill-more" data-v="${esc(b.seriesId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="bill-pay" data-v="${esc(b.seriesId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>
-    ${open.length ? `<p class="foot">طلب باز: ${fmtShort(sum)} تومان، جمع ${faDigits(open.length)} دورهٔ تمام‌شده که هنوز پرداخت نشده است. «رسید» دریافت را در کوچینگ ثبت می‌کند.</p>` : ''}`;
+    ${open.length ? `<p class="foot">طلب باز ${fmtShort(sum)}، ${faDigits(open.length)} دوره.</p>` : ''}`;
 }
 
 // ----- shared monthly report: hours from «زندگی من», income from here -----
@@ -888,11 +889,11 @@ function workMoneyCard(key) {
       <div><span>جلسه و شیفت</span><b>${faDigits(L.sessions)} جلسه، ${faDigits(L.shifts)} شیفت</b><em>برگزارشده</em></div>
       <div><span>ارزش جلسه‌ها</span><b>${fmtShort(L.earned)}</b><em>مجموع مبلغ جلسه‌های برگزارشده${L.unpriced ? `؛ ${faDigits(L.unpriced)} جلسه بدون قیمت` : ''}</em></div>
       <div><span>دریافتی کاری</span><b>${fmtShort(work[key] || 0)}</b><em>با پول دیررسیدهٔ همین ماه</em></div>
-      <div class="wm-rate"><span>درآمد هر ساعت کار</span><b>${r != null ? fmtShort(r) : '—'}</b><em>${r != null ? `= دریافتی کاری ÷ ${hrs(L.workMin)} ساعت کار` : 'دریافتی کاری ÷ ساعت کار؛ پس از ۲۰ ساعت کار در ماه حساب می‌شود'}</em></div>
+      <div class="wm-rate"><span>درآمد هر ساعت کار</span><b>${r != null ? fmtShort(r) : '—'}</b><em>${r != null ? `= دریافتی کاری ÷ ${hrs(L.workMin)} ساعت کار` : 'از ۲۰ ساعت کار به بعد'}</em></div>
       <div><span>طلب باز</span><b>${st ? fmtShort(st.open) : '—'}</b><em>${st ? `${faDigits(st.openSessions)} جلسهٔ برگزارشده که هنوز پرداخت نشده` : ''}</em></div>
     </div>
     <div class="wm-trend" role="img" aria-label="درآمد هر ساعت کار در شش ماه اخیر">${pts.map(p => `<div class="wm-bar ${p.k === key ? 'on' : ''}"><small>${p.v ? fmtShort(p.v) : '—'}</small><i style="height:${p.v ? Math.max(6, p.v / top * 100).toFixed(0) : 0}%"></i><span>${esc(monthLabel(p.k).split(' ')[0])}</span></div>`).join('')}</div></div>
-    <p class="foot">ستون‌ها: درآمد هر ساعت کار در شش ماه اخیر (دریافتی کاری همان ماه ÷ ساعت جلسه و شیفت همان ماه در «زندگی من»).${L.estMin ? ' ساعت‌های تخمینی سوابق قدیمی با «≈» آمده‌اند.' : ''}</p>`;
+    <p class="foot">درآمد هر ساعت = دریافتی کاری ÷ ساعت کار.</p>`;
 }
 
 const billDesc = b => `جلسه‌های ${b.name}، ${b.period}`;
@@ -1108,7 +1109,7 @@ function storyFull(key, { ins, outs, days, h, bank, hero = true, live = false, l
     lines.push(`موجودی اول ماه ${fmtShort(bank[0])} بود؛ با ${fmtShort(inT)} ورودی، در مجموع ${fmtShort(bank[0] + inT)} در دسترس بود.`);
     lines.push(`موجودی بلو از ${fmtShort(bank[0])} رسید به ${fmtShort(bank[1])}.`);
     const gap = (bank[1] - bank[0]) - (net - lateNet);
-    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(-gap)} خرج هست که تو جدول ننوشتی.` : `طبق جدولت باید ${fmtShort(bank[1] - gap)} می‌موند، ولی بانک ${fmtShort(bank[1])} نشون می‌ده؛ یعنی ${fmtShort(gap)} پول بیشتر از جدولت تو حسابه (احتمالاً یه واریزی که ننوشتی).`);
+    if (Math.abs(gap) >= 1e6) lines.push(gap < 0 ? `${fmtShort(-gap)} خرج در جدول ثبت نشده.` : `${fmtShort(gap)} واریز در جدول ثبت نشده.`);
   }
   const kindOf = { in: 'in', out: 'out', day: 'day' };
   const bars = (arr, cls) => { const mx = Math.max(1, ...arr.map(x => x[1])); return arr.map(([l, v]) => `<button class="cell bar-row" data-act="detail" data-k="${l === LATE_LABEL ? 'late' : live ? kindOf[cls] : 'hist'}" data-v="${esc(l)}"><span class="grow">${esc(l)}</span><b>${fmtShort(v)}</b>${ICON.chevL}<i class="bar ${cls}" style="width:${(v / mx * 100).toFixed(1)}%"></i></button>`).join(''); };
@@ -1147,7 +1148,7 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
   if (asset >= 5e6) L.push(`${fmtShort(asset)} به دارایی تبدیل شد.`);
   if (running) L.push(`تا امروز ${fmtShort(exp)} هزینهٔ زندگی ثبت شده.`);
   else if (uExp) { const d = (exp - uExp) / uExp; L.push(`هزینهٔ زندگی ${fmtShort(exp)} بود؛ ${Math.abs(d) < .08 ? 'در حد میانگین' : `${faDigits(Math.round(Math.abs(d) * 100))}٪ ${d > 0 ? 'بالاتر' : 'پایین‌تر'} از میانگین`}.`); }
-  if (!running && (work || fam)) L.push(work >= exp ? `درآمد کاری (${fmtShort(work)}) همهٔ هزینه‌ها را پوشش داد.` : work ? `درآمد کاری ${fmtShort(work)} بود و باقی هزینه‌ها را حمایت خانواده پوشش داد.` : 'درآمد کاری نداشتی؛ هزینه‌ها از حمایت خانواده و موجودی تأمین شد.');
+  if (!running && (work || fam)) L.push(work >= exp ? `درآمد کاری (${fmtShort(work)}) همهٔ هزینه‌ها را پوشش داد.` : work ? `درآمد کاری ${fmtShort(work)}؛ باقی از خانواده.` : 'بدون درآمد کاری؛ از خانواده و موجودی.');
   if (!running) L.push(net >= 0 ? `در پایان ماه ${fmtShort(net)} به موجودی اضافه شد.` : `در پایان ماه ${fmtShort(-net)} از موجودی کم شد.`);
 
   // 2) Numbers: this month, the average of the other months, and the change.
@@ -1186,7 +1187,7 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
     <div class="ins-card nt${running ? ' run' : ''}">
       <div class="nt-row nt-head"><span></span><span>${running ? 'تا امروز' : 'این ماه'}</span>${running ? '' : '<span>میانگین</span><span>تغییر</span>'}</div>
       ${body}
-      ${running || !span ? '' : `<p class="nt-foot">میانگین = ${span}. تغییر = (این ماه − میانگین) ÷ میانگین.</p>`}
+      ${running || !span ? '' : `<p class="nt-foot">میانگین: ${span}</p>`}
     </div>
     <button class="cell more-row ins-more" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button>`;
 }
@@ -1217,7 +1218,7 @@ function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running }) {
       <text x="170" y="${(hy + 1).toFixed(1)}" text-anchor="middle" class="fl-v ${net >= 0 ? 'up' : 'down'}" direction="ltr">${net >= 0 ? '+' : '−'}${esc(nn)}</text>
       <text x="170" y="${(hy + 15).toFixed(1)}" text-anchor="middle" class="fl-l">${esc(nu.join(' ') || 'تومان')}</text>
       <text x="170" y="${(hy - 33).toFixed(1)}" text-anchor="middle" class="fl-l">تراز</text></svg>
-    <p class="nt-foot">ضخامت هر خط = سهم آن از بزرگ‌ترین رقم ماه. عدد وسط: ورودی − خروجی${running ? ' تا امروز' : ''}.</p></div>`;
+    </div>`;
 }
 
 // The same story for months recorded in the app, built from transactions.
@@ -1246,7 +1247,7 @@ function txSheet(title, sub, list, note = '') {
     <div class="det-head"><span class="sec">${esc(sub)}</span><b>${fmt(Math.abs(total))} <small>تومان</small></b><span class="sec">${faDigits(list.length)} تراکنش</span></div>
     ${note ? `<p class="foot det-note">${note}</p>` : ''}
     <div class="group">${list.length ? list.map(t => itemHtml(t, true)).join('') : '<div class="cell"><span class="sec">چیزی نیست</span></div>'}</div>
-    <p class="foot">با زدن روی هر ردیف، ویرایش باز می‌شود.</p>`,
+    `,
     { edit: (v, b) => { if (!canEdit()) return readOnlyToast(); const t = S.tx.find(x => x.id === b.dataset.id); if (t) { closeSheet(); openTxSheet({ ...t }); } } });
 }
 
@@ -1264,7 +1265,7 @@ function openDetail(kind, v) {
   if (kind === 'cov') {
     const s = monthSummary(T, key);
     return infoSheet('درآمد کاری در برابر هزینه', [['درآمد کاری', fmt(s.work), 'green'], ['هزینهٔ زندگی', fmt(s.expense), 'red'], ['نسبت', s.expense ? faDigits(Math.round(s.work / s.expense * 100)) + '٪' : '—']],
-      'یعنی درآمد کاری این ماه چند درصد هزینهٔ زندگی را پوشش داده. بالای ۱۰۰٪ یعنی از کار خودت چیزی هم مانده. اول ماه این عدد بالاست چون هنوز خرج زیادی ثبت نشده.');
+      'درآمد کاری ÷ هزینهٔ زندگی.');
   }
   if (kind === 'bal') {
     const st = S.settings, all = S.tx.filter(t => t.ts >= (st.openingDate || ''));
@@ -1276,7 +1277,7 @@ function openDetail(kind, v) {
       ...(rnd ? [['− رند بلو (رفت به باکس)', fmt(rnd), 'red']] : []), ['= موجودی الان', fmt(balanceAt(S.tx, st))]],
       'برای دیدن تک‌تک تراکنش‌ها، به «تراکنش‌ها» برو.');
   }
-  if (kind === 'late') return txSheet(`حساب ${mName}، دیر رسیده`, 'جمع', S.tx.filter(t => t.period === key), 'این پول‌ها بعداً به حساب آمدند ولی مال این ماه‌اند. در موجودی، روز واریز حساب شده‌اند.');
+  if (kind === 'late') return txSheet(`حساب ${mName}، دیر رسیده`, 'جمع', S.tx.filter(t => t.period === key), 'دیر رسیده ولی مال این ماه.');
   if (kind === 'day' && v === '__all') return txSheet(`هزینهٔ زندگی ${mName}`, 'جمع', M.filter(t => t.type === 'expense'));
   if (kind === 'in' || kind === 'out' || kind === 'day') {
     const [keep, f] = STORY_GROUPS[kind];
@@ -1288,7 +1289,7 @@ function openDetail(kind, v) {
       const h = H[k], hit = [...(h.ins || []), ...(h.outs || []), ...(h.days || [])].find(x => x[0] === v);
       return [monthLabel(k), hit ? fmt(hit[1]) : '—', k === key ? 'tint' : ''];
     });
-    return infoSheet(v, rows, 'ماه‌های قبل از آبان فقط جمع ماهانه دارند (از جدول Numbers)، برای همین تک‌تک تراکنش‌ها نیست. این‌جا همین مورد را در همهٔ ماه‌ها می‌بینی.');
+    return infoSheet(v, rows, 'قبل از آبان فقط جمع ماه هست.');
   }
   if (kind === 'trend') {
     const tr = S.tr, pts = trendPoints(tr.field, tr.frame), i = tr.hover == null || tr.hover >= pts.length ? (pts.findIndex(p => p.key === S.month) >= 0 ? pts.findIndex(p => p.key === S.month) : pts.length - 1) : tr.hover, p = pts[i];
@@ -1303,14 +1304,14 @@ function openDetail(kind, v) {
     // One field month by month (history months have totals only).
     const pts = trendPoints(v, 'all'), avg = pts.filter(p => !p.running).reduce((a, p, _, arr) => a + p.value / arr.length, 0);
     return infoSheet(`${trLabel(v)} ماه به ماه`, [...pts.map(p => [p.full + (p.running ? ' (تا الان)' : ''), fmt(p.value), p.key === key ? 'tint' : '']), ['میانگین ماه‌های کامل', fmt(avg)]],
-      'ماه‌های قبل از آبان از جدول Numbers هستند و فقط جمع ماه را دارند. برای ماه‌های داخل اپ، روی عدد نمودار بزن تا تک‌تک تراکنش‌ها را ببینی.');
+      'قبل از آبان فقط جمع ماه هست.');
   }
   if (kind === 'net') {
     const h = S.history.months[key], sum = a => (a || []).reduce((x, y) => x + y[1], 0);
     const inT = sum(h.ins), outT = sum(h.outs) + sum(h.days);
     return infoSheet(`${mName} در یک نگاه`, [['ورودی', fmt(inT), 'green'], ['خروجی', fmt(outT), 'red'], ['تراز ماه', (inT - outT < 0 ? '−' : '+') + fmt(Math.abs(inT - outT))],
       ...(h.bank ? [['موجودی بلو اول ماه', fmt(h.bank[0])], ['موجودی بلو آخر ماه', fmt(h.bank[1])]] : [])],
-      'ورودی و خروجی همان جمع‌های جدول Numbers است (بدون Opening). موجودی بلو از صورت‌حساب بانک است.');
+      'از جدول Numbers و صورت‌حساب بلو.');
   }
 }
 
@@ -1403,7 +1404,7 @@ function goalRows(T, key) {
     { id: 'spend', t: 'هزینهٔ زندگی', tf, v: s.expense, cap: g.spend, p: s.expense / g.spend,
       st: proj <= g.spend ? 'g' : proj <= g.spend * 1.1 ? 'o' : 'r',
       note: pace > 0 ? `برای ماندن در سقف: روزی تا ${fmtShort(pace)} در ${faDigits(left)} روز باقی‌مانده` : `سقف رد شده؛ ${fmtShort(-pace * left)} بالاتر`,
-      why: `پیش‌بینی پایان ماه ${fmtShort(proj)} است: ${fmtShort(s.expense)} تا امروز + میانگین روزانهٔ سه ماه اخیر (${fmtShort((base || 0) / 30)}) × ${faDigits(left)} روز.` },
+      why: `پیش‌بینی ${fmtShort(proj)} = امروز + روزانهٔ معمول × ${faDigits(left)} روز.` },
     { id: 'disc', t: 'هزینه‌های اختیاری', tf, v: disc, cap: discCap, p: disc / discCap,
       st: disc <= discCap * (dayNow / daysAll) * 1.1 ? 'g' : disc <= discCap ? 'o' : 'r',
       note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه، تفریح، هدیه، شخصی، دخانیات`,
@@ -1415,7 +1416,7 @@ function goalRows(T, key) {
       const cap = r5(cash >= mexp ? mexp * 3 : mexp), months = cap / mexp;
       return { id: 'cash', t: 'ذخیرهٔ نقدی', tf, v: cash, cap, p: cash / cap, st: cash >= cap ? 'g' : cash >= cap / 2 ? 'o' : 'r',
         note: cash >= cap ? 'ذخیره کامل است' : `${fmtShort(cap - cash)} مانده تا ذخیرهٔ ${faDigits(Math.round(months))} ماهه`,
-        why: `ذخیرهٔ نقدی = موجودی بلو (${fmtShort(cash)}). هدف = هزینهٔ ${faDigits(Math.round(months))} ماه زندگی (میانگین ۳ ماه اخیر ${fmtShort(mexp)} × ${faDigits(Math.round(months))}). اول یک ماه، بعد سه ماه؛ تا وقتی این حلقه کامل نشده، هر خرج غیرمنتظره از سرمایه‌گذاری‌ها برداشته می‌شود.` }; })(),
+        why: `هدف = ${faDigits(Math.round(months))} ماه هزینه (${fmtShort(mexp)} در ماه). اول یک ماه، بعد سه ماه.` }; })(),
   ];
 }
 // Three rings: the arc is what is used or saved; the details and arithmetic live in the goals sheet.
@@ -1484,9 +1485,9 @@ function challengeSheet() {
   const series = monthsSeries(S.history, scoped(), S.settings.startDate);
   openSheet(`<div class="sheet-nav"><span></span><b>چالش ماه</b><button class="link" data-close>بستن</button></div>
     <div class="group"><div class="cell col"><small class="sec why">
-      <b>هدف درآمد ${fmtShort(c.income)}</b>: ${c.streak || hist.length ? 'ماه قبل را بردی؟ ۱۰٪ بالاتر؛ نبردی؟ همان هدف دوباره' : `بالاتر از ۱۱۰٪ بهترین ماهت (${fmtShort(c.best)}) و ۱۳۰٪ میانگین ۶ ماه (${fmtShort(c.avg)})`}. هیچ‌وقت کمتر از ۱۱۰٪ میانگین نمی‌شود.<br>
-      <b>هدف سرمایه‌گذاری ${fmtShort(c.invest)}</b> = ${faDigits(Math.round(c.rate * 100))}٪ هدف درآمد. با هر ماهِ برده ۲٫۵ واحد بالا می‌رود، تا ۴۵٪.<br>
-      <b>بردن ماه</b> = رسیدن به هر دو هدف. ماه‌های بردهٔ پشت سر هم، سطح تو را بالا می‌برد. خط کوچک روی نوار: جایی که با سرعت یکنواخت امروز باید باشی.</small></div></div>
+      <b>درآمد ${fmtShort(c.income)}</b>: ${c.streak || hist.length ? 'بردی، ۱۰٪ بالاتر؛ نبردی، همان' : `۱۱۰٪ بهترین ماه یا ۱۳۰٪ میانگین`}.<br>
+      <b>سرمایه‌گذاری ${fmtShort(c.invest)}</b>: ${faDigits(Math.round(c.rate * 100))}٪ درآمد؛ با هر برد بیشتر.<br>
+      <b>برد</b>: هر دو هدف. بردهای پشت سر هم، سطح بالاتر.</small></div></div>
     ${hist.length ? `<div class="section-title">ماه‌های قبل</div><div class="group">${hist.map(k => { const h = C[k], m = series.find(x => x.key === k) || {}, won = (m.work || 0) >= h.income && (m.asset || 0) >= h.invest;
       return `<div class="cell"><span class="grow">${esc(monthLabel(k))}<small class="avg-line">درآمد ${fmtShort(m.work || 0)} از ${fmtShort(h.income)}، سرمایه‌گذاری ${fmtShort(m.asset || 0)} از ${fmtShort(h.invest)}</small></span><b class="${won ? 'green' : 'red'}">${won ? 'برد' : 'باخت'}</b></div>`; }).join('')}</div>` : ''}`);
 }
@@ -1512,7 +1513,7 @@ function goalsSheet() {
   openSheet(`<div class="sheet-nav"><button class="link" data-close>بستن</button><b>هدف‌های ماه</b><button class="link strong" data-act="save">ذخیره</button></div>
     <div class="group">${R.map(r => `<div class="cell col"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div><small class="sec why">${esc(r.why)}</small></div>`).join('')}</div>
     ${sg ? `<div class="section-title">پیشنهاد بر اساس سه ماه اخیر</div>
-    <div class="group"><div class="cell col"><small class="sec why">میانگین هزینه ${fmtShort(sg.exp)} و درآمد کاری ${fmtShort(sg.work)}. سقف هزینه ۱۰٪ زیر میانگین و سهم اختیاری همان سهم فعلی (حداکثر ۴۰٪). سرمایه‌گذاری خودکار است؛ جزئیاتش در «دارایی‌ها».</small>
+    <div class="group"><div class="cell col"><small class="sec why">سقف ۱۰٪ زیر میانگین هزینه (${fmtShort(sg.exp)}).</small>
       <div class="goal-top" style="margin-top:8px"><span>سقف ${fmtShort(sg.spend)}، سهم اختیاری ${faDigits(Math.round(sg.disc * 100))}٪</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
     <div class="section-title">تنظیم دستی</div>
     <div class="group">
@@ -1557,11 +1558,11 @@ function newsItems(series, A) {
     const H = heldByKind(), V = Object.values(H).reduce((a, b) => a + b, 0);
     const st = MARKET_KINDS.map(k => mstats(S.market, k)).filter(Boolean);
     const eff = st.reduce((a, t) => a + (t.m != null ? H[t.k] - H[t.k] / (1 + t.m) : 0), 0);
-    if (V && Math.abs(eff) > 1e6) N.push({ k: 'بازار', t: `دارایی‌هایت در ۳۰ روز ${eff >= 0 ? 'بالا رفت' : 'پایین آمد'}: ${sgnShort(eff)}`, d: `فقط اثر قیمت روی همین مقدارها (دلار، یورو، طلا، نقره)؛ ارزش فعلی ${fmtShort(V)}.`, tone: eff >= 0 ? 'g' : 'r' });
+    if (V && Math.abs(eff) > 1e6) N.push({ k: 'بازار', t: `دارایی‌هایت در ۳۰ روز ${eff >= 0 ? 'بالا رفت' : 'پایین آمد'}: ${sgnShort(eff)}`, d: `فقط اثر قیمت؛ ارزش ${fmtShort(V)}.`, tone: eff >= 0 ? 'g' : 'r' });
     const big = st.slice().sort((a, b) => Math.abs(b.w || 0) - Math.abs(a.w || 0))[0];
     if (big && big.w != null) N.push({ k: 'بازار', t: `${MK[big.k].label} این هفته ${pctS(big.w)}`, d: `${MK[big.k].per} ${fmt(big.last)} تومان؛ ${msignal(big).note}` });
     const c = challengeFor(monthKey(new Date())), cs = monthSummary(scoped(), monthKey(new Date()));
-    if (c) N.push({ k: 'چالش', t: `چالش ${monthName(monthKey(new Date()))}: ${fmtShort(cs.work || 0)} از ${fmtShort(c.income)} درآمد`, d: `سرمایه‌گذاری ${fmtShort(cs.asset || 0)} از ${fmtShort(c.invest)}. سطح ${faDigits(c.streak + 1)}؛ با بردن این ماه، هدف ماه بعد ۱۰٪ بالاتر می‌رود.`, tone: (cs.work || 0) >= c.income ? 'g' : '' });
+    if (c) N.push({ k: 'چالش', t: `چالش ${monthName(monthKey(new Date()))}: ${fmtShort(cs.work || 0)} از ${fmtShort(c.income)} درآمد`, d: `سرمایه‌گذاری ${fmtShort(cs.asset || 0)} از ${fmtShort(c.invest)}، سطح ${faDigits(c.streak + 1)}.`, tone: (cs.work || 0) >= c.income ? 'g' : '' });
     const P = currentPlan(), top = P.rows.slice().sort((a, b) => b.amt - a.amt)[0];
     if (P.total && top) N.push({ k: 'پیشنهاد', t: `${fmtShort(P.total)} مانده تا هدف سرمایه‌گذاری چالش`, d: `بیشترش ${MK[top.k].label} (${fmtShort(top.amt)})، چون از سهم هدفش عقب‌تر است. جزئیات در «دارایی‌ها».` });
   }
@@ -1672,7 +1673,7 @@ function analysisReport() {
 // Day-by-day spending inside one month (only months recorded in the app have days).
 function dayStrip(m) {
   if (!m) return '';
-  if (!m.live) return `<p class="foot an-flags">روزبه‌روز فقط برای ماه‌هایی هست که در خود اپ ثبت شده‌اند (از آبان).</p>`;
+  if (!m.live) return `<p class="foot an-flags">روزبه‌روز از آبان.</p>`;
   const { start, end } = monthRange(m.key);
   const days = Math.round((end - start) / 864e5);
   const v = new Array(days).fill(0);
@@ -1715,7 +1716,6 @@ function viewDash() {
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${liveStory(T, key)}
-    ${assetTile()}
     <div id="trend">${trendCard()}</div>
   </div>`;
 }
@@ -1731,7 +1731,7 @@ function liveLines(T, chk) {
   if (last) lines.push(`آخرین ثبت: <span data-ago="${last.ts}">${ago(last.ts)}</span>، ${esc(last.desc)}`);
   lines.push(`روز ${faDigits(j.jd)} از ${faDigits(len)}، ${faDigits(len - j.jd)} روز تا آخر ${monthLabel(monthKey(now)).split(' ')[0]}`);
   const proj = projectMonth(monthKey(now), ms.expense, baseline(monthsSeries(S.history, T, S.settings.startDate), m => m.expense || 0), now);
-  if (ms.expense && proj) lines.push(`پیش‌بینی خرج این ماه: حدود ${fmtShort(proj)} (میانگین ۳ ماه اخیر در نظر گرفته شده)`);
+  if (ms.expense && proj) lines.push(`پیش‌بینی خرج ماه: ${fmtShort(proj)}`);
   const lb = S.settings.lastBackup;
   if (!isTablet() && (!lb || Date.now() - new Date(lb) > 7 * 864e5)) lines.push(`${lb ? 'یک هفته از آخرین پشتیبان گذشته' : 'هنوز پشتیبانی گرفته نشده'}؛ تنظیمات ← ذخیرهٔ پشتیبان`);
   if (chk) lines.push(Math.abs(chk.diff) <= 1000 ? 'با حساب بانکی یکی است' : `${fmtShort(Math.abs(chk.diff))} اختلاف با حساب بانکی`);
@@ -1855,8 +1855,8 @@ function trendCard() {
     <div class="tv-legend" id="tr-legend"></div>
     <div class="tv-stage"><div class="tv-chart lw" id="tr-wrap"></div><div class="tv-ov" id="tr-ov"></div></div>
     ${tr.picking ? `<div class="tr-fields tr-cmp">${TR_FIELDS.filter(x => x[0] !== tr.field).map(([k, l]) => `<button data-act="tr-cmpf" data-v="${k}" class="${tr.cmps.includes(k) ? 'on' : ''}"><i style="background:${trColor(k)}"></i>${l}</button>`).join('')}</div>` : ''}
-    ${tr.cmps.length ? `<p class="tv-hint">${tr.pct ? 'حالت ٪: هر خط از اولین ماهی که عدد داشته صفر شروع می‌شود؛ عدد = (این ماه ÷ همان ماه − ۱) × ۱۰۰.' : 'حالت تومان: همهٔ خط‌ها روی یک مقیاس. «٪» را بزن تا رشدها مقایسه شوند، نه مبلغ‌ها.'}</p>` : ''}
-    <p class="tv-hint">بکش تا جابه‌جا شود، با دو انگشت بزرگ و کوچک کن، انگشتت را نگه دار تا عدد هر نقطه را ببینی.${last && last.proj ? ' خط‌چین «پیش‌بینی» = خرج تا امروز + میانگین ۳ ماه اخیر برای روزهای باقی‌مانده.' : ''}</p>
+    ${tr.cmps.length && tr.pct ? `<p class="tv-hint">رشد هر خط از اولین ماهش.</p>` : ''}
+    
   </div>`;
 }
 
@@ -1991,41 +1991,44 @@ function viewAssets() {
   const over = MARKET_KINDS.filter(k => H[k] / V - TARGET[k] > .12).sort((x, y) => H[y] / V - TARGET[y] - (H[x] / V - TARGET[x]));
   const yrs = n => { const add = P.base * n; return MARKET_KINDS.map(k => [k, ST[k] ? add * TARGET[k] / ST[k].last : 0]); };
   return `<div class="view wide">
-    <div class="page-head"><h1 class="large">دارایی‌ها</h1><div class="row"><button class="chip-btn" data-act="tab" data-v="dash">بازگشت</button></div></div>
-    <section class="bento an-hero"><div class="b-primary"><div class="stripes"></div>
-      <div><span class="b-pill">${M ? '<span class="live-dot"></span>' : ''}همهٔ دارایی‌ات</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
-      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار، ` : ''}نقد ${fmtShort(cash)}، بقیه ${fmtShort(held)}${M && Math.abs(eff) > 1e6 ? `<br>اثر قیمت در ۳۰ روز: <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</p></div></section>
+    ${pageHead('دارایی‌ها')}
+    <section class="bento one"><div class="b-primary"><div class="stripes"></div>
+      <div><span class="b-pill">${M ? '<span class="live-dot"></span>' : ''}همهٔ دارایی</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
+      <p class="b-note">${usd ? `${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار` : ''}${M && Math.abs(eff) > 1e6 ? `، ۳۰ روز <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</p></div></section>
 
     ${M ? `<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
     <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = msignal(t);
       return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
         <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.tag ? `<span class="news-k ${sg.tone || ''}">${sg.tag}</span>` : ''}</button>`; }).join('')}</div>
     <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
-      <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw" id="mk-chart"></div>
-      <p class="tv-hint">${S.mk.all ? '' : `محور قیمت به ${(S.market.hist[S.mk.k] || []).some(r => r[1] >= 1e7) ? 'میلیون' : 'هزار'} تومان. `}${S.mk.all ? 'هر خط از اول بازه صفر شروع می‌شود؛ عدد = (قیمت ÷ قیمت اول بازه − ۱) × ۱۰۰.' : 'خط‌چین: میانگین ۹۰ روزه. زیر آن یعنی ارزان‌تر از معمول اخیر.'} منبع: tgju.org، هر دو ساعت.</p></div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
+      <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw mk-tall" id="mk-chart"></div>
+      ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : (() => { const t = ST[S.mk.k], sg = msignal(t);
+        return `<div class="sig"><span class="sig-tag ${sg.tone || ''}">${sg.tag}</span><div class="sig-chips">
+          <span><small>روند</small><b>${t.trend > 0 ? 'صعودی' : t.trend < 0 ? 'نزولی' : 'بی‌جهت'}</b></span>
+          <span><small>RSI ۱۴ روزه</small><b>${t.rsi != null ? faDigits(Math.round(t.rsi)) : '—'}</b></span>
+          <span><small>تا میانگین ۹۰</small><b>${t.pos >= 0 ? '+' : '−'}${faDigits(Math.round(Math.abs(t.pos) * 100))}٪</b></span></div></div>
+        <p class="tv-hint">میانگین ۲۰ و ۹۰ روزه، RSI، ▲ خریدهای گذشته</p>`; })()}</div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
 
     <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
     <div class="ins-card plan">
       <div class="plan-top"><span>مانده از چالش این ماه</span><b>${fmtShort(P.total)}</b></div>
-      <p class="why">هدف سرمایه‌گذاری چالش ${fmtShort(P.target)} است و تا امروز ${fmtShort(P.doneNow)} سرمایه‌گذاری کرده‌ای. پیشنهاد زیر می‌گوید ${P.total ? `این ${fmtShort(P.total)} باقی‌مانده را` : 'پول بعدی را'} از چه بخری.</p>
+      <p class="why">هدف ${fmtShort(P.target)}، تا امروز ${fmtShort(P.doneNow)}.</p>
       ${P.rows.map(r => `<div class="plan-row"><span class="pl-k">${MK[r.k].label}</span><span class="pl-u">${r.price && r.amt ? `${unitsTxt(r.k, r.units)} ${MK[r.k].unit}` : '—'}</span><b>${r.amt ? fmtShort(r.amt) : '۰'}</b>
         <div class="pl-bar"><i style="width:${Math.min(100, r.share * 100).toFixed(0)}%"></i><em style="right:${(r.target * 100).toFixed(0)}%"></em></div>
-        <small class="pl-why">سهم فعلی ${faDigits(Math.round(r.share * 100))}٪، هدف ${faDigits(Math.round(r.target * 100))}٪${r.sig.note ? `؛ ${esc(r.sig.note)}` : ''}</small></div>`).join('')}
-      <p class="nt-foot">تقسیم: پول این ماه به دارایی‌هایی می‌رود که از سهم هدفشان عقب‌اند (نوار = سهم فعلی، خط = هدف)؛ هرچه زیر میانگین ۹۰ روزه باشد، کمی بیشتر. سکه و نقد در این محاسبه نیستند.</p>
-      ${P.lowCash ? '<p class="warn-line">نقد بلو کمتر از نصف هزینهٔ یک ماه است؛ بهتر است اول کمی نقد کنار بگذاری و بعد بخری.</p>' : ''}
-      ${over.length ? `<p class="why">اگر پول نقد لازم شد، فروش از <b>${over.map(k => MK[k].label).join(' و ')}</b> منطقی‌تر است؛ سهمش ${faDigits(Math.round(H[over[0]] / V * 100))}٪ است در برابر هدف ${faDigits(Math.round(TARGET[over[0]] * 100))}٪.</p>` : ''}
+        <small class="pl-why">سهم ${faDigits(Math.round(r.share * 100))}٪ از هدف ${faDigits(Math.round(r.target * 100))}٪${r.sig.tag ? `، ${esc(r.sig.tag)}` : ''}</small></div>`).join('')}
+
+      ${P.lowCash ? '<p class="warn-line">اول نقد کنار بگذار؛ ذخیره کم است.</p>' : ''}
+      ${over.length ? `<p class="why">نیاز به نقد؟ اول از <b>${over.map(k => MK[k].label).join(' و ')}</b> بفروش.</p>` : ''}
     </div>
 
-    ${M && P.base ? `<div class="section-title">مسیر ۶ ماه، یک سال و ۳ سال</div>
+    ${M && P.base ? (() => { const c = challengeFor(monthKey(new Date())), inv = c ? c.invest : P.base;
+      return `<div class="section-title">مسیر با بردن چالش</div>
     <div class="ins-card plan">
-      <p class="why">با همان عادت فعلی (ماهانه حدود ${fmtShort(P.base)}) و همین تقسیم، به قیمت امروز (دلار و یورو به عدد، طلا و نقره به گرم):</p>
-      <div class="nt-row nt-head lt"><span></span><span>۶ ماه</span><span>یک سال</span><span>۳ سال</span></div>
-      ${MARKET_KINDS.map((k, i) => `<div class="nt-row lt"><span class="nt-l">${MK[k].label}</span>${[6, 12, 36].map(n => `<b>+${unitsTxt(k, yrs(n)[i][1])}</b>`).join('')}</div>`).join('')}
-      <div class="nt-row lt strong"><span class="nt-l">پول تازه</span>${[6, 12, 36].map(n => `<b>${fmtShort(P.base * n)}</b>`).join('')}</div>
-      ${(() => { const c = challengeFor(monthKey(new Date())); return c && usd ? `<div class="nt-row lt strong ch-lt"><span class="nt-l">با بردن چالش</span>${[6, 12, 36].map(n => `<b>${fmtShort(c.invest * n)}</b>`).join('')}</div>
-      <p class="why">با چالش، سبد سرمایه‌گذاری‌ات (دلار، یورو، طلا، نقره) از حدود ${faDigits(Math.round(V / usd).toLocaleString('en-US'))} دلار امروز، در ۶ ماه به حدود <b>${faDigits(Math.round((V + c.invest * 6) / usd).toLocaleString('en-US'))}</b>، در یک سال به <b>${faDigits(Math.round((V + c.invest * 12) / usd).toLocaleString('en-US'))}</b> و در ۳ سال به <b>${faDigits(Math.round((V + c.invest * 36) / usd).toLocaleString('en-US'))} دلار</b> می‌رسد؛ با قیمت امروز و بدون حساب کردن بالا رفتن هدف‌ها.</p>` : ''; })()}
-      <p class="nt-foot">رشد قیمت حساب نشده؛ اگر ریال مثل یک سال گذشته (دلار ${pctS(ST.usd && ST.usd.y)}) ارزش از دست بدهد، ارزش تومانی این سبد چند برابر می‌شود. این برنامه قاعده‌محور است، نه پیش‌بینی بازار.</p>
-    </div>` : ''}
+      <div class="nt-row nt-head lt2"><span></span><span>۶ ماه</span><span>یک سال</span></div>
+      ${MARKET_KINDS.map(k => `<div class="nt-row lt2"><span class="nt-l">${MK[k].label}</span>${[6, 12].map(n => `<b>+${unitsTxt(k, ST[k] ? inv * n * TARGET[k] / ST[k].last : 0)} ${MK[k].unit}</b>`).join('')}</div>`).join('')}
+      <div class="nt-row lt2 strong ch-lt"><span class="nt-l">سبد</span>${[6, 12].map(n => `<b>${usd ? `${faDigits(Math.round((V + inv * n) / usd).toLocaleString('en-US'))} دلار` : fmtShort(V + inv * n)}</b>`).join('')}</div>
+      <p class="nt-foot">ماهی ${fmtShort(inv)}؛ امروز ${usd ? `${faDigits(Math.round(V / usd).toLocaleString('en-US'))} دلار` : fmtShort(V)}</p>
+    </div>`; })() : ''}
 
     <div class="dash">
       <div class="span-6">
@@ -2036,7 +2039,7 @@ function viewAssets() {
       ${manual.length ? `<div class="span-6">
         <div class="section-title">قیمت‌های دستی (تومان)</div>
         <div class="group">${manual.map(p => `<button class="cell" data-act="as-prices"><span class="grow">${PRICE_LABELS[p]}</span><b>${A.prices[p] ? fmt(A.prices[p]) : '—'}</b>${ICON.chevL}</button>`).join('')}</div>
-        <p class="foot">این‌ها نرخ زنده ندارند و همان عددی است که خودت وارد کرده‌ای.</p>
+        
       </div>` : ''}
     </div></div>`;
 }
@@ -2071,7 +2074,23 @@ function bindMarketChart() {
     const se = all ? mkChart.addSeries(LineSeries, { color: COL[kk], lineWidth: 2, priceFormat: { type: 'custom', formatter: fmtP } })
       : mkChart.addSeries(AreaSeries, { lineColor: COL[kk], topColor: COL[kk] + '55', bottomColor: COL[kk] + '00', lineWidth: 2, priceFormat: { type: 'custom', formatter: fmtP }, lastPriceAnimation: LastPriceAnimationMode.Continuous });
     se.setData(data);
-    if (!all) { const t = mstats(S.market, kk); if (t && t.ma90) se.createPriceLine({ price: t.ma90, color: ink(.45), lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین ۹۰ روزه' }); }
+    if (!all) {
+      const full = H[kk] || [], from = pts.length ? pts[0][0] : '';
+      const line = (arr, opt) => mkChart.addSeries(LineSeries, { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: 'custom', formatter: fmtP }, ...opt }).setData(arr.filter(r => r[0] >= from).map(([d, v]) => ({ time: d, value: v })));
+      line(maSeries(full, 20), { color: ink(.55) });
+      line(maSeries(full, 90), { color: ink(.4), lineStyle: LineStyle.Dashed });
+      const rsi = rsiSeries(full).filter(r => r[0] >= from);
+      const rs = mkChart.addSeries(LineSeries, { color: COL[kk], lineWidth: 1, priceLineVisible: false, lastValueVisible: true, priceFormat: { type: 'custom', formatter: v => faDigits(Math.round(v)) } }, 1);
+      rs.setData(rsi.map(([d, v]) => ({ time: d, value: v })));
+      rs.createPriceLine({ price: 70, color: 'rgba(224,69,58,.5)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+      rs.createPriceLine({ price: 35, color: 'rgba(30,158,87,.6)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
+      // Buy days: RSI first dips under 35, or price drops 5% under its 90-day average inside an uptrend.
+      const ma90 = Object.fromEntries(maSeries(full, 90)), ma20 = Object.fromEntries(maSeries(full, 20)), px = Object.fromEntries(full);
+      let was = false; const marks = [];
+      for (const [d, r] of rsi) { const g = ma90[d] ? px[d] / ma90[d] - 1 : 0, buy = r < 35 || (g < -0.05 && ma20[d] > ma90[d]); if (buy && !was) marks.push({ time: d, position: 'belowBar', shape: 'arrowUp', color: '#1e9e57', size: 1 }); was = buy; }
+      if (marks.length) createSeriesMarkers(se, marks);
+      try { mkChart.panes()[1].setHeight(70); } catch {}
+    }
     return { kk, data };
   });
   mkChart.timeScale().fitContent();
@@ -2092,7 +2111,7 @@ function assetSheet(id) {
       <div class="cell"><span>اسم</span><input class="bare end" id="as-label" value="${esc(it.label || '')}" placeholder="${ASSET_KINDS[kind].label}"></div>
       <div class="cell"><span>مقدار (${ASSET_KINDS[kind].unit})</span><input class="bare end" id="as-qty" inputmode="decimal" value="${it.qty ? faDigits(String(it.qty).replace('.', '٫')) : ''}" placeholder="۰"></div>
     </div>
-    ${kind === 'box' ? '<p class="foot">موجودی الان باکس را بنویس. از این به بعد رندها خودشان اضافه می‌شوند.</p>' : ''}
+    ${kind === 'box' ? '<p class="foot">موجودی الان؛ رندها خودکار اضافه می‌شوند.</p>' : ''}
     ${id ? '<div class="group"><button class="cell danger" data-act="del">حذف</button></div>' : ''}`;
   const qtyOf = () => Number(toAscii(document.getElementById('as-qty').value).replace(/[٫,]/g, m => m === '٫' ? '.' : '').replace(/[^\d.]/g, '')) || 0;
   const actions = {
@@ -2111,7 +2130,7 @@ function assetSheet(id) {
 function pricesSheet() {
   const A = assetsState(), used = [...new Set(['usd', ...A.items.map(it => ASSET_KINDS[it.kind].price).filter(Boolean)])];
   openSheet(`<div class="sheet-nav"><button class="link" data-close>لغو</button><b>قیمت‌های امروز</b><button class="link strong" data-act="save">ذخیره</button></div>
-    <p class="foot det-note">به تومان. از همان جایی که همیشه قیمت را می‌بینی.</p>
+    <p class="foot det-note">به تومان.</p>
     <div class="group">${used.map(p => `<div class="cell"><span>${PRICE_LABELS[p]}</span><input class="bare end" data-p="${p}" inputmode="numeric" value="${A.prices[p] ? fmt(A.prices[p]) : ''}" placeholder="تومان"></div>`).join('')}</div>`,
     { save: async () => {
       document.querySelectorAll('.sheet [data-p]').forEach(i => { const v = parseAmount(i.value); if (v) A.prices[i.dataset.p] = v; });
@@ -2138,7 +2157,7 @@ function syncSection() {
       <div class="cell"><input class="bare" id="sync-code" dir="ltr" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="کدِ دستگاه دیگر"></div>
       <button class="cell" data-act="sync-paste"><span class="tint">چسباندن کد و اتصال</span></button>
     </div>
-    <p class="foot">${err}روی نخستین دستگاه «روشن کردن» را بزنید؛ یک کد ساخته و کپی می‌شود. روی آیپد یا در «زندگی من» فقط «چسباندن کد» را بزنید. بدون ایمیل و رمز.</p>`;
+    <p class="foot">${err}این‌جا «روشن کردن»، دستگاه دیگر «چسباندن کد».</p>`;
   return `<div class="section-title">همگام‌سازی آیفون، آیپد و «زندگی من»</div>
     <div class="group">
       <div class="cell"><span>وضعیت</span><span class="sec ${s.status === 'error' ? 'red' : ''}">${status}</span></div>
@@ -2146,7 +2165,7 @@ function syncSection() {
       <button class="cell" data-act="sync-now"><span class="tint">همگام‌سازی اکنون</span>${pending ? `<span class="sec">${faDigits(pending)} مورد در انتظار</span>` : ''}</button>
       <button class="cell" data-act="sync-out"><span class="tint">خاموش کردن روی این دستگاه</span></button>
     </div>
-    <p class="foot">${err}برای افزودن آیپد یا «زندگی من»: «کپی کد» را بزنید و آن‌جا «چسباندن کد» را. کد را مانند رمز نگه دارید؛ هر کس آن را داشته باشد به داده‌ها دسترسی دارد.</p>`;
+    <p class="foot">${err}کد را مثل رمز نگه دار.</p>`;
 }
 
 function viewSettings() {
@@ -2162,7 +2181,7 @@ function viewSettings() {
 ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>` : ''}
       <button class="cell" data-act="pick-json"><span class="tint">وارد کردن فایل پشتیبان</span></button>
     </div>
-    <p class="foot">${sync.state.key ? 'با همگام‌سازی، پشتیبان فقط برای احتیاط است؛ هفته‌ای یک بار در iCloud نگهش دار.' : 'برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.'}</p>
+    <p class="foot">${sync.state.key ? 'هفته‌ای یک بار، برای احتیاط.' : 'هفته‌ای یک بار؛ برای آیپد با AirDrop.'}</p>
 
     ${canEdit() ? `    <div class="section-title">بانک</div>
     <div class="group">
@@ -2171,14 +2190,14 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <button class="cell" data-act="check"><span class="tint">مقایسه با موجودی اپ</span><span class="sec" id="check-res">${fmt(balanceAt(S.tx, S.settings))}</span></button>
       ${toggle('roundUp', 'رند بلو (تا ۱۰۰ هزار تومان)')}
     </div>
-    <p class="foot">${st.roundUp ? `از ${esc(formatJalali(new Date(st.roundSince)))}، با هر خرج، فرقش تا ۱۰۰ هزار تومان بعدی خودکار «پس‌انداز باکس» حساب می‌شود؛ مثل خود بلو.` : 'اگر «رند» در بلو روشن است، این را روشن کن تا موجودی اپ با بلو یکی بماند.'}</p>` : ''}
+    <p class="foot">${st.roundUp ? 'رند هر خرج به باکس می‌رود، مثل بلو.' : 'اگر رند بلو روشن است، روشنش کن.'}</p>` : ''}
 
     <div class="section-title">این دستگاه</div>
     <div class="group">
       <button class="cell" data-act="device" data-v="role"><span>نقش این دستگاه</span><span class="sec">${isTablet() ? 'آیپد: فقط تحلیل و گزارش' : 'گوشی: ثبت و همه‌چیز'}</span></button>
       ${isTablet() ? `<button class="cell" data-act="device" data-v="edit"><span>ویرایش روی این دستگاه</span><i class="switch ${canEdit() ? 'on' : ''}"></i></button>` : ''}
     </div>
-    <p class="foot">${isTablet() ? `روی آیپد ثبت و ویرایش خاموش است. ${sync.state.key ? 'داده‌ها، دارایی‌ها و هدف‌ها خودکار از گوشی می‌رسند.' : 'داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.'}` : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
+    <p class="foot">${isTablet() ? `آیپد فقط برای دیدن است.` : ''}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
@@ -2195,7 +2214,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <div class="cell"><span>تعداد تراکنش‌ها</span><span class="sec">${faDigits(scoped().length)}</span></div>
       <button class="cell danger" data-act="wipe">پاک کردن همهٔ اطلاعات</button>
     </div>
-    <p class="foot">${sync.state.key ? 'اطلاعات روی این دستگاه و در فضای همگام‌سازی شما ذخیره است و بدون اینترنت هم کار می‌کند.' : 'اطلاعات فقط روی همین دستگاه ذخیره می‌شود و بدون اینترنت کار می‌کند.'}</p>
+    <p class="foot">${sync.state.key ? 'روی دستگاه و همگام‌سازی؛ بدون اینترنت هم کار می‌کند.' : 'فقط روی همین دستگاه؛ بدون اینترنت هم کار می‌کند.'}</p>
     <input type="file" id="file-json" accept="application/json,.json" hidden>
     <input type="file" id="file-xlsx" accept=".xlsx,.xls" hidden>
   </div>`;

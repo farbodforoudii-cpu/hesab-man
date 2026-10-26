@@ -51,15 +51,15 @@ export function analyze(series) {
   const top = Object.entries(cats).filter(([c]) => CATEGORIES[c] && c !== 'other').sort((a, b) => b[1] - a[1])[0];
 
   let verdict;
-  if (cov < 0.95) verdict = `درآمد کاری حدود ${pct(cov)} هزینه‌ها را پوشش داده و باقی را حمایت خانواده.`;
-  else if (cov <= 1.1) verdict = 'درآمد کاری و هزینه‌ها تقریباً هم‌اندازه‌اند؛ چیزی از درآمد کاری باقی نمی‌ماند.';
-  else verdict = `درآمد کاری از هزینه‌ها بیشتر است؛ ماهانه حدود ${fmtShort(avgWork - avgExp)} باقی می‌ماند.`;
+  if (cov < 0.95) verdict = `درآمد کاری ${pct(cov)} هزینه‌ها را پوشش داد؛ باقی از خانواده.`;
+  else if (cov <= 1.1) verdict = 'درآمد کاری و هزینه تقریباً برابرند.';
+  else verdict = `درآمد کاری از هزینه بیشتر است؛ ماهانه ${fmtShort(avgWork - avgExp)} باقی می‌ماند.`;
 
   const critiques = [], tips = [], good = [];
   const short = done.filter(m => m.work < m.expense).length;
   if (cov < 1 && family) {
-    critiques.push({ w: expense - work, t: 'هزینه‌ها از درآمد کاری جلوترند', d: `در ${faDigits(short)} ماه از ${faDigits(n)} ماه، هزینه بیش از درآمد کاری بود و ${fmtShort(family)} حمایت خانواده این فاصله را پر کرد.` });
-    tips.push({ w: expense - work, t: 'فاصله تا استقلال مالی', d: `ماهانه ${fmtShort(avgExp - avgWork)}؛ با درآمد بیشتر یا هزینهٔ کمتر به همین اندازه، این فاصله بسته می‌شود.` });
+    critiques.push({ w: expense - work, t: 'هزینه‌ها از درآمد کاری جلوترند', d: `در ${faDigits(short)} ماه از ${faDigits(n)} ماه، هزینه از درآمد کاری بیشتر بود؛ ${fmtShort(family)} از خانواده.` });
+    tips.push({ w: expense - work, t: 'فاصله تا استقلال مالی', d: `ماهانه ${fmtShort(avgExp - avgWork)}؛ با درآمد بیشتر یا هزینهٔ کمتر بسته می‌شود.` });
   }
   if (n >= 4) {
     const h = Math.floor(n / 2);
@@ -74,7 +74,7 @@ export function analyze(series) {
     if (best) {
       const avg = cats[best.c] / n;
       critiques.push({ w: (best.b - best.a) * h, t: `${label(best.c)} رو به افزایش است`, d: `از ماهانه ${fmtShort(best.a)} در ماه‌های نخست به ${fmtShort(best.b)} در ماه‌های اخیر رسیده؛ ${faDigits((best.b / best.a).toFixed(1).replace('.', '٫'))} برابر.` });
-      if (best.b > avg) tips.push({ w: (best.b - avg) * 12, t: `بازگشت ${label(best.c)} به میانگین`, d: `میانگین شما ماهانه ${fmtShort(avg)} است. با برگشت به همین عدد، ماهانه ${fmtShort(best.b - avg)} و سالانه ${fmtShort((best.b - avg) * 12)} آزاد می‌شود.` });
+      if (best.b > avg) tips.push({ w: (best.b - avg) * 12, t: `بازگشت ${label(best.c)} به میانگین`, d: `میانگین ماهانه ${fmtShort(avg)} است؛ برگشت به آن، ماهانه ${fmtShort(best.b - avg)} و سالانه ${fmtShort((best.b - avg) * 12)} آزاد می‌شود.` });
     }
   }
   const spike = done.reduce((x, m) => (m.expense > x.expense ? m : x), done[0]);
@@ -88,8 +88,8 @@ export function analyze(series) {
   }
   if (asset) {
     const k = done.filter(m => m.asset > 0);
-    good.push({ t: 'سرمایه‌گذاری', d: `${fmtShort(asset)} به دلار، نقره و دوچرخه تبدیل شده؛ هزینه نیست، دارایی است.` });
-    if (k.length <= n / 2) tips.push({ w: asset / 2, t: 'پس‌انداز منظم ماهانه', d: `پس‌انداز فقط در ${faDigits(k.length)} ماه و یکجا انجام شده. کنار گذاشتن مبلغی ثابت در ابتدای هر ماه، مثلاً ${fmtShort(asset / n)}، روند را پایدار می‌کند.` });
+    good.push({ t: 'سرمایه‌گذاری', d: `${fmtShort(asset)} دارایی شد، نه هزینه.` });
+    if (k.length <= n / 2) tips.push({ w: asset / 2, t: 'پس‌انداز منظم ماهانه', d: `سرمایه‌گذاری فقط در ${faDigits(k.length)} ماه؛ هر ماه مبلغی ثابت، مثلاً ${fmtShort(asset / n)}، بهتر است.` });
   }
   const best = done.reduce((x, m) => (m.self > x.self ? m : x), done[0]);
   if (best.self > 0) good.push({ t: `${name(best.key)}، بهترین ماه`, d: `بدون حمایت خانواده، ${fmtShort(best.self)} از درآمد کاری باقی ماند.` });
@@ -140,20 +140,20 @@ export function kpis(series, balance, held = 0) {
     `درآمد کاری چند درصد هزینهٔ زندگی را پوشش می‌دهد. ${work >= exp ? 'همهٔ هزینه‌ها از درآمد کاری تأمین شده است.' : `یعنی از هر ۱۰۰ تومان هزینه، ${faDigits(Math.round(work / exp * 100))} تومان از کار بوده است.`}`,
     m => m.expense ? (m.work || 0) / m.expense : 0, 'pct', 'هدف: ۱۰۰٪ یا بیشتر'));
   out.push(mk('save', 1, 'نرخ پس‌انداز از درآمد', P(own ? ownLeft / own : 0), st(own ? ownLeft / own : 0, .2, 0),
-    'از درآمد خودت (کار + فروش)، پس از هزینه‌ها چه سهمی باقی ماند. منفی یعنی هزینه از درآمد بیشتر بوده است.',
+    'سهم باقی‌مانده از درآمد خودت پس از هزینه.',
     m => m.self || 0, 'money', 'هدف: حداقل ۲۰٪'));
   out.push(mk('spend', 1, 'میانگین هزینهٔ ماهانه', fmtShort(avgExp), 'o',
-    `میانگین هزینهٔ زندگی ماهانه ${fmtShort(avgExp)} است (بدون اقساط، سرمایه‌گذاری و پرداخت برای دیگران).`,
+    `هزینهٔ زندگی ماهانه ${fmtShort(avgExp)} است .`,
     m => m.expense || 0, 'money', 'بهتر است ثابت بماند یا کم‌کم پایین بیاید'));
   out.push(mk('family', 1, 'وابستگی به خانواده', P(fam / ((own + fam) || 1)), st(fam / ((own + fam) || 1), .1, .3, false),
     `سهم حمایت خانواده از کل ورودیِ زندگی؛ ماهانه حدود ${fmtShort(fam / n)}.`,
     m => m.family || 0, 'money', 'هدف: زیر ۱۰٪'));
   const runway = avgExp ? balance / avgExp : 0;
   out.push(mk('runway', 2, 'ذخیرهٔ نقدی', `${iso(faDigits(runway.toFixed(1).replace('.', '٫')))} ماه`, st(runway, 3, 1),
-    `موجودی فعلی بلو (${fmtShort(balance)}) بدون هیچ ورودی تازه، چند ماه هزینه را با روال فعلی پوشش می‌دهد.${held && avgExp ? ` با احتساب دلار، طلا و بقیهٔ دارایی‌ها: ${iso(faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫')))} ماه.` : ' دلار و نقره در این عدد نیست.'}`,
+    `موجودی بلو (${fmtShort(balance)}) چند ماه هزینه را پوشش می‌دهد.${held && avgExp ? ` با احتساب دلار، طلا و بقیهٔ دارایی‌ها: ${iso(faDigits(((balance + held) / avgExp).toFixed(1).replace('.', '٫')))} ماه.` : ' دلار و نقره در این عدد نیست.'}`,
     m => m.bank ? m.bank[1] : (m.running ? balance : 0), 'money', 'هدف: حداقل ۳ ماه'));
   out.push(mk('disc', 2, 'هزینه‌های اختیاری', P(disc / (exp || 1)), st(disc / (exp || 1), .25, .4, false),
-    'تفریح و سفر، هدیه، شخصی و دخانیات؛ هزینه‌هایی که در اختیار خودت است و قابل کم کردن است.',
+    'تفریح، هدیه، شخصی و دخانیات.',
     m => DISCRETIONARY.reduce((a, c) => a + ((m.byCat || {})[c] || 0), 0), 'money', 'هدف: زیر ۲۵٪ کل خرج'));
   const assetMonths = done.filter(m => (m.asset || 0) > 0).length;
   out.push(mk('asset', 2, 'سرمایه‌گذاری', fmtShort(asset), assetMonths >= n * .6 ? 'g' : assetMonths ? 'o' : 'r',

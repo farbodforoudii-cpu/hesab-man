@@ -951,3 +951,13 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .anim .ch-bar i { animation: grow 1s var(--out) .2s both; }
 .ch-note { position: relative; margin: 2px 0 0; font-size: 13px; color: var(--sec); line-height: 1.7; }
 .ch-lt b { color: var(--orange); }
+
+.mk-tall { height: 380px !important; }
+.sig { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; flex-wrap: wrap; }
+.sig-tag { font-size: 15px; font-weight: 700; padding: 6px 14px; border-radius: 999px; background: var(--fill); }
+.sig-tag.g { background: rgba(30, 158, 87, .15); color: var(--green); } .sig-tag.r { background: rgba(224, 69, 58, .13); color: var(--red); } .sig-tag.o { background: rgba(234, 138, 42, .15); color: var(--orange); }
+.sig-chips { display: flex; gap: 14px; flex: 1; justify-content: space-between; }
+.sig-chips span { display: flex; flex-direction: column; } .sig-chips small { font-size: 11px; color: var(--sec); } .sig-chips b { font-size: 15px; font-weight: 600; }
+.nt-row.lt2 { grid-template-columns: minmax(0, 1fr) 1fr 1fr; } .nt-row.lt2 b { text-align: left; }
+nav.tabs button span { white-space: nowrap; }
+
