@@ -28,14 +28,27 @@ function run(store, mode, fn) {
   }));
 }
 
+// Writes that sync should know about. Set by sync.js; null while sync is off.
+export const changes = { onWrite: null };
+const SYNCED_KEYS = ['settings', 'rules', 'history'];
+const note = (kind, ids, deleted = false) => changes.onWrite && changes.onWrite(kind, ids, deleted);
+
+// Plain writes without telling sync; used when applying copies that came from the server.
+export const raw = {
+  putManyTx: list => run('tx', 'readwrite', s => { for (const t of list) s.put(t); }),
+  deleteManyTx: ids => run('tx', 'readwrite', s => { for (const id of ids) s.delete(id); }),
+  set: (key, val) => run('kv', 'readwrite', s => { s.put(val, key); }),
+};
+
 export const db = {
   allTx: () => run('tx', 'readonly', s => s.getAll()),
-  putTx: tx => run('tx', 'readwrite', s => { s.put(tx); }),
-  putManyTx: list => run('tx', 'readwrite', s => { for (const t of list) s.put(t); }),
-  deleteTx: id => run('tx', 'readwrite', s => { s.delete(id); }),
+  putTx: tx => run('tx', 'readwrite', s => { s.put(tx); }).then(() => note('tx', [tx.id])),
+  putManyTx: list => run('tx', 'readwrite', s => { for (const t of list) s.put(t); }).then(() => note('tx', list.map(t => t.id))),
+  deleteTx: id => run('tx', 'readwrite', s => { s.delete(id); }).then(() => note('tx', [id], true)),
+  // Wiping this device is local only; sync is switched off by the caller.
   clearTx: () => run('tx', 'readwrite', s => { s.clear(); }),
   get: key => run('kv', 'readonly', s => s.get(key)),
-  set: (key, val) => run('kv', 'readwrite', s => { s.put(val, key); }),
+  set: (key, val) => run('kv', 'readwrite', s => { s.put(val, key); }).then(() => { if (SYNCED_KEYS.includes(key)) note('kv', [key]); }),
 };
 
 export async function requestPersistence() {

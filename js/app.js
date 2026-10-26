@@ -1,4 +1,5 @@
 import { db, requestPersistence } from './db.js';
+import { sync } from './sync.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
@@ -59,6 +60,22 @@ async function boot() {
   render();
   requestPersistence();
   setupUpdates();
+  // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
+  await sync.init();
+  sync.onRemote = reload;
+  sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-email:focus, #sync-pass:focus')) render(); });
+  sync.run();
+}
+
+// A newer copy arrived from another device: read it in and redraw what is on screen.
+async function reload() {
+  const [tx, settings, rules, history] = await Promise.all([db.allTx(), db.get('settings'), db.get('rules'), db.get('history')]);
+  S.tx = tx || [];
+  S.settings = settings || {};
+  S.rules = rules || { parties: {}, overrides: [] };
+  S.history = history || null;
+  refresh();
+  render();
 }
 
 // Links from other apps (e.g. Life OS after a coaching session):
@@ -391,7 +408,7 @@ function viewEntry() {
         <input class="field" id="start-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی (اختیاری)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
-      <button class="btn-plain" data-act="go-settings">وارد کردن فایل</button>
+      <button class="btn-plain" data-act="go-settings">ورود به حساب همگام‌سازی یا وارد کردن فایل</button>
     </div>`;
   }
   const amt = Number(S.amount || 0);
@@ -1773,6 +1790,28 @@ function pricesSheet() {
 }
 
 // ----- Settings -----
+function syncSection() {
+  const s = sync.state, pending = sync.pending();
+  const when = s.lastSync ? new Date(s.lastSync).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '';
+  const status = { off: 'خاموش', idle: when ? `به‌روز، ${when}` : 'آماده', syncing: 'در حال همگام‌سازی…', error: 'خطا', offline: 'بدون اینترنت؛ بعداً ارسال می‌شود' }[s.status];
+  if (!s.session) return `<div class="section-title">همگام‌سازی آیفون و آیپد</div>
+    <div class="group">
+      <div class="cell"><span>ایمیل</span><input class="bare end" id="sync-email" type="email" inputmode="email" autocomplete="username" dir="ltr" placeholder="you@example.com"></div>
+      <div class="cell"><span>رمز</span><input class="bare end" id="sync-pass" type="password" autocomplete="current-password" dir="ltr" placeholder="دست‌کم ۶ نویسه"></div>
+      <button class="cell" data-act="sync-in"><span class="tint">ورود</span></button>
+      <button class="cell" data-act="sync-up"><span class="tint">ساختن حساب (نخستین بار)</span></button>
+    </div>
+    <p class="foot">${s.error ? `<span class="red">${esc(s.error)}</span><br>` : ''}با همان حسابِ «زندگی من» وارد شوید. از آن پس هر ثبت روی آیفون خودکار به آیپد می‌رسد و برعکس؛ بدون اینترنت هم کار می‌کند و بعداً می‌فرستد.</p>`;
+  return `<div class="section-title">همگام‌سازی آیفون و آیپد</div>
+    <div class="group">
+      <div class="cell"><span>وضعیت</span><span class="sec ${s.status === 'error' ? 'red' : ''}">${status}</span></div>
+      <div class="cell"><span>حساب</span><span class="sec" dir="ltr">${esc(s.session.user.email)}</span></div>
+      <button class="cell" data-act="sync-now"><span class="tint">همگام‌سازی اکنون</span>${pending ? `<span class="sec">${faDigits(pending)} مورد در انتظار</span>` : ''}</button>
+      <button class="cell" data-act="sync-out"><span class="tint">خاموش کردن روی این دستگاه</span></button>
+    </div>
+    <p class="foot">${s.error ? `<span class="red">${esc(s.error)}</span><br>` : ''}هر دستگاه همهٔ داده‌ها را نگه می‌دارد و هر تغییر چند ثانیه بعد فرستاده می‌شود. اگر یک ثبت روی دو دستگاه تغییر کند، تازه‌ترین نسخه می‌ماند.</p>`;
+}
+
 function viewSettings() {
   const st = S.settings;
   const last = st.lastBackup ? formatJalali(new Date(st.lastBackup)) : 'هرگز';
@@ -1780,12 +1819,13 @@ function viewSettings() {
   const toggle = (k, label) => `<button class="cell" data-act="toggle" data-v="${k}"><span>${label}</span><i class="switch ${st[k] ? 'on' : ''}"></i></button>`;
   return `<div class="view">
     ${pageHead('تنظیمات')}
+    ${syncSection()}
     <div class="section-title">پشتیبان</div>
     <div class="group">
 ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>` : ''}
       <button class="cell" data-act="pick-json"><span class="tint">وارد کردن فایل پشتیبان</span></button>
     </div>
-    <p class="foot">برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.</p>
+    <p class="foot">${sync.state.session ? 'با همگام‌سازی، پشتیبان فقط برای احتیاط است؛ هفته‌ای یک بار در iCloud نگهش دار.' : 'برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.'}</p>
 
     ${canEdit() ? `    <div class="section-title">بانک</div>
     <div class="group">
@@ -1801,7 +1841,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <button class="cell" data-act="device" data-v="role"><span>نقش این دستگاه</span><span class="sec">${isTablet() ? 'آیپد: فقط تحلیل و گزارش' : 'گوشی: ثبت و همه‌چیز'}</span></button>
       ${isTablet() ? `<button class="cell" data-act="device" data-v="edit"><span>ویرایش روی این دستگاه</span><i class="switch ${canEdit() ? 'on' : ''}"></i></button>` : ''}
     </div>
-    <p class="foot">${isTablet() ? 'روی آیپد ثبت و ویرایش خاموش است. داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.' : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
+    <p class="foot">${isTablet() ? `روی آیپد ثبت و ویرایش خاموش است. ${sync.state.session ? 'داده‌ها، دارایی‌ها و هدف‌ها خودکار از گوشی می‌رسند.' : 'داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.'}` : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
@@ -1818,7 +1858,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <div class="cell"><span>تعداد تراکنش‌ها</span><span class="sec">${faDigits(scoped().length)}</span></div>
       <button class="cell danger" data-act="wipe">پاک کردن همهٔ اطلاعات</button>
     </div>
-    <p class="foot">اطلاعات فقط روی همین دستگاه ذخیره می‌شود و بدون اینترنت کار می‌کند.</p>
+    <p class="foot">${sync.state.session ? 'اطلاعات روی این دستگاه و در حساب همگام‌سازی شما ذخیره است و بدون اینترنت هم کار می‌کند.' : 'اطلاعات فقط روی همین دستگاه ذخیره می‌شود و بدون اینترنت کار می‌کند.'}</p>
     <input type="file" id="file-json" accept="application/json,.json" hidden>
     <input type="file" id="file-xlsx" accept=".xlsx,.xls" hidden>
   </div>`;
@@ -2007,6 +2047,18 @@ document.addEventListener('click', async e => {
       catch { openSheet(`<div class="sheet-nav"><span></span><b>گزارش</b><button class="link" data-close>بستن</button></div><textarea class="field" rows="14" readonly>${esc(text)}</textarea>`); }
     }
     else if (a === 'export') await exportBackup();
+    else if (a === 'sync-in' || a === 'sync-up') {
+      const email = document.getElementById('sync-email').value.trim(), pass = document.getElementById('sync-pass').value;
+      if (!email || !pass) return toast('ایمیل و رمز را وارد کنید');
+      b.disabled = true;
+      try {
+        if (a === 'sync-up' && (await sync.signUp(email, pass)) === 'confirm') { toast('ایمیل تأیید فرستاده شد؛ پیوند آن را بزنید و سپس «ورود»'); return; }
+        if (a === 'sync-in') await sync.signIn(email, pass);
+        toast('همگام‌سازی روشن شد');
+      } catch (err) { sync.state.error = err.message; } finally { b.disabled = false; render(); }
+    }
+    else if (a === 'sync-now') { await sync.run(); render(); }
+    else if (a === 'sync-out') { if (!confirm('همگام‌سازی روی این دستگاه خاموش شود؟ داده‌های این دستگاه می‌مانند.')) return; await sync.signOut(); render(); }
     else if (a === 'pick-json') document.getElementById('file-json').click();
     else if (a === 'pick-xlsx') document.getElementById('file-xlsx').click();
     else if (a === 'check') {
@@ -2016,7 +2068,9 @@ document.addEventListener('click', async e => {
       document.getElementById('check-res').textContent = Math.abs(diff) < 1000 ? 'یکی است' : `${fmt(Math.abs(diff))} ${diff > 0 ? 'کمتر در بانک' : 'بیشتر در بانک'}`;
     }
     else if (a === 'wipe') {
-      if (!confirm('همهٔ اطلاعات از این دستگاه پاک شود؟')) return;
+      if (!confirm('همهٔ اطلاعات از این دستگاه پاک شود؟ نسخهٔ روی سرور و دستگاه‌های دیگر دست نمی‌خورد.')) return;
+      // Leave sync first so the wipe stays on this device.
+      await sync.signOut();
       await db.clearTx();
       await db.set('settings', {}); await db.set('rules', { parties: {}, overrides: [] }); await db.set('history', null);
       Object.assign(S, { tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null });
