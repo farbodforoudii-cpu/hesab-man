@@ -5,18 +5,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for u in \
-            "https://api.tgju.org/v1/market/indicator/summary-table-data/price_dollar_rl" \
-            "https://call1.tgju.org/ajax.json" \
-            "https://www.tgju.org/profile/price_dollar_rl" \
-            "https://www.tgju.org/profile/geram18" \
-            "https://chand.ir/" \
-            "https://servatmandi.com/" \
-            "https://www.bonbast.com/" \
-            "https://alanchand.com/currencies-price/usd" ; do
-            echo "=== $u"
-            curl -s -m 20 -A "Mozilla/5.0" -o out.txt -w "%{http_code} %{size_download}\n" "$u" || echo fail
-            head -c 400 out.txt | tr '\n' ' '; echo
-          done
-          echo "=== cors check"
-          curl -s -m 20 -I -H "Origin: https://farbodforoudii-cpu.github.io" "https://call1.tgju.org/ajax.json" | grep -i "access-control" || echo "no CORS header"
+          curl -s -m 30 -A "Mozilla/5.0" -o a.json "https://call1.tgju.org/ajax.json"
+          python3 - <<'PY'
+          import json
+          d=json.load(open('a.json'))['current']
+          print(len(d),'keys')
+          for k in ['price_dollar_rl','price_eur','geram18','geram24','sekee','nim','rob','gerami','silver','silver_999','ons','silver_ounce','mesghal','bourse','gold_mini_size']:
+              if k in d: print(k, d[k].get('p'), d[k].get('dp'), d[k].get('ts'))
+          print([k for k in d if 'silver' in k or 'noghre' in k][:40])
+          PY
+          for u in "https://www.tgju.org/profile/price_dollar_rl/history" "https://api.tgju.org/v1/market/indicator/summary-table-data/geram18?lang=fa&order_dir=asc&draw=1&start=0&length=30" "https://call2.tgju.org/ajax.json" "https://www.tgju.org/profile/silver_999"; do
+            echo "=== $u"; curl -s -m 25 -A "Mozilla/5.0" -o o.txt -w "%{http_code} %{size_download}\n" "$u" || echo fail; head -c 300 o.txt | tr '\n' ' '; echo; done
+          grep -o 'data-market-row="silver[^"]*"' o.txt | head
