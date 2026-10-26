@@ -66,6 +66,7 @@ async function boot() {
   // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
   await sync.init();
   sync.onRemote = reload;
+  await fixLifeDup0804();
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
@@ -162,6 +163,29 @@ async function fixBlu0803() {
   if (S.settings.openingBalance === 52615249) S.settings.openingBalance = 54274098.5;
   S.settings.fixBlu0803 = true;
   await saveSettings();
+}
+
+// One-off (1405/08/04): five finished packages from «زندگی من» were received here although the money was
+// already counted: three in the Numbers months (bank deposits of 31 Mordad, 29 Shahrivar, 27 Mehr) and two
+// as the 2 Aban deposits recorded by hand. Remove the duplicates and tell «زندگی من» they were paid.
+async function fixLifeDup0804() {
+  if (S.settings.fixLifeDup0804) return;
+  const links = { impv2_2: null, impv2_3: null, impv2_4: null, impv4_4: 37500000, impv1_4: 36500000 };
+  const dup = S.tx.filter(t => t.src === 'life' && t.life in links);
+  for (const t of dup) {
+    await delTx(t.id);
+    const same = links[t.life] && S.tx.find(x => x.src === 'manual' && x.type === 'income_work' && x.amount === links[t.life] && x.period === '1405-07' && !x.life);
+    if (same) await putTx({ ...same, life: t.life });
+    if (sync.state.key) await sync.answerBill(t.life, 'existing', same ? same.id : null);
+  }
+  // Same day, two card amounts typed rounded: the bank has 665,070 and 824,025.
+  for (const [was, is] of [[665000, 665070], [824000, 824025]]) {
+    const t = S.tx.find(x => x.src === 'manual' && x.amount === was && monthKey(new Date(x.ts)) === '1405-08' && toJalali(new Date(x.ts)).jd === 4);
+    if (t) await putTx({ ...t, amount: is });
+  }
+  S.settings.fixLifeDup0804 = true;
+  await saveSettings();
+  if (dup.length) render();
 }
 
 // One-off (1405/08/03): what Seenzhin still owed at the end of Mehr was let go as help.
@@ -859,6 +883,18 @@ async function receiveBill(id) {
   const b = sync.lifeBill(id);
   if (!b) return;
   const now = new Date();
+  // Packages that ended before this app's start date are inside the Numbers totals already.
+  const pk0 = monthKey(new Date(b.to)), startKey = S.settings.startDate ? monthKey(new Date(S.settings.startDate)) : '';
+  if (startKey && pk0 < startKey) {
+    await sync.answerBill(id, 'existing'); render();
+    return toast(`مبلغ ${b.period} در جدول Numbers همان ماه حساب شده است؛ دوباره ثبت نشد`);
+  }
+  // The same deposit typed in by hand already? Link to it instead of counting it twice.
+  const same = S.tx.find(t => t.dir === 'in' && t.type === 'income_work' && !t.life && Math.abs(t.amount - b.total) < 1000 && new Date(t.ts) >= new Date(b.from));
+  if (same) {
+    await putTx({ ...same, life: id }); await sync.answerBill(id, 'existing', same.id); render();
+    return toast(`همان دریافت «${same.desc}» قبلاً ثبت شده بود؛ به آن وصل شد`);
+  }
   const tx = { id: newId(), ts: now.toISOString(), dir: 'in', amount: b.total, desc: billDesc(b), cp: b.name, type: 'income_work', cat: null,
     ctx: 'coaching', src: 'life', life: id, created: now.toISOString(), status: 'ok' };
   // Money for sessions of an earlier month belongs to that month.
