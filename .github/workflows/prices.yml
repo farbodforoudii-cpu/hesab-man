@@ -1,0 +1,23 @@
+name: prices
+on:
+  schedule:
+    - cron: '17 3-19/2 * * *'   # every 2 hours, 06:47–22:47 Tehran
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: prices
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/prices.py
+      - run: |
+          git config user.name "prices-bot"
+          git config user.email "prices-bot@users.noreply.github.com"
+          git add data/prices.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Prices $(date -u +%F\ %H:%M)"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          git push origin HEAD:gh-pages --force
