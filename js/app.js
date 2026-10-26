@@ -455,7 +455,7 @@ function viewEntry() {
       <div id="what-ac"></div>
     </div>`;
   }
-  return `<div class="view entry">${top}${entryInbox()}
+  return `<div class="view entry">${top}
     <label class="hero-amt" for="amt">
       <div class="stripes"></div>
       <span class="b-pill">${S.linkWhat ? `چقدر؟، ${esc(S.linkWhat)}` : 'چقدر؟'}</span>
@@ -820,14 +820,6 @@ function lifeInbox() {
       <span class="li-txt"><b>${esc(b.name)}</b><small>${b.paid ? 'در «زندگی من» پرداخت شده؛ این‌جا ثبت نشده' : `${esc(b.period)}، ${faDigits(b.count)} جلسه`}${b.missing ? `، ${faDigits(b.missing)} بدون قیمت` : ''}</small></span>
       <span class="li-end"><b class="li-amt">${fmtShort(b.total)}</b><span class="row li-acts"><button class="li-more" data-act="bill-more" data-v="${esc(b.seriesId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="bill-pay" data-v="${esc(b.seriesId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>
     ${open.length ? `<p class="foot">طلب باز: ${fmtShort(sum)} تومان، جمع ${faDigits(open.length)} دورهٔ تمام‌شده که هنوز پرداخت نشده است. «رسید» دریافت را در کوچینگ ثبت می‌کند.</p>` : ''}`;
-}
-
-// On the phone's first screen: one quiet line that leads to the inbox.
-function entryInbox() {
-  const L = sync.lifeInbox();
-  if (!L.length) return '';
-  const sum = L.reduce((s, x) => s + x.total, 0);
-  return `<button class="life-chip" data-act="tab" data-v="list"><span class="live-dot"></span><span>${faDigits(L.length)} طلب از «زندگی من»، ${fmtShort(sum)} تومان</span>${ICON.chevL}</button>`;
 }
 
 const billDesc = b => `جلسه‌های ${b.name}، ${b.period}`;

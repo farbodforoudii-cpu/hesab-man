@@ -917,7 +917,3 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .li-more { background: var(--fill); color: var(--sec); border-radius: 999px; padding: 6px 10px; font-size: 12px; letter-spacing: 1px; }
 .li-pay:active, .li-more:active { transform: scale(.94); }
 .li-pay:disabled { opacity: .5; }
-.life-chip { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 12px; padding: 11px 14px; border-radius: 16px; background: var(--card); color: var(--label); font-size: 14px; font-weight: 600; text-align: right; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
-.life-chip > span:nth-child(2) { flex: 1; }
-.life-chip svg { width: 16px; height: 16px; fill: none; stroke: var(--ter); stroke-width: 2; }
-.life-chip:active { transform: scale(.98); }
