@@ -53,6 +53,7 @@ async function boot() {
   await fixAban1();
   await fixLateMehr();
   await fixBlu0803();
+  await fixBox0805();
   await forgiveSeenzhin();
   S.market = (await db.get('market')) || null;
   refresh();
@@ -162,6 +163,19 @@ async function fixBlu0803() {
   await db.putManyTx([sz, ...add]);
   if (S.settings.openingBalance === 52615249) S.settings.openingBalance = 54274098.5;
   S.settings.fixBlu0803 = true;
+  await saveSettings();
+}
+
+// One-off (1405/08/05): Blu's home balance leaves the Box out; the statement balance includes it.
+// On 1 Aban the Box already held 2,535,350 (today 2,733,255 = that + the three round-ups of 4 Aban).
+// So the start balance drops by that amount and the Box becomes its own asset, growing with round-ups.
+async function fixBox0805() {
+  if (S.settings.fixBox0805 || S.settings.openingBalance !== 54274098.5) return;
+  const BOX0 = 2535350;
+  S.settings.openingBalance -= BOX0;
+  const A = assetsState();
+  if (!A.items.some(it => it.kind === 'box')) A.items.push({ id: newId(), kind: 'box', label: 'باکس بلو', qty: BOX0, since: S.settings.roundSince || new Date().toISOString() });
+  S.settings.fixBox0805 = true;
   await saveSettings();
 }
 
@@ -1895,7 +1909,7 @@ function viewAssets() {
   const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = livePrice('usd');
   const owed = seenzhinOwed(monthKey(new Date()));
   const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: پرداخت‌ها منهای بازپرداخت‌ها', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
-    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${MARKET_KINDS.includes(it.kind) && S.market ? '، قیمت زنده' : missingPrice(it) ? '، قیمت وارد نشده' : '، قیمت دستی'}`, it.id])];
+    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' در ابتدا، به‌علاوهٔ رندهای بعد از آن' : ''}${!ASSET_KINDS[it.kind].price ? '' : MARKET_KINDS.includes(it.kind) && S.market ? '، قیمت زنده' : missingPrice(it) ? '، قیمت وارد نشده' : '، قیمت دستی'}`, it.id])];
   const mx = Math.max(1, ...rows.map(r => r[1]));
   const manual = [...new Set(A.items.map(it => ASSET_KINDS[it.kind].price).filter(k => k && !(S.market && MARKET_KINDS.includes(k))))];
   const P = currentPlan(), H = heldByKind(), V = P.V || 1;
