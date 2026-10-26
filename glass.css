@@ -115,3 +115,5 @@ html.glass .news-k { background: rgba(255, 255, 255, .7); }
 
 /* Glass needs a little lift on press instead of a dark flash */
 html.glass button.cell:active, html.glass button.nt-row:active { background: rgba(255, 255, 255, .35); opacity: 1; }
+html.glass .mk { -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--lift); }
+html.glass .mk.on { box-shadow: 0 0 0 1.5px var(--ink) inset, var(--lift); }

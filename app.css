@@ -875,3 +875,31 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .b-hero, .tl-self, .det-head b, .car-val, .kpi-val { direction: rtl; }
 .b-hero[data-odo], .is-bal { direction: ltr; }
 .fl-svg { max-width: 520px; margin-left: auto; margin-right: auto; }
+
+/* Market and investment plan */
+.mk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.mk { display: flex; flex-direction: column; gap: 3px; text-align: right; background: var(--glass); border: 1px solid var(--border); border-radius: 20px; padding: 13px 14px; transition: transform .35s var(--spring); }
+.mk:active { transform: scale(.97); }
+.mk.on { box-shadow: 0 0 0 1.5px var(--label) inset; }
+.mk-l { font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.mk-l small { font-size: 11px; color: var(--sec); font-weight: 400; }
+.mk b { font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+.mk-ch { font-size: 12px; } .mk-sub { font-size: 11.5px; color: var(--sec); }
+.mk .news-k { margin-top: 3px; }
+.mk-tv { margin-bottom: 4px; }
+.mk-tv .tv-frames { margin-top: 0; }
+.plan { padding: 16px 18px; }
+.plan-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; color: var(--sec); }
+.plan-top b { font-size: 28px; font-weight: 600; color: var(--label); }
+.plan-row { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--sep); }
+.plan-row:last-of-type { border-bottom: 0; }
+.pl-k { font-weight: 600; } .pl-u { font-size: 13px; color: var(--sec); }
+.plan-row b { font-weight: 600; min-width: 74px; text-align: left; }
+.pl-bar { grid-column: 1 / -1; position: relative; height: 5px; border-radius: 3px; background: var(--fill); }
+.pl-bar i { position: absolute; right: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--label); opacity: .75; }
+.pl-bar em { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--tint); border-radius: 1px; }
+.pl-why { grid-column: 1 / -1; font-size: 12px; color: var(--sec); line-height: 1.6; }
+.warn-line { font-size: 13px; color: var(--orange); margin: 10px 0 0; line-height: 1.6; }
+.nt-row.lt { grid-template-columns: minmax(0, 1fr) 1fr 1fr; }
+.anim .pl-bar i { animation: grow .8s var(--out) .2s both; transform-origin: right; }
+@media (min-width: 820px) { .mk-grid { grid-template-columns: repeat(4, 1fr); } }

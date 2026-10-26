@@ -7,12 +7,13 @@ import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.j
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
+import { MK, TARGET, fetchMarket, stats as mstats, signal as msignal, plan as mplan } from './market.js';
 import { createChart, createSeriesMarkers, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode } from '../vendor/lightweight-charts.mjs';
 
 const S = {
   tx: [], settings: {}, rules: { parties: {}, overrides: [] }, history: null, tpl: [],
   view: 'entry', amount: '', dayBack: 0, step: 'amount', dir: 'out', what: '',
-  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, tr: { field: 'expense', cmps: [], pct: false, frame: 'all', hover: null, picking: false },
+  month: monthKey(new Date()), listFilter: 'all', listQuery: '', listLimit: 60, mk: { k: 'usd', f: '6m', all: false }, tr: { field: 'expense', cmps: [], pct: false, frame: 'all', hover: null, picking: false },
 };
 const $app = document.getElementById('app');
 const $tabs = document.getElementById('tabs');
@@ -53,6 +54,7 @@ async function boot() {
   await fixLateMehr();
   await fixBlu0803();
   await forgiveSeenzhin();
+  S.market = (await db.get('market')) || null;
   refresh();
   S.view = (isTablet() || window.innerWidth >= 820) && S.settings.startDate ? 'dash' : 'entry';
   S.step = 'amount';
@@ -60,11 +62,37 @@ async function boot() {
   render();
   requestPersistence();
   setupUpdates();
+  loadMarket(); setInterval(loadMarket, 30 * 60e3);
   // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
   await sync.init();
   sync.onRemote = reload;
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
   sync.run();
+}
+
+// Live prices: keep the last copy for offline use; redraw the screens that show money in assets.
+async function loadMarket() {
+  try {
+    const M = await fetchMarket();
+    if (!M || !M.now || (S.market && S.market.at === M.at)) return;
+    S.market = M; await db.set('market', M);
+    if (['dash', 'an', 'assets'].includes(S.view) && !document.querySelector('.sheet')) render();
+  } catch { /* offline: keep the cached copy */ }
+}
+const MARKET_KINDS = ['usd', 'eur', 'gold', 'silver'];
+// Price used for an asset: the live market price when there is one, otherwise the one typed in.
+const livePrice = k => (MARKET_KINDS.includes(k) && S.market && S.market.now && S.market.now[k] && S.market.now[k].p) || assetsState().prices[k] || 0;
+const marketAge = () => S.market ? ago(S.market.at) : '';
+function heldByKind() {
+  const o = { usd: 0, eur: 0, gold: 0, silver: 0 };
+  for (const it of assetsState().items) if (o[it.kind] != null) o[it.kind] += (it.qty || 0) * livePrice(it.kind);
+  return o;
+}
+function currentPlan() {
+  const T = scoped(), series = monthsSeries(S.history, T, S.settings.startDate), key = monthKey(new Date());
+  const done = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
+  const avgExp = done.length ? done.reduce((a, m) => a + (m.expense || 0), 0) / done.length : 0;
+  return mplan({ series, held: heldByKind(), M: S.market, workNow: monthSummary(T, key).work || 0, cash: balanceAt(S.tx, S.settings), avgExp });
 }
 
 // A newer copy arrived from another device: read it in and redraw what is on screen.
@@ -379,6 +407,7 @@ function render() {
   if (S.view === 'list') bindList();
   if (S.view === 'dash') bindTrend();
   if (S.view === 'an') bindCarousel();
+  if (S.view === 'assets') bindMarketChart();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
   if (S.view === 'entry' && S.step === 'amount') bindAmount();
 }
@@ -1229,7 +1258,8 @@ function goalRows(T, key) {
   const { start, end } = monthRange(key);
   const daysAll = Math.round((end - start) / 864e5), dayNow = Math.min(daysAll, Math.floor((now - start) / 864e5) + 1), left = Math.max(1, daysAll - dayNow + 1);
   const disc = DISC.reduce((a, c) => a + (s.byCat[c] || 0), 0), discCap = g.spend * g.disc;
-  const asset = s.asset || 0;
+  const asset = s.asset || 0, P = currentPlan();
+  g.asset = P.total || g.asset;
   const pace = (g.spend - s.expense) / left, tf = dayNow / daysAll;
   return [
     { id: 'spend', t: 'هزینهٔ زندگی', tf, v: s.expense, cap: g.spend, p: s.expense / g.spend,
@@ -1243,7 +1273,7 @@ function goalRows(T, key) {
     { id: 'asset', t: 'سرمایه‌گذاری', tf, v: asset, cap: g.asset, p: asset / g.asset,
       st: asset >= g.asset ? 'g' : asset >= g.asset * (dayNow / daysAll) ? 'o' : 'r',
       note: asset >= g.asset ? 'هدف این ماه کامل شد' : `${fmtShort(g.asset - asset)} مانده تا هدف، در ${faDigits(left)} روز`,
-      why: 'دلار، طلا، نقره، باکس و رند بلو. سبز یعنی هدف کامل شده؛ نارنجی یعنی هم‌پای روزهای گذشتهٔ ماه.' },
+      why: `هدف هوشمند این ماه = میانگین سرمایه‌گذاری ماهانهٔ ${faDigits(P.months)} ماه اخیر (${fmtShort(P.base)}) × نسبت درآمد کاری این ماه به میانگین (${iso(faDigits(P.pace.toFixed(2).replace('.', '٫')))}) = ${fmtShort(P.total)}. ماه پردرآمدتر، هدف بالاتر؛ ماه کم‌درآمدتر، پایین‌تر.` },
   ];
 }
 // Three rings: the arc is what is used or saved; the details and arithmetic live in the goals sheet.
@@ -1279,20 +1309,20 @@ function goalsSheet() {
   openSheet(`<div class="sheet-nav"><button class="link" data-close>بستن</button><b>هدف‌های ماه</b><button class="link strong" data-act="save">ذخیره</button></div>
     <div class="group">${R.map(r => `<div class="cell col"><div class="goal-top"><span><i class="kdot ${r.st}"></i>${esc(r.t)}</span><b>${esc(fmtShort(r.v))} <small>از ${esc(fmtShort(r.cap))}</small></b></div><small class="sec why">${esc(r.why)}</small></div>`).join('')}</div>
     ${sg ? `<div class="section-title">پیشنهاد بر اساس سه ماه اخیر</div>
-    <div class="group"><div class="cell col"><small class="sec why">میانگین هزینه ${fmtShort(sg.exp)} و درآمد کاری ${fmtShort(sg.work)}. سقف هزینه ۱۰٪ زیر میانگین، سهم اختیاری همان سهم فعلی (حداکثر ۴۰٪) و سرمایه‌گذاری ۱۰٪ درآمد کاری.</small>
-      <div class="goal-top" style="margin-top:8px"><span>${fmtShort(sg.spend)}، ${faDigits(Math.round(sg.disc * 100))}٪، ${fmtShort(sg.asset)}</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
+    <div class="group"><div class="cell col"><small class="sec why">میانگین هزینه ${fmtShort(sg.exp)} و درآمد کاری ${fmtShort(sg.work)}. سقف هزینه ۱۰٪ زیر میانگین و سهم اختیاری همان سهم فعلی (حداکثر ۴۰٪). سرمایه‌گذاری خودکار است؛ جزئیاتش در «دارایی‌ها».</small>
+      <div class="goal-top" style="margin-top:8px"><span>سقف ${fmtShort(sg.spend)}، سهم اختیاری ${faDigits(Math.round(sg.disc * 100))}٪</span><button class="link strong" data-act="use">استفاده</button></div></div></div>` : ''}
     <div class="section-title">تنظیم دستی</div>
     <div class="group">
       <div class="cell"><span>سقف هزینهٔ زندگی (تومان)</span><input class="bare end" id="g-spend" inputmode="numeric" value="${fmt(g.spend)}"></div>
       <div class="cell"><span>سهم اختیاری از سقف (٪)</span><input class="bare end" id="g-disc" inputmode="numeric" value="${faDigits(Math.round(g.disc * 100))}"></div>
-      <div class="cell"><span>سرمایه‌گذاری ماهانه (تومان)</span><input class="bare end" id="g-asset" inputmode="numeric" value="${fmt(g.asset)}"></div>
+      <div class="cell"><span>سرمایه‌گذاری ماهانه</span><span class="sec">خودکار، بر اساس درآمد این ماه</span></div>
     </div>`, {
-    use: () => { document.getElementById('g-spend').value = fmt(sg.spend); document.getElementById('g-disc').value = faDigits(Math.round(sg.disc * 100)); document.getElementById('g-asset').value = fmt(sg.asset); },
+    use: () => { document.getElementById('g-spend').value = fmt(sg.spend); document.getElementById('g-disc').value = faDigits(Math.round(sg.disc * 100)); },
     save: async () => {
-      const sp = parseAmount(document.getElementById('g-spend').value), d = parseAmount(document.getElementById('g-disc').value), as = parseAmount(document.getElementById('g-asset').value);
+      const sp = parseAmount(document.getElementById('g-spend').value), d = parseAmount(document.getElementById('g-disc').value), as = (S.settings.goals || {}).asset;
       S.settings.goals = { spend: sp || GOAL_DEF.spend, disc: d ? Math.min(.9, d / 100) : GOAL_DEF.disc, asset: as || GOAL_DEF.asset };
       await saveSettings(); closeSheet(); render(); toast('هدف‌ها ذخیره شد');
-    } }, root => ['g-spend', 'g-asset'].forEach(id => { const i = root.querySelector('#' + id); i.addEventListener('input', () => { const v = parseAmount(i.value); i.value = v ? fmt(v) : ''; }); }));
+    } }, root => ['g-spend'].forEach(id => { const i = root.querySelector('#' + id); i.addEventListener('input', () => { const v = parseAmount(i.value); i.value = v ? fmt(v) : ''; }); }));
 }
 
 function assetTile() {
@@ -1319,6 +1349,17 @@ function newsItems(series, A) {
   N.push({ k: 'ذخیره', t: `موجودی نقد برای ${iso(faDigits(runway.toFixed(1).replace('.', '٫')))} ماه هزینه`, d: `موجودی ${fmtShort(bal)} ÷ میانگین هزینهٔ ماهانه ${fmtShort(exp / n)}. هدف معمول: سه ماه.`, tone: runway < 1 ? 'r' : runway < 3 ? 'o' : 'g' });
   const last = done.at(-1), lastOut = (last.outs || []).slice().sort((a, b) => b[1] - a[1])[0];
   if (lastOut) N.push({ k: 'رویداد', t: `${monthName(last.key)}: ${lastOut[0]}`, d: `${fmtShort(lastOut[1])}؛ بزرگ‌ترین پرداخت ماه.` });
+  // Market: price moves this week, what they did to your holdings, and this month's plan.
+  if (S.market) {
+    const H = heldByKind(), V = Object.values(H).reduce((a, b) => a + b, 0);
+    const st = MARKET_KINDS.map(k => mstats(S.market, k)).filter(Boolean);
+    const eff = st.reduce((a, t) => a + (t.m != null ? H[t.k] - H[t.k] / (1 + t.m) : 0), 0);
+    if (V && Math.abs(eff) > 1e6) N.push({ k: 'بازار', t: `دارایی‌هایت در ۳۰ روز ${eff >= 0 ? 'بالا رفت' : 'پایین آمد'}: ${sgnShort(eff)}`, d: `فقط اثر قیمت روی همین مقدارها (دلار، یورو، طلا، نقره)؛ ارزش فعلی ${fmtShort(V)}.`, tone: eff >= 0 ? 'g' : 'r' });
+    const big = st.slice().sort((a, b) => Math.abs(b.w || 0) - Math.abs(a.w || 0))[0];
+    if (big && big.w != null) N.push({ k: 'بازار', t: `${MK[big.k].label} این هفته ${pctS(big.w)}`, d: `${MK[big.k].per} ${fmt(big.last)} تومان؛ ${msignal(big).note}` });
+    const P = currentPlan(), top = P.rows.slice().sort((a, b) => b.amt - a.amt)[0];
+    if (P.total && top) N.push({ k: 'پیشنهاد', t: `سرمایه‌گذاری این ماه: ${fmtShort(P.total)}`, d: `بیشترش ${MK[top.k].label} (${fmtShort(top.amt)})، چون از سهم هدفش عقب‌تر است. جزئیات در «دارایی‌ها».` });
+  }
   for (const x of A.critiques) N.push({ k: 'نقد', t: x.t, d: x.d, tone: 'r' });
   for (const x of A.tips) N.push({ k: 'پیشنهاد', t: x.t, d: x.d });
   for (const x of A.good) N.push({ k: 'خبر خوب', t: x.t, d: x.d, tone: 'g' });
@@ -1709,13 +1750,13 @@ const ASSET_KINDS = {
   box: { label: 'باکس بلو', unit: 'تومان', price: null },
   toman: { label: 'سایر (به تومان)', unit: 'تومان', price: null },
 };
-const PRICE_LABELS = { usd: 'هر دلار', eur: 'هر یورو', gold: 'هر گرم طلای ۱۸ عیار', coin: 'هر سکه امامی', silver: 'هر گرم نقره' };
+const PRICE_LABELS = { usd: 'هر دلار', eur: 'هر یورو', gold: 'هر گرم طلای ۱۸ عیار', coin: 'هر واحد سکه', silver: 'هر گرم نقره' };
 const assetsState = () => (S.settings.assets ||= { items: [], prices: {}, pricesAt: null });
 
 // Box grows on its own with every round-up recorded after the amount was entered.
 function assetValue(it) {
   const A = assetsState(), k = ASSET_KINDS[it.kind];
-  let v = k.price ? (it.qty || 0) * (A.prices[k.price] || 0) : (it.qty || 0);
+  let v = k.price ? (it.qty || 0) * livePrice(k.price) : (it.qty || 0);
   if (it.kind === 'box' && it.since) v += S.tx.filter(t => isRound(t) && t.ts > it.since).reduce((a, t) => a + t.amount, 0);
   return v;
 }
@@ -1723,34 +1764,113 @@ function assetsTotal() {
   const items = assetsState().items, owed = Math.max(0, seenzhinOwed(monthKey(new Date())));
   return { cash: balanceAt(S.tx, S.settings), held: items.reduce((a, it) => a + assetValue(it), 0) + (owed > 5e5 ? owed : 0) };
 }
-const missingPrice = it => ASSET_KINDS[it.kind].price && !assetsState().prices[ASSET_KINDS[it.kind].price];
+const missingPrice = it => ASSET_KINDS[it.kind].price && !livePrice(ASSET_KINDS[it.kind].price);
+
+const pctS = v => v == null ? '—' : `${v >= 0 ? '▲' : '▼'} ${iso(faDigits(Math.abs(v * 100).toFixed(1).replace('.', '٫')) + '٪')}`;
+const unitsTxt = (k, u) => k === 'usd' || k === 'eur' ? faDigits(Math.round(u).toLocaleString('en-US')) : faDigits((u >= 10 ? Math.round(u) : Math.round(u * 10) / 10).toString().replace('.', '٫'));
 
 function viewAssets() {
-  const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = A.prices.usd;
+  const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = livePrice('usd');
   const owed = seenzhinOwed(monthKey(new Date()));
   const rows = [['نقد در بلو', cash, 'خودکار از ثبت‌هایت', null], ...(owed > 5e5 ? [['طلب از Seenzhin', owed, 'خودکار: پرداخت‌ها منهای بازپرداخت‌ها', null]] : []), ...A.items.map(it => [it.label || ASSET_KINDS[it.kind].label, assetValue(it),
-    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${missingPrice(it) ? '، قیمت وارد نشده' : ''}`, it.id])];
+    `${ASSET_KINDS[it.kind].unit === 'تومان' ? fmt(it.qty) : faDigits(String(it.qty).replace('.', '٫'))} ${ASSET_KINDS[it.kind].unit}${it.kind === 'box' ? ' + رندهای بعدش' : ''}${MARKET_KINDS.includes(it.kind) && S.market ? '، قیمت زنده' : missingPrice(it) ? '، قیمت وارد نشده' : '، قیمت دستی'}`, it.id])];
   const mx = Math.max(1, ...rows.map(r => r[1]));
-  const old = !A.pricesAt || Date.now() - new Date(A.pricesAt) > 7 * 864e5;
-  const usedPrices = [...new Set(['usd', ...A.items.map(it => ASSET_KINDS[it.kind].price).filter(Boolean)])];
+  const manual = [...new Set(A.items.map(it => ASSET_KINDS[it.kind].price).filter(k => k && !(S.market && MARKET_KINDS.includes(k))))];
+  const P = currentPlan(), H = heldByKind(), V = P.V || 1;
+  const M = S.market, ST = Object.fromEntries(MARKET_KINDS.map(k => [k, mstats(M, k)]));
+  // Price effect over 30 days on what you hold now (same quantities, old vs new price).
+  const old30 = MARKET_KINDS.reduce((a, k) => a + (ST[k] && ST[k].m != null ? H[k] / (1 + ST[k].m) : H[k]), 0), eff = V - old30;
+  const over = MARKET_KINDS.filter(k => H[k] / V - TARGET[k] > .12).sort((x, y) => H[y] / V - TARGET[y] - (H[x] / V - TARGET[x]));
+  const yrs = n => { const add = P.base * 12 * n; return MARKET_KINDS.map(k => [k, ST[k] ? add * TARGET[k] / ST[k].last : 0]); };
   return `<div class="view wide">
     <div class="page-head"><h1 class="large">دارایی‌ها</h1><div class="row"><button class="chip-btn" data-act="tab" data-v="dash">بازگشت</button></div></div>
     <section class="bento an-hero"><div class="b-primary"><div class="stripes"></div>
-      <div><span class="b-pill">همهٔ دارایی‌ات</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
-      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار، ` : ''}نقد ${fmtShort(cash)}، بقیه ${fmtShort(held)}</p></div></section>
-    ${old && A.items.length ? `<button class="warn-box" data-act="as-prices">قیمت‌ها ${A.pricesAt ? `از ${formatJalali(new Date(A.pricesAt))}` : 'هنوز وارد نشده'}؛ برای عدد درست، به‌روزشان کن ←</button>` : ''}
+      <div><span class="b-pill">${M ? '<span class="live-dot"></span>' : ''}همهٔ دارایی‌ات</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
+      <p class="b-note">${usd ? `≈ ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار، ` : ''}نقد ${fmtShort(cash)}، بقیه ${fmtShort(held)}${M && Math.abs(eff) > 1e6 ? `<br>اثر قیمت در ۳۰ روز: <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</p></div></section>
+
+    ${M ? `<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
+    <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = msignal(t);
+      return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
+        <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.tag ? `<span class="news-k ${sg.tone || ''}">${sg.tag}</span>` : ''}</button>`; }).join('')}</div>
+    <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
+      <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw" id="mk-chart"></div>
+      <p class="tv-hint">${S.mk.all ? '' : `محور قیمت به ${(S.market.hist[S.mk.k] || []).some(r => r[1] >= 1e7) ? 'میلیون' : 'هزار'} تومان. `}${S.mk.all ? 'هر خط از اول بازه صفر شروع می‌شود؛ عدد = (قیمت ÷ قیمت اول بازه − ۱) × ۱۰۰.' : 'خط‌چین: میانگین ۹۰ روزه. زیر آن یعنی ارزان‌تر از معمول اخیر.'} منبع: tgju.org، هر دو ساعت.</p></div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
+
+    <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
+    <div class="ins-card plan">
+      <div class="plan-top"><span>پیشنهاد این ماه</span><b>${fmtShort(P.total)}</b></div>
+      <p class="why">میانگین سرمایه‌گذاری ماهانهٔ ${faDigits(P.months)} ماه اخیر ${fmtShort(P.base)} است. درآمد کاری این ماه تا امروز ${fmtShort(P.workNow)} در برابر میانگین ${fmtShort(P.avgWork)}؛ ضریب ${iso(faDigits(P.pace.toFixed(2).replace('.', '٫')))} (بین ۰٫۵ و ۱٫۵). هرچه درآمد این ماه بیشتر شود، این عدد زنده بالا می‌رود.</p>
+      ${P.rows.map(r => `<div class="plan-row"><span class="pl-k">${MK[r.k].label}</span><span class="pl-u">${r.price && r.amt ? `${unitsTxt(r.k, r.units)} ${MK[r.k].unit}` : '—'}</span><b>${r.amt ? fmtShort(r.amt) : '۰'}</b>
+        <div class="pl-bar"><i style="width:${Math.min(100, r.share * 100).toFixed(0)}%"></i><em style="right:${(r.target * 100).toFixed(0)}%"></em></div>
+        <small class="pl-why">سهم فعلی ${faDigits(Math.round(r.share * 100))}٪، هدف ${faDigits(Math.round(r.target * 100))}٪${r.sig.note ? `؛ ${esc(r.sig.note)}` : ''}</small></div>`).join('')}
+      <p class="nt-foot">تقسیم: پول این ماه به دارایی‌هایی می‌رود که از سهم هدفشان عقب‌اند (نوار = سهم فعلی، خط = هدف)؛ هرچه زیر میانگین ۹۰ روزه باشد، کمی بیشتر. سکه و نقد در این محاسبه نیستند.</p>
+      ${P.lowCash ? '<p class="warn-line">نقد بلو کمتر از نصف هزینهٔ یک ماه است؛ بهتر است اول کمی نقد کنار بگذاری و بعد بخری.</p>' : ''}
+      ${over.length ? `<p class="why">اگر پول نقد لازم شد، فروش از <b>${over.map(k => MK[k].label).join(' و ')}</b> منطقی‌تر است؛ سهمش ${faDigits(Math.round(H[over[0]] / V * 100))}٪ است در برابر هدف ${faDigits(Math.round(TARGET[over[0]] * 100))}٪.</p>` : ''}
+    </div>
+
+    ${M && P.base ? `<div class="section-title">مسیر ۳ تا ۵ ساله</div>
+    <div class="ins-card plan">
+      <p class="why">با همان عادت فعلی (ماهانه حدود ${fmtShort(P.base)}) و همین تقسیم، به قیمت امروز:</p>
+      <div class="nt-row nt-head lt"><span></span><span>۳ سال</span><span>۵ سال</span></div>
+      ${MARKET_KINDS.map((k, i) => `<div class="nt-row lt"><span class="nt-l">${MK[k].label}</span><b>+${unitsTxt(k, yrs(3)[i][1])} ${MK[k].unit}</b><b>+${unitsTxt(k, yrs(5)[i][1])} ${MK[k].unit}</b></div>`).join('')}
+      <div class="nt-row lt strong"><span class="nt-l">جمع پول تازه</span><b>${fmtShort(P.base * 36)}</b><b>${fmtShort(P.base * 60)}</b></div>
+      <p class="nt-foot">رشد قیمت حساب نشده؛ اگر ریال مثل یک سال گذشته (دلار ${pctS(ST.usd && ST.usd.y)}) ارزش از دست بدهد، ارزش تومانی این سبد چند برابر می‌شود. این برنامه قاعده‌محور است، نه پیش‌بینی بازار.</p>
+    </div>` : ''}
+
     <div class="dash">
       <div class="span-6">
         <div class="section-title">چه چیزهایی داری</div>
         <div class="group">${rows.map(([l, v, sub, id]) => `<${id ? `button data-act="as-edit" data-v="${id}"` : 'div'} class="cell bar-row"><span class="grow">${esc(l)}<small class="avg-line">${esc(sub)}</small></span><b>${fmtShort(v)}</b>${id ? ICON.chevL : ''}<i class="bar in" style="width:${(v / mx * 100).toFixed(1)}%"></i></${id ? 'button' : 'div'}>`).join('')}</div>
         <button class="btn-plain" data-act="as-add">+ افزودن دارایی</button>
       </div>
-      <div class="span-6">
-        <div class="section-title">قیمت‌ها (تومان)</div>
-        <div class="group">${usedPrices.map(p => `<button class="cell" data-act="as-prices"><span class="grow">${PRICE_LABELS[p]}</span><b>${A.prices[p] ? fmt(A.prices[p]) : '—'}</b>${ICON.chevL}</button>`).join('')}</div>
-        <p class="foot">قیمت‌ها را خودت از جایی که همیشه نگاه می‌کنی وارد کن؛ اپ آفلاین است و قیمت را خودش نمی‌گیرد. ${A.pricesAt ? `آخرین به‌روزرسانی: ${formatJalali(new Date(A.pricesAt))}.` : ''}</p>
-      </div>
+      ${manual.length ? `<div class="span-6">
+        <div class="section-title">قیمت‌های دستی (تومان)</div>
+        <div class="group">${manual.map(p => `<button class="cell" data-act="as-prices"><span class="grow">${PRICE_LABELS[p]}</span><b>${A.prices[p] ? fmt(A.prices[p]) : '—'}</b>${ICON.chevL}</button>`).join('')}</div>
+        <p class="foot">این‌ها نرخ زنده ندارند و همان عددی است که خودت وارد کرده‌ای.</p>
+      </div>` : ''}
     </div></div>`;
+}
+
+let mkChart = null;
+function bindMarketChart() {
+  const wrap = document.getElementById('mk-chart');
+  if (mkChart) { try { mkChart.remove(); } catch {} mkChart = null; }
+  if (!wrap || !S.market) return;
+  const days = { '3m': 92, '6m': 183, '1y': 366 }[S.mk.f], H = S.market.hist, k = S.mk.k, all = S.mk.all;
+  const cut = arr => (arr || []).slice(-days);
+  const ink = a => isGlass() ? `rgba(29,27,25,${a})` : `rgba(235,235,245,${a})`;
+  const COL = { usd: '#2e7d4f', eur: '#3d5afe', gold: '#d4a017', silver: '#8a8f98' };
+  // Canvas text has no bidi isolation, so the axis shows bare numbers (thousands or millions); units live in the legend.
+  const big = !all && (H[k] || []).some(r => r[1] >= 1e7), div = big ? 1e6 : 1e3;
+  const fmtP = all ? v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${faDigits(Math.abs(Math.round(v)))}٪` : v => faDigits(String(Math.round(v / div * 10) / 10).replace('.', '٫'));
+  mkChart = createChart(wrap, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: ink(.6), fontFamily: 'Estedad, system-ui, sans-serif', fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { color: ink(.04) }, horzLines: { color: ink(.07) } },
+    rightPriceScale: { borderColor: ink(.14), scaleMargins: { top: .2, bottom: .08 } },
+    timeScale: { borderColor: ink(.14), fixLeftEdge: true, fixRightEdge: true, tickMarkFormatter: t => { const d = typeof t === 'string' ? new Date(t + 'T12:00') : t.year ? new Date(t.year, t.month - 1, t.day, 12) : new Date(t * 1000); return monthLabel(monthKey(d)).split(' ')[0]; } },
+    crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: ink(.45), labelBackgroundColor: isGlass() ? '#1d1b19' : '#e9e9ee' }, horzLine: { color: ink(.45) } },
+    localization: { priceFormatter: fmtP, timeFormatter: t => formatJalali(typeof t === 'string' ? new Date(t + 'T12:00') : new Date(t.year, t.month - 1, t.day, 12)) },
+    handleScroll: { vertTouchDrag: false },
+  });
+  const legend = document.getElementById('mk-legend');
+  const kinds = all ? MARKET_KINDS : [k];
+  const series = kinds.map(kk => {
+    const pts = cut(H[kk]), b = pts.length ? pts[0][1] : 1;
+    const data = pts.map(([d, v]) => ({ time: d, value: all ? (v / b - 1) * 100 : v }));
+    const se = all ? mkChart.addSeries(LineSeries, { color: COL[kk], lineWidth: 2, priceFormat: { type: 'custom', formatter: fmtP } })
+      : mkChart.addSeries(AreaSeries, { lineColor: COL[kk], topColor: COL[kk] + '55', bottomColor: COL[kk] + '00', lineWidth: 2, priceFormat: { type: 'custom', formatter: fmtP }, lastPriceAnimation: LastPriceAnimationMode.Continuous });
+    se.setData(data);
+    if (!all) { const t = mstats(S.market, kk); if (t && t.ma90) se.createPriceLine({ price: t.ma90, color: ink(.45), lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین ۹۰ روزه' }); }
+    return { kk, data };
+  });
+  mkChart.timeScale().fitContent();
+  const show = i => {
+    legend.innerHTML = series.map(({ kk, data }) => { const d = data[i == null ? data.length - 1 : Math.min(i, data.length - 1)]; return d ? `<span class="tv-cmp"><i style="background:${COL[kk]}"></i>${MK[kk].label}: <b>${all ? iso(fmtP(d.value)) : fmt(d.value) + ' تومان'}</b></span>` : ''; }).join('') +
+      `<span class="sec">${(() => { const d = series[0].data[i == null ? series[0].data.length - 1 : i]; return d ? formatJalali(new Date(d.time + 'T12:00')) : ''; })()}</span>`;
+  };
+  show(null);
+  mkChart.subscribeCrosshairMove(p => { if (!p || !p.time) return show(null); const t = typeof p.time === 'string' ? p.time : `${p.time.year}-${String(p.time.month).padStart(2, '0')}-${String(p.time.day).padStart(2, '0')}`; const i = series[0].data.findIndex(d => d.time === t); show(i >= 0 ? i : null); });
 }
 
 function assetSheet(id) {
@@ -2039,6 +2159,9 @@ document.addEventListener('click', async e => {
     else if (a === 'tr-cmp') { S.tr.picking = !S.tr.picking; redrawTrend(); }
     else if (a === 'tr-cmpf') { const v = b.dataset.v, c = S.tr.cmps; S.tr.cmps = c.includes(v) ? c.filter(x => x !== v) : [...c, v].slice(-3); S.tr.picking = false; redrawTrend(); }
     else if (a === 'tr-cmpx') { S.tr.cmps = S.tr.cmps.filter(x => x !== b.dataset.v); if (!S.tr.cmps.length) S.tr.pct = false; redrawTrend(); }
+    else if (a === 'mk-pick') { S.mk.k = b.dataset.v; S.mk.all = false; render(); }
+    else if (a === 'mk-frame') { S.mk.f = b.dataset.v; bindMarketChart(); document.querySelectorAll('[data-act="mk-frame"]').forEach(x => x.classList.toggle('on', x === b)); }
+    else if (a === 'mk-all') { S.mk.all = !S.mk.all; render(); }
     else if (a === 'theme') { try { localStorage.setItem('theme', b.dataset.v); } catch {} document.documentElement.classList.toggle('glass', b.dataset.v !== 'dark'); render(); }
     else if (a === 'tr-pct') { S.tr.pct = !S.tr.pct; redrawTrend(); }
     else if (a === 'toggle') {
