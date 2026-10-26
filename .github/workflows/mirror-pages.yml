@@ -1,0 +1,17 @@
+name: mirror-pages
+# GitHub Pages serves the gh-pages branch (the price job also updates it every 2 hours).
+# Mirror every push to main so a release goes live right away instead of at the next price run.
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+concurrency: prices
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: git push origin HEAD:gh-pages --force
