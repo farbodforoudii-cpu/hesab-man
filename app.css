@@ -903,3 +903,21 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .nt-row.lt { grid-template-columns: minmax(0, 1fr) 1fr 1fr; }
 .anim .pl-bar i { animation: grow .8s var(--out) .2s both; transform-origin: right; }
 @media (min-width: 820px) { .mk-grid { grid-template-columns: repeat(4, 1fr); } }
+
+/* «زندگی من» inbox: finished packages waiting to be received */
+.li-row { align-items: center; }
+.li-txt { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.li-txt b { white-space: normal; }
+.li-txt small { font-size: 13px; line-height: 1.5; }
+.li-end { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.li-amt { font-size: 16px; font-weight: 700; }
+.li-acts { gap: 6px; }
+.li-pay { display: flex; align-items: center; gap: 4px; background: var(--tint); color: #fff; border-radius: 999px; padding: 6px 14px 6px 12px; font-weight: 600; font-size: 14px; transition: transform .15s; }
+.li-pay svg { width: 15px; height: 15px; color: #fff; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.li-more { background: var(--fill); color: var(--sec); border-radius: 999px; padding: 6px 10px; font-size: 12px; letter-spacing: 1px; }
+.li-pay:active, .li-more:active { transform: scale(.94); }
+.li-pay:disabled { opacity: .5; }
+.life-chip { display: flex; align-items: center; gap: 8px; width: 100%; margin: 0 0 12px; padding: 11px 14px; border-radius: 16px; background: var(--card); color: var(--label); font-size: 14px; font-weight: 600; text-align: right; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+.life-chip > span:nth-child(2) { flex: 1; }
+.life-chip svg { width: 16px; height: 16px; fill: none; stroke: var(--ter); stroke-width: 2; }
+.life-chip:active { transform: scale(.98); }

@@ -87,6 +87,32 @@ async function pull() {
   return changed;
 }
 
+// «زندگی من»: bills for finished packages (read here) and the answers given here (payments).
+// Kept on this device apart from transactions; only payment records are ever written to the life side.
+let life = { bills: {}, pays: {}, cursor: null, out: [] };
+const saveLife = () => raw.set('lifeMirror', life);
+async function pullLife() {
+  let changed = false, more = true;
+  while (more) {
+    const rows = await rpc('eco_pull', { p_key: state.key, p_app: 'life', p_after: life.cursor, p_limit: 1000 });
+    for (const { data: d } of rows) {
+      if (d.kind === 'bill') { if (d.deleted) delete life.bills[d.seriesId]; else life.bills[d.seriesId] = d; changed = true; }
+      else if (d.kind === 'payment' && (!life.pays[d.seriesId] || life.pays[d.seriesId].updatedAt <= d.updatedAt)) { life.pays[d.seriesId] = d; changed = true; }
+    }
+    if (rows.length) life.cursor = rows[rows.length - 1].server_updated_at;
+    more = rows.length === 1000;
+  }
+  await saveLife();
+  return changed;
+}
+async function pushLife() {
+  if (!life.out.length) return;
+  const out = life.out;
+  await rpc('eco_push', { p_key: state.key, p_app: 'life', p_rows: out });
+  life.out = life.out.filter(x => !out.includes(x));
+  await saveLife();
+}
+
 async function push() {
   const ids = Object.keys(meta.dirty);
   if (!ids.length) return;
@@ -128,6 +154,7 @@ export const sync = {
     state.cursor = (await db.get('syncCursor')) || null;
     state.lastSync = (await db.get('syncLast')) || null;
     meta = (await db.get('syncMeta')) || meta;
+    life = (await db.get('lifeMirror')) || life;
     changes.onWrite = state.key ? track : null;
     set({ status: state.key ? 'idle' : 'off' });
     addEventListener('online', () => sync.run());
@@ -167,11 +194,32 @@ export const sync = {
     await raw.set('syncKey', null);
     meta = { at: {}, dirty: {}, gone: {} };
     await saveMeta();
+    life = { bills: {}, pays: {}, cursor: null, out: [] };
+    await saveLife();
     await raw.set('syncCursor', null);
     set({ status: 'off', error: '', cursor: null });
   },
 
   pending: () => Object.keys(meta.dirty).length,
+
+  // Finished packages from «زندگی من» still waiting for an answer here, oldest first.
+  lifeInbox() {
+    if (!state.key) return [];
+    return Object.values(life.bills).filter(b => {
+      const p = life.pays[b.seriesId];
+      return (!p || p.how === 'undo') && (b.total > 0 || b.count > 0);
+    }).sort((a, b) => a.to.localeCompare(b.to));
+  },
+  lifeBill: id => life.bills[id],
+  // how: 'tx' (recorded here now), 'existing' (already recorded), 'skip' (not to be collected), 'undo'.
+  async answerBill(seriesId, how, txId = null) {
+    const now = new Date().toISOString();
+    const p = { id: `pay_${seriesId}`, kind: 'payment', seriesId, how, txId, at: now, createdAt: life.pays[seriesId]?.createdAt || now, updatedAt: now };
+    life.pays[seriesId] = p;
+    life.out = life.out.filter(x => x.seriesId !== seriesId).concat(p);
+    await saveLife();
+    clearTimeout(timer); timer = setTimeout(() => sync.run(), 800);
+  },
 
   async run({ first = false } = {}) {
     if (!state.key || state.busy) return;
@@ -180,9 +228,11 @@ export const sync = {
     set({ status: 'syncing', error: '' });
     try {
       // Pull first so a newer copy on the server is never overwritten by an older one here.
-      const changed = await pull();
+      let changed = await pull();
       if (first) await seed();
       await push();
+      await pushLife();
+      changed = (await pullLife()) || changed;
       state.lastSync = new Date().toISOString();
       await raw.set('syncLast', state.lastSync);
       set({ status: 'idle' });

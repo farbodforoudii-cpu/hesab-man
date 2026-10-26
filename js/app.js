@@ -386,7 +386,7 @@ function odometer(el) {
 const isWide = () => window.innerWidth >= 820;
 
 function render() {
-  const n = pendingList().length;
+  const n = pendingList().length + sync.lifeInbox().length;
   const entry = S.view === 'entry' || !S.settings.startDate;
   document.body.classList.toggle('no-tabs', entry);
   const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
@@ -455,7 +455,7 @@ function viewEntry() {
       <div id="what-ac"></div>
     </div>`;
   }
-  return `<div class="view entry">${top}
+  return `<div class="view entry">${top}${entryInbox()}
     <label class="hero-amt" for="amt">
       <div class="stripes"></div>
       <span class="b-pill">${S.linkWhat ? `چقدر؟، ${esc(S.linkWhat)}` : 'چقدر؟'}</span>
@@ -809,12 +809,72 @@ function openSheet(html, actions = {}, bind) {
 }
 function closeSheet() { $ov.innerHTML = ''; }
 
+// ----- «زندگی من»: finished packages waiting to be received -----
+// One tap records the income (coaching) and tells «زندگی من» the package is paid. Nothing is recorded without a tap.
+function lifeInbox() {
+  const L = sync.lifeInbox();
+  if (!L.length) return '';
+  const open = L.filter(b => !b.paid), sum = open.reduce((s, b) => s + b.total, 0);
+  return `<div class="section-title">از «زندگی من»</div>
+    <div class="group life-inbox">${L.map(b => `<div class="cell li-row">
+      <span class="li-txt"><b>${esc(b.name)}</b><small>${b.paid ? 'در «زندگی من» پرداخت شده؛ این‌جا ثبت نشده' : `${esc(b.period)}، ${faDigits(b.count)} جلسه`}${b.missing ? `، ${faDigits(b.missing)} بدون قیمت` : ''}</small></span>
+      <span class="li-end"><b class="li-amt">${fmtShort(b.total)}</b><span class="row li-acts"><button class="li-more" data-act="bill-more" data-v="${esc(b.seriesId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="bill-pay" data-v="${esc(b.seriesId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>
+    ${open.length ? `<p class="foot">طلب باز: ${fmtShort(sum)} تومان، جمع ${faDigits(open.length)} دورهٔ تمام‌شده که هنوز پرداخت نشده است. «رسید» دریافت را در کوچینگ ثبت می‌کند.</p>` : ''}`;
+}
+
+// On the phone's first screen: one quiet line that leads to the inbox.
+function entryInbox() {
+  const L = sync.lifeInbox();
+  if (!L.length) return '';
+  const sum = L.reduce((s, x) => s + x.total, 0);
+  return `<button class="life-chip" data-act="tab" data-v="list"><span class="live-dot"></span><span>${faDigits(L.length)} طلب از «زندگی من»، ${fmtShort(sum)} تومان</span>${ICON.chevL}</button>`;
+}
+
+const billDesc = b => `جلسه‌های ${b.name}، ${b.period}`;
+async function receiveBill(id) {
+  const b = sync.lifeBill(id);
+  if (!b) return;
+  const now = new Date();
+  const tx = { id: newId(), ts: now.toISOString(), dir: 'in', amount: b.total, desc: billDesc(b), cp: b.name, type: 'income_work', cat: null,
+    ctx: 'coaching', src: 'life', life: id, created: now.toISOString(), status: 'ok' };
+  // Money for sessions of an earlier month belongs to that month.
+  const pk = monthKey(new Date(b.to));
+  if (pk < monthKey(now)) tx.period = pk;
+  const before = balanceAt(S.tx, S.settings);
+  await putTx(tx);
+  await sync.answerBill(id, 'tx', tx.id);
+  render();
+  island(tx, before, balanceAt(S.tx, S.settings));
+  toast(`ثبت شد، ${tx.desc}`, async () => { await delTx(tx.id); await sync.answerBill(id, 'undo'); render(); });
+}
+
+// Other answers: link a receipt already recorded here, mark it received elsewhere, or set it aside.
+function billOptions(id) {
+  const b = sync.lifeBill(id);
+  if (!b) return;
+  const from = new Date(b.from);
+  const same = S.tx.filter(t => t.dir === 'in' && !t.life && Math.abs(t.amount - b.total) < 1000 && new Date(t.ts) >= from)
+    .sort((x, y) => y.ts.localeCompare(x.ts)).slice(0, 4);
+  openSheet(`<div class="sheet-nav"><span></span><b>${esc(b.name)}</b><button class="link" data-close>بستن</button></div>
+    <p class="foot" style="margin:0 4px 12px">${esc(billDesc(b))}، ${iso(fmt(b.total))} تومان</p>
+    ${same.length ? `<div class="section-title" style="margin-top:0">همین دریافت قبلاً ثبت شده؟</div><div class="group">${same.map(t =>
+      `<button class="cell" data-act="link" data-v="${esc(t.id)}"><span>${esc(t.desc)}<small> ، ${esc(dayLabel(new Date(t.ts)))}</small></span><b>${iso(fmt(t.amount))}</b></button>`).join('')}</div>` : ''}
+    <div class="group" style="margin-top:14px">
+      <button class="cell" data-act="elsewhere"><span>جای دیگری ثبت شده است</span></button>
+      <button class="cell danger" data-act="skip">این طلب دریافت نمی‌شود</button></div>`, {
+    link: async v => { const t = S.tx.find(x => x.id === v); if (!t) return; await putTx({ ...t, life: id }); await sync.answerBill(id, 'existing', v); closeSheet(); render(); toast('به همان دریافت وصل شد'); },
+    elsewhere: async () => { await sync.answerBill(id, 'existing'); closeSheet(); render(); toast('در «زندگی من» پرداخت‌شده ثبت می‌شود'); },
+    skip: async () => { await sync.answerBill(id, 'skip'); closeSheet(); render(); toast('کنار گذاشته شد'); },
+  });
+}
+
 // ----- List -----
 function viewList() {
   const n = pendingList().length;
   const pend = S.listFilter === 'pending';
   return `<div class="view">
     ${pageHead('تراکنش‌ها')}
+    ${lifeInbox()}
     ${listBento()}
     <input class="search" id="q" placeholder="جستجو" value="${esc(S.listQuery)}">
     ${pend ? '' : `<div class="segmented">${[['all', 'همه'], ['in', 'دریافت'], ['out', 'پرداخت']].map(([k, l]) =>
@@ -1505,6 +1565,7 @@ function viewDash() {
         <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
     </section>
+    ${key === monthKey(new Date()) ? lifeInbox() : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${liveStory(T, key)}
     ${assetTile()}
@@ -2105,7 +2166,9 @@ document.addEventListener('click', async e => {
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
-    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx'].includes(a)) readOnlyToast();
+    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx', 'bill-pay', 'bill-more'].includes(a)) readOnlyToast();
+    else if (a === 'bill-pay') { b.disabled = true; await receiveBill(b.dataset.v); }
+    else if (a === 'bill-more') billOptions(b.dataset.v);
     else if (a === 'device') {
       try {
         if (b.dataset.v === 'role') localStorage.setItem('deviceRole', isTablet() ? 'phone' : 'tablet');
