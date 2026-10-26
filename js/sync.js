@@ -1,4 +1,4 @@
-// Optional two-way sync with the ecosystem's Supabase project (shared with «زندگی من»).
+// Optional two-way sync with the ecosystem's Supabase project (shared with «زندگی من»), joined by a sync code.
 // Every transaction and the settings/rules/history values travel as whole JSON records;
 // the copy with the newest updatedAt wins on both sides. Off until the user signs in.
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
@@ -8,7 +8,7 @@ const APP = 'hesab';
 const KV_KEYS = ['settings', 'rules', 'history'];
 const recId = (kind, id) => `h:${kind}:${id}`;
 
-const state = { session: null, status: 'off', error: '', lastSync: null, cursor: null, busy: false };
+const state = { key: null, status: 'off', error: '', lastSync: null, cursor: null, busy: false };
 // at: record → updatedAt of the local copy; dirty: records waiting to be sent; gone: deleted locally.
 let meta = { at: {}, dirty: {}, gone: {} };
 const listeners = new Set();
@@ -16,36 +16,34 @@ const emit = () => { for (const fn of listeners) fn(state); };
 const set = patch => { Object.assign(state, patch); emit(); };
 const saveMeta = () => raw.set('syncMeta', meta);
 
-async function call(path, { method = 'GET', body, auth = true, prefer } = {}) {
-  const headers = { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' };
-  if (auth && state.session) headers.Authorization = `Bearer ${state.session.access_token}`;
-  if (prefer) headers.Prefer = prefer;
-  const res = await fetch(SUPABASE_URL + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+// The sync code is the only secret: whoever has it shares this space. The server keeps only its hash.
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function newCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(25));
+  const s = [...bytes].map(b => ALPHABET[b % 32]).join('');
+  return s.match(/.{5}/g).join('-');
+}
+// Accepts the code however it was pasted (spaces, lower case, Persian digits are not used).
+export function normalizeCode(v) {
+  const s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return s.length === 25 ? s.match(/.{5}/g).join('-') : null;
+}
+
+async function rpc(fn, args) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
   const text = await res.text();
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = { message: text }; }
-  if (!res.ok) {
-    const msg = (data && (data.msg || data.message || data.error_description || data.error)) || res.statusText;
-    throw Object.assign(new Error(msg), { status: res.status });
-  }
+  if (!res.ok) throw Object.assign(new Error((data && (data.message || data.error)) || res.statusText), { status: res.status });
   return data;
 }
 
-async function saveSession(s) {
-  state.session = s ? { access_token: s.access_token, refresh_token: s.refresh_token, expires_at: Date.now() + (s.expires_in - 60) * 1000, user: { id: s.user.id, email: s.user.email } } : null;
-  await raw.set('syncSession', state.session);
-}
-
-async function fresh() {
-  if (Date.now() < state.session.expires_at) return;
-  await saveSession(await call('/auth/v1/token?grant_type=refresh_token', { method: 'POST', auth: false, body: { refresh_token: state.session.refresh_token } }));
-}
-
 const PERSIAN_ERRORS = [
-  [/invalid login credentials/i, 'ایمیل یا رمز درست نیست.'],
-  [/email not confirmed/i, 'نخست ایمیل را تأیید کنید (پیوند داخل ایمیل)، سپس دوباره وارد شوید.'],
-  [/already registered/i, 'این ایمیل پیش‌تر ثبت شده است؛ «ورود» را بزنید.'],
-  [/password should be at least/i, 'رمز باید دست‌کم ۶ نویسه باشد.'],
+  [/unknown sync key/i, 'این کد پیدا نشد. کد را دوباره از دستگاه اول کپی کنید.'],
   [/failed to fetch|network|load failed/i, 'اتصال به سرور برقرار نشد. اینترنت یا VPN را بررسی کنید.'],
 ];
 const persian = e => (PERSIAN_ERRORS.find(([re]) => re.test(e.message)) || [0, e.message])[1];
@@ -69,8 +67,7 @@ let timer;
 async function pull() {
   let changed = false, more = true;
   while (more) {
-    const q = `/rest/v1/life_items?select=data,server_updated_at&app=eq.${APP}&order=server_updated_at.asc&limit=500${state.cursor ? `&server_updated_at=gt.${encodeURIComponent(state.cursor)}` : ''}`;
-    const rows = await call(q);
+    const rows = await rpc('eco_pull', { p_key: state.key, p_app: APP, p_after: state.cursor, p_limit: 500 });
     const putTx = [], delTx = [];
     for (const { data: d } of rows) {
       if (meta.at[d.id] && meta.at[d.id] >= d.updatedAt) continue;
@@ -105,10 +102,7 @@ async function push() {
   }
   for (let i = 0; i < records.length; i += 200) {
     const chunk = records.slice(i, i + 200);
-    await call('/rest/v1/life_items?on_conflict=user_id,id', {
-      method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal',
-      body: chunk.map(d => ({ user_id: state.session.user.id, id: d.id, kind: d.kind, app: APP, data: d })),
-    });
+    await rpc('eco_push', { p_key: state.key, p_app: APP, p_rows: chunk });
     // Only forget what did not change again while it was being sent.
     for (const d of chunk) if (meta.at[d.id] === d.updatedAt) delete meta.dirty[d.id];
     await saveMeta();
@@ -130,29 +124,35 @@ export const sync = {
   onRemote: null,
 
   async init() {
-    state.session = (await db.get('syncSession')) || null;
+    state.key = (await db.get('syncKey')) || null;
     state.cursor = (await db.get('syncCursor')) || null;
     state.lastSync = (await db.get('syncLast')) || null;
     meta = (await db.get('syncMeta')) || meta;
-    changes.onWrite = state.session ? track : null;
-    set({ status: state.session ? 'idle' : 'off' });
+    changes.onWrite = state.key ? track : null;
+    set({ status: state.key ? 'idle' : 'off' });
     addEventListener('online', () => sync.run());
     document.addEventListener('visibilitychange', () => { if (!document.hidden) sync.run(); });
   },
 
-  async signUp(email, password) {
-    const s = await call('/auth/v1/signup', { method: 'POST', auth: false, body: { email, password } }).catch(e => { throw new Error(persian(e)); });
-    if (s && s.access_token) { await sync.start(s); return 'in'; }
-    return 'confirm';
+  // First device: make a new code and a space for it on the server.
+  async create() {
+    const key = newCode();
+    await rpc('eco_create_space', { p_key: key }).catch(e => { throw new Error(persian(e)); });
+    await sync.start(key);
+    return key;
   },
 
-  async signIn(email, password) {
-    const s = await call('/auth/v1/token?grant_type=password', { method: 'POST', auth: false, body: { email, password } }).catch(e => { throw new Error(persian(e)); });
-    await sync.start(s);
+  // Any other device (or the other app): join with the code copied from the first one.
+  async join(input) {
+    const key = normalizeCode(input);
+    if (!key) throw new Error('کد کامل نیست؛ باید ۲۵ نویسه باشد.');
+    await rpc('eco_pull', { p_key: key, p_app: APP, p_limit: 1 }).catch(e => { throw new Error(persian(e)); });
+    await sync.start(key);
   },
 
-  async start(s) {
-    await saveSession(s);
+  async start(key) {
+    state.key = key;
+    await raw.set('syncKey', key);
     state.cursor = null;
     await raw.set('syncCursor', null);
     changes.onWrite = track;
@@ -160,10 +160,11 @@ export const sync = {
     await sync.run({ first: true });
   },
 
-  // Signing out keeps the data on this device; it just stops travelling.
+  // Switching off keeps the data on this device; it just stops travelling.
   async signOut() {
     changes.onWrite = null;
-    await saveSession(null);
+    state.key = null;
+    await raw.set('syncKey', null);
     meta = { at: {}, dirty: {}, gone: {} };
     await saveMeta();
     await raw.set('syncCursor', null);
@@ -173,12 +174,11 @@ export const sync = {
   pending: () => Object.keys(meta.dirty).length,
 
   async run({ first = false } = {}) {
-    if (!state.session || state.busy) return;
+    if (!state.key || state.busy) return;
     if (!navigator.onLine) { set({ status: 'offline' }); return; }
     state.busy = true;
     set({ status: 'syncing', error: '' });
     try {
-      await fresh();
       // Pull first so a newer copy on the server is never overwritten by an older one here.
       const changed = await pull();
       if (first) await seed();
@@ -188,8 +188,7 @@ export const sync = {
       set({ status: 'idle' });
       if (changed && sync.onRemote) await sync.onRemote();
     } catch (e) {
-      if (e.status === 401) { await saveSession(null); changes.onWrite = null; set({ status: 'off', error: 'نشست به پایان رسید؛ دوباره وارد شوید.' }); }
-      else set({ status: navigator.onLine ? 'error' : 'offline', error: persian(e) });
+      set({ status: navigator.onLine ? 'error' : 'offline', error: persian(e) });
     } finally {
       state.busy = false;
     }

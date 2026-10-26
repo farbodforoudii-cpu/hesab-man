@@ -63,7 +63,7 @@ async function boot() {
   // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
   await sync.init();
   sync.onRemote = reload;
-  sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-email:focus, #sync-pass:focus')) render(); });
+  sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
   sync.run();
 }
 
@@ -408,7 +408,7 @@ function viewEntry() {
         <input class="field" id="start-pw" dir="ltr" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="رمز اطلاعات قبلی (اختیاری)">
       </div></div>
       <button class="btn-primary" data-act="start">شروع</button>
-      <button class="btn-plain" data-act="go-settings">ورود به حساب همگام‌سازی یا وارد کردن فایل</button>
+      <button class="btn-plain" data-act="go-settings">اتصال با کد همگام‌سازی یا وارد کردن فایل</button>
     </div>`;
   }
   const amt = Number(S.amount || 0);
@@ -1790,26 +1790,33 @@ function pricesSheet() {
 }
 
 // ----- Settings -----
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { prompt('کد را کپی کنید:', text); }
+}
+
 function syncSection() {
   const s = sync.state, pending = sync.pending();
   const when = s.lastSync ? new Date(s.lastSync).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) : '';
   const status = { off: 'خاموش', idle: when ? `به‌روز، ${when}` : 'آماده', syncing: 'در حال همگام‌سازی…', error: 'خطا', offline: 'بدون اینترنت؛ بعداً ارسال می‌شود' }[s.status];
-  if (!s.session) return `<div class="section-title">همگام‌سازی آیفون و آیپد</div>
+  const err = s.error ? `<span class="red">${esc(s.error)}</span><br>` : '';
+  if (!s.key) return `<div class="section-title">همگام‌سازی آیفون، آیپد و «زندگی من»</div>
     <div class="group">
-      <div class="cell"><span>ایمیل</span><input class="bare end" id="sync-email" type="email" inputmode="email" autocomplete="username" dir="ltr" placeholder="you@example.com"></div>
-      <div class="cell"><span>رمز</span><input class="bare end" id="sync-pass" type="password" autocomplete="current-password" dir="ltr" placeholder="دست‌کم ۶ نویسه"></div>
-      <button class="cell" data-act="sync-in"><span class="tint">ورود</span></button>
-      <button class="cell" data-act="sync-up"><span class="tint">ساختن حساب (نخستین بار)</span></button>
+      <button class="cell" data-act="sync-new"><span class="tint">روشن کردن همگام‌سازی</span><span class="sec">نخستین دستگاه</span></button>
     </div>
-    <p class="foot">${s.error ? `<span class="red">${esc(s.error)}</span><br>` : ''}با همان حسابِ «زندگی من» وارد شوید. از آن پس هر ثبت روی آیفون خودکار به آیپد می‌رسد و برعکس؛ بدون اینترنت هم کار می‌کند و بعداً می‌فرستد.</p>`;
-  return `<div class="section-title">همگام‌سازی آیفون و آیپد</div>
+    <div class="group">
+      <div class="cell"><input class="bare" id="sync-code" dir="ltr" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="کدِ دستگاه دیگر"></div>
+      <button class="cell" data-act="sync-paste"><span class="tint">چسباندن کد و اتصال</span></button>
+    </div>
+    <p class="foot">${err}روی نخستین دستگاه «روشن کردن» را بزنید؛ یک کد ساخته و کپی می‌شود. روی آیپد یا در «زندگی من» فقط «چسباندن کد» را بزنید. بدون ایمیل و رمز.</p>`;
+  return `<div class="section-title">همگام‌سازی آیفون، آیپد و «زندگی من»</div>
     <div class="group">
       <div class="cell"><span>وضعیت</span><span class="sec ${s.status === 'error' ? 'red' : ''}">${status}</span></div>
-      <div class="cell"><span>حساب</span><span class="sec" dir="ltr">${esc(s.session.user.email)}</span></div>
+      <button class="cell" data-act="sync-copy"><span class="tint">کپی کد برای دستگاه دیگر</span><span class="sec" dir="ltr">${esc(s.key.slice(0, 5))}-•••••</span></button>
       <button class="cell" data-act="sync-now"><span class="tint">همگام‌سازی اکنون</span>${pending ? `<span class="sec">${faDigits(pending)} مورد در انتظار</span>` : ''}</button>
       <button class="cell" data-act="sync-out"><span class="tint">خاموش کردن روی این دستگاه</span></button>
     </div>
-    <p class="foot">${s.error ? `<span class="red">${esc(s.error)}</span><br>` : ''}هر دستگاه همهٔ داده‌ها را نگه می‌دارد و هر تغییر چند ثانیه بعد فرستاده می‌شود. اگر یک ثبت روی دو دستگاه تغییر کند، تازه‌ترین نسخه می‌ماند.</p>`;
+    <p class="foot">${err}برای افزودن آیپد یا «زندگی من»: «کپی کد» را بزنید و آن‌جا «چسباندن کد» را. کد را مانند رمز نگه دارید؛ هر کس آن را داشته باشد به داده‌ها دسترسی دارد.</p>`;
 }
 
 function viewSettings() {
@@ -1825,7 +1832,7 @@ function viewSettings() {
 ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>` : ''}
       <button class="cell" data-act="pick-json"><span class="tint">وارد کردن فایل پشتیبان</span></button>
     </div>
-    <p class="foot">${sync.state.session ? 'با همگام‌سازی، پشتیبان فقط برای احتیاط است؛ هفته‌ای یک بار در iCloud نگهش دار.' : 'برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.'}</p>
+    <p class="foot">${sync.state.key ? 'با همگام‌سازی، پشتیبان فقط برای احتیاط است؛ هفته‌ای یک بار در iCloud نگهش دار.' : 'برای آیپد: در آیفون پشتیبان بگیر، با AirDrop بفرست و در آیپد وارد کن. موارد تکراری دوباره اضافه نمی‌شوند.'}</p>
 
     ${canEdit() ? `    <div class="section-title">بانک</div>
     <div class="group">
@@ -1841,7 +1848,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <button class="cell" data-act="device" data-v="role"><span>نقش این دستگاه</span><span class="sec">${isTablet() ? 'آیپد: فقط تحلیل و گزارش' : 'گوشی: ثبت و همه‌چیز'}</span></button>
       ${isTablet() ? `<button class="cell" data-act="device" data-v="edit"><span>ویرایش روی این دستگاه</span><i class="switch ${canEdit() ? 'on' : ''}"></i></button>` : ''}
     </div>
-    <p class="foot">${isTablet() ? `روی آیپد ثبت و ویرایش خاموش است. ${sync.state.session ? 'داده‌ها، دارایی‌ها و هدف‌ها خودکار از گوشی می‌رسند.' : 'داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.'}` : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
+    <p class="foot">${isTablet() ? `روی آیپد ثبت و ویرایش خاموش است. ${sync.state.key ? 'داده‌ها، دارایی‌ها و هدف‌ها خودکار از گوشی می‌رسند.' : 'داده‌ها با «وارد کردن فایل پشتیبان» از گوشی می‌آیند؛ دارایی‌ها و هدف‌ها هم همراهش.'}` : 'اگر این دستگاه آیپد است و فقط تحلیل می‌خواهی، نقش را عوض کن.'}</p>
 
     <div class="section-title">نمایش</div>
     <div class="group">
@@ -1858,7 +1865,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <div class="cell"><span>تعداد تراکنش‌ها</span><span class="sec">${faDigits(scoped().length)}</span></div>
       <button class="cell danger" data-act="wipe">پاک کردن همهٔ اطلاعات</button>
     </div>
-    <p class="foot">${sync.state.session ? 'اطلاعات روی این دستگاه و در حساب همگام‌سازی شما ذخیره است و بدون اینترنت هم کار می‌کند.' : 'اطلاعات فقط روی همین دستگاه ذخیره می‌شود و بدون اینترنت کار می‌کند.'}</p>
+    <p class="foot">${sync.state.key ? 'اطلاعات روی این دستگاه و در فضای همگام‌سازی شما ذخیره است و بدون اینترنت هم کار می‌کند.' : 'اطلاعات فقط روی همین دستگاه ذخیره می‌شود و بدون اینترنت کار می‌کند.'}</p>
     <input type="file" id="file-json" accept="application/json,.json" hidden>
     <input type="file" id="file-xlsx" accept=".xlsx,.xls" hidden>
   </div>`;
@@ -2047,16 +2054,20 @@ document.addEventListener('click', async e => {
       catch { openSheet(`<div class="sheet-nav"><span></span><b>گزارش</b><button class="link" data-close>بستن</button></div><textarea class="field" rows="14" readonly>${esc(text)}</textarea>`); }
     }
     else if (a === 'export') await exportBackup();
-    else if (a === 'sync-in' || a === 'sync-up') {
-      const email = document.getElementById('sync-email').value.trim(), pass = document.getElementById('sync-pass').value;
-      if (!email || !pass) return toast('ایمیل و رمز را وارد کنید');
+    else if (a === 'sync-new') {
       b.disabled = true;
-      try {
-        if (a === 'sync-up' && (await sync.signUp(email, pass)) === 'confirm') { toast('ایمیل تأیید فرستاده شد؛ پیوند آن را بزنید و سپس «ورود»'); return; }
-        if (a === 'sync-in') await sync.signIn(email, pass);
-        toast('همگام‌سازی روشن شد');
-      } catch (err) { sync.state.error = err.message; } finally { b.disabled = false; render(); }
+      try { const code = await sync.create(); await copyText(code); toast('همگام‌سازی روشن شد و کد کپی شد'); }
+      catch (err) { sync.state.error = err.message; } finally { b.disabled = false; render(); }
     }
+    else if (a === 'sync-paste') {
+      const box = document.getElementById('sync-code');
+      // An empty box reads the clipboard (iOS shows its «Paste» bubble); a typed code is used as is.
+      if (!box.value.trim()) { try { box.value = await navigator.clipboard.readText(); } catch { return toast('کد را در کادر بچسبانید و دوباره بزنید'); } }
+      b.disabled = true;
+      try { await sync.join(box.value); toast('به همگام‌سازی وصل شد'); }
+      catch (err) { sync.state.error = err.message; } finally { b.disabled = false; render(); }
+    }
+    else if (a === 'sync-copy') { await copyText(sync.state.key); toast('کد کپی شد'); }
     else if (a === 'sync-now') { await sync.run(); render(); }
     else if (a === 'sync-out') { if (!confirm('همگام‌سازی روی این دستگاه خاموش شود؟ داده‌های این دستگاه می‌مانند.')) return; await sync.signOut(); render(); }
     else if (a === 'pick-json') document.getElementById('file-json').click();
