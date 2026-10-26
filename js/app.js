@@ -1513,8 +1513,9 @@ function incomeBars(T, key) {
 const TR_FIELDS = [['expense', 'کل خرج'], ['work', 'درآمد کاری'], ['family', 'از خانواده'],
   ...PICKABLE_CATS.map(c => [c, CATEGORIES[c].label])];
 const TR_FRAMES = [['1w', '۷ روز'], ['1m', 'این ماه'], ['3m', '۳ ماه'], ['6m', '۶ ماه'], ['all', 'همه']];
+const isGlass = () => document.documentElement.classList.contains('glass');
 const trLabel = f => (TR_FIELDS.find(x => x[0] === f) || [, ''])[1];
-const trColor = f => f === 'work' ? '#30d158' : f === 'family' ? '#ff9f0a' : f === 'expense' ? '#2962ff' : CATEGORIES[f].color;
+const trColor = f => f === 'work' ? '#30d158' : f === 'family' ? '#ff9f0a' : f === 'expense' ? (isGlass() ? '#e0603a' : '#2962ff') : CATEGORIES[f].color;
 const upGood = f => f === 'work' || f === 'family';
 
 // Money of one field inside a transaction (daily frames) or a month record (monthly frames).
@@ -1611,13 +1612,14 @@ function bindTrend() {
   const toDate = t => typeof t === 'string' ? new Date(t + 'T12:00') : t.year ? new Date(t.year, t.month - 1, t.day, 12) : new Date(t * 1000);
   const tick = t => { const d = toDate(t), j = toJalali(d); return daily ? faDigits(j.jd) : monthLabel(monthKey(d)).split(' ')[0]; };
   const full = t => { const d = toDate(t); return daily ? formatJalali(d) : monthLabel(monthKey(d)); };
+  const ink = a => isGlass() ? `rgba(29,27,25,${a})` : `rgba(235,235,245,${a})`;
   trChart = createChart(wrap, {
     autoSize: true,
-    layout: { background: { color: 'transparent' }, textColor: 'rgba(235,235,245,.6)', fontFamily: 'Estedad, system-ui, sans-serif', fontSize: 11, attributionLogo: true },
-    grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.06)' } },
-    rightPriceScale: { borderColor: 'rgba(255,255,255,.12)', scaleMargins: { top: cmps.length ? .42 : .24, bottom: .08 } },
-    timeScale: { borderColor: 'rgba(255,255,255,.12)', tickMarkFormatter: tick, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
-    crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: '#e9e9ee' }, horzLine: { color: 'rgba(255,255,255,.45)', labelBackgroundColor: col } },
+    layout: { background: { color: 'transparent' }, textColor: ink(.6), fontFamily: 'Estedad, system-ui, sans-serif', fontSize: 11, attributionLogo: true },
+    grid: { vertLines: { color: ink(.04) }, horzLines: { color: ink(.07) } },
+    rightPriceScale: { borderColor: ink(.14), scaleMargins: { top: cmps.length ? .42 : .24, bottom: .08 } },
+    timeScale: { borderColor: ink(.14), tickMarkFormatter: tick, fixLeftEdge: true, fixRightEdge: true, lockVisibleTimeRangeOnResize: true },
+    crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: ink(.45), labelBackgroundColor: isGlass() ? '#1d1b19' : '#e9e9ee' }, horzLine: { color: ink(.45), labelBackgroundColor: col } },
     localization: { priceFormatter: num, timeFormatter: full },
     handleScroll: { vertTouchDrag: false },
   });
@@ -1625,15 +1627,15 @@ function bindTrend() {
     lineColor: col, topColor: col + '55', bottomColor: col + '00', lineWidth: 2,
     priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 },
     lastPriceAnimation: pts[pts.length - 1].running ? LastPriceAnimationMode.Continuous : LastPriceAnimationMode.Disabled,
-    crosshairMarkerRadius: 5, crosshairMarkerBorderColor: '#0b0c0e', pointMarkersVisible: true, pointMarkersRadius: 2.5,
+    crosshairMarkerRadius: 5, crosshairMarkerBorderColor: isGlass() ? '#fff' : '#0b0c0e', pointMarkersVisible: true, pointMarkersRadius: 2.5,
   });
   main.setData(rel(pts));
   // Small value labels over the points; on busy frames only every few days plus the latest.
   const vals = rel(pts), every = Math.ceil(pts.length / 8);
   createSeriesMarkers(main, vals.map((d, i) => d.value == null || (i % every && i !== pts.length - 1) ? null
-    : { time: d.time, position: 'atPriceTop', price: d.value, shape: 'circle', size: 0, color: 'rgba(235,235,245,.75)', text: pctOn || Math.abs(d.value) < unit * 10 ? num(d.value) : faDigits(Math.round(d.value / unit)) }).filter(Boolean));
+    : { time: d.time, position: 'atPriceTop', price: d.value, shape: 'circle', size: 0, color: ink(.75), text: pctOn || Math.abs(d.value) < unit * 10 ? num(d.value) : faDigits(Math.round(d.value / unit)) }).filter(Boolean));
   const done = pts.filter(p => !p.running), avg = done.length > 1 ? done.reduce((a, p) => a + p.value, 0) / done.length : 0;
-  if (avg && !pctOn) main.createPriceLine({ price: avg, color: 'rgba(255,255,255,.45)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین' });
+  if (avg && !pctOn) main.createPriceLine({ price: avg, color: ink(.45), lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: 'میانگین' });
   const last = pts[pts.length - 1];
   if (last.proj && !pctOn) main.createPriceLine({ price: last.proj, color: col, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: true, title: 'پیش‌بینی' });
   for (const c of cmps) trChart.addSeries(LineSeries, { color: trColor(c.f), lineWidth: 2, pointMarkersVisible: true, pointMarkersRadius: 2, priceFormat: { type: 'custom', formatter: num, minMove: unit / 10 } }).setData(rel(c.pts));
@@ -1803,6 +1805,7 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
 
     <div class="section-title">نمایش</div>
     <div class="group">
+      <div class="cell"><span class="grow">ظاهر</span><div class="segmented sm">${[['glass', 'شیشه‌ای'], ['dark', 'تیره']].map(([k, l]) => `<button data-act="theme" data-v="${k}" class="${(LS('theme') === 'dark' ? 'dark' : 'glass') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       ${toggle('showHistory', 'نشان دادن ثبت‌های آزمایشی قبل از شروع')}
     </div>
 
@@ -1989,6 +1992,7 @@ document.addEventListener('click', async e => {
     else if (a === 'tr-cmp') { S.tr.picking = !S.tr.picking; redrawTrend(); }
     else if (a === 'tr-cmpf') { const v = b.dataset.v, c = S.tr.cmps; S.tr.cmps = c.includes(v) ? c.filter(x => x !== v) : [...c, v].slice(-3); S.tr.picking = false; redrawTrend(); }
     else if (a === 'tr-cmpx') { S.tr.cmps = S.tr.cmps.filter(x => x !== b.dataset.v); if (!S.tr.cmps.length) S.tr.pct = false; redrawTrend(); }
+    else if (a === 'theme') { try { localStorage.setItem('theme', b.dataset.v); } catch {} document.documentElement.classList.toggle('glass', b.dataset.v !== 'dark'); render(); }
     else if (a === 'tr-pct') { S.tr.pct = !S.tr.pct; redrawTrend(); }
     else if (a === 'toggle') {
       const k = b.dataset.v;

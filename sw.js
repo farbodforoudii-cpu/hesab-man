@@ -1,7 +1,7 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v44';
+const VERSION = 'v45';
 const SHELL = [
-  './', 'index.html', 'app.css', 'manifest.webmanifest',
+  './', 'index.html', 'app.css', 'glass.css', 'manifest.webmanifest',
   'js/app.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js', 'js/analysis.js',
   'vendor/xlsx.mini.min.js', 'vendor/lightweight-charts.mjs', 'fonts/Vazirmatn.woff2', 'fonts/Estedad-arabic.woff2', 'fonts/Estedad-latin.woff2',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'data/hesab.enc.json',

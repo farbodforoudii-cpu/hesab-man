@@ -1,0 +1,117 @@
+/* ==== Glass theme: frosted white panels over a warm, softly lit room (visionOS-like) ====
+   Loaded after app.css and active when <html class="glass">; the dark theme stays as it was. */
+html.glass {
+  color-scheme: light;
+  --bg: #d9c8b6;
+  --card: rgba(255, 255, 255, .42);
+  --card-hi: rgba(255, 255, 255, .72);
+  --label: #1d1b19;
+  --sec: rgba(29, 27, 25, .58);
+  --ter: rgba(29, 27, 25, .34);
+  --sep: rgba(29, 27, 25, .09);
+  --fill: rgba(29, 27, 25, .07);
+  --tint: #c9532f;
+  --tint-deep: #a8401f;
+  --green: #1e9e57;
+  --red: #e0453a;
+  --orange: #ea8a2a;
+  --muted: rgba(255, 255, 255, .3);
+  --border: rgba(255, 255, 255, .6);
+  --glass: rgba(255, 255, 255, .4);
+  --ink: #1d1b19;
+  --blur: blur(24px) saturate(150%);
+  --lift: 0 10px 34px -14px rgba(70, 45, 20, .32), inset 0 1px 0 rgba(255, 255, 255, .75);
+}
+
+/* The room: warm wood and daylight, out of focus */
+html.glass body {
+  background:
+    radial-gradient(42% 34% at 18% 8%, rgba(255, 246, 232, .95) 0%, transparent 70%),
+    radial-gradient(38% 30% at 88% 16%, rgba(176, 128, 82, .75) 0%, transparent 70%),
+    radial-gradient(50% 40% at 78% 62%, rgba(214, 186, 156, .9) 0%, transparent 72%),
+    radial-gradient(55% 45% at 12% 72%, rgba(150, 108, 72, .55) 0%, transparent 70%),
+    radial-gradient(70% 40% at 60% 100%, rgba(110, 78, 52, .6) 0%, transparent 70%),
+    linear-gradient(180deg, #e6d7c6 0%, #cdb69e 100%);
+  background-attachment: fixed;
+}
+
+/* Every surface is frosted glass */
+html.glass :is(.group, .mb-tile, .tl-card, .b-growth, .b-count, .what-box, .chip-btn, .icon-round, .keypad button, .btn-side,
+  .sug, .cats button, .tile, .goals, .ins-card, .asset-tile, .tv, .news-card, .ins-more, .b-primary, .hero-amt, .mb-tile.dark,
+  .month-btn, .tv-field, .tv-ico, .segmented button, .field, .search, .today, .hist-note, .an-month, .bc, .warn-box) {
+  background: var(--glass); border: 1px solid var(--border); box-shadow: var(--lift);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+html.glass .group { border-radius: 22px; }
+html.glass .cell + .cell::before, html.glass .cell::after { border-color: var(--sep); }
+
+/* Hero cards: brighter glass, no red glow, faint grain instead of stripes */
+html.glass :is(.b-primary, .hero-amt, .mb-tile.dark) {
+  background: linear-gradient(160deg, rgba(255, 255, 255, .62) 0%, rgba(255, 255, 255, .34) 100%);
+  color: var(--label);
+}
+html.glass .stripes { opacity: .05; }
+html.glass .b-pill, html.glass .car-kick { background: rgba(255, 255, 255, .6); color: var(--sec); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .7); }
+html.glass .b-primary.glow-up::after { box-shadow: inset 0 0 0 1px rgba(30, 158, 87, .45), inset 0 0 60px rgba(30, 158, 87, .12); }
+html.glass .b-primary.glow-down::after { box-shadow: inset 0 0 0 1px rgba(224, 69, 58, .4), inset 0 0 60px rgba(224, 69, 58, .1); }
+html.glass .anim .b-primary::before { background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .55) 50%, transparent 65%); }
+html.glass .dim { color: var(--ter); }
+
+/* Primary actions: black pills, like the reference */
+html.glass :is(.btn-big, .btn-primary, .add-pill) { background: var(--ink); color: #fff; box-shadow: 0 8px 20px -10px rgba(0, 0, 0, .5); }
+html.glass .btn-side { color: var(--green); }
+html.glass .chip-btn, html.glass .link, html.glass .tint { color: var(--tint); }
+
+/* Floating pill tab bar with a white active pill */
+html.glass nav.tabs {
+  inset: auto 14px calc(var(--safe-b) + 10px) 14px; height: 62px; padding: 6px; border-radius: 999px; max-width: 440px; margin: 0 auto;
+  background: rgba(255, 255, 255, .38); border: 1px solid var(--border); box-shadow: 0 14px 40px -12px rgba(70, 45, 20, .45), inset 0 1px 0 rgba(255, 255, 255, .8);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+html.glass nav.tabs .inner { height: 100%; gap: 4px; }
+html.glass nav.tabs button { border-radius: 999px; color: var(--sec); font-size: 10.5px; transition: background .3s, color .3s; }
+html.glass nav.tabs button svg { width: 22px; height: 22px; }
+html.glass nav.tabs button.on { background: rgba(255, 255, 255, .92); color: var(--label); box-shadow: 0 4px 14px -6px rgba(70, 45, 20, .45); }
+html.glass nav.tabs button.on svg { color: var(--label); }
+html.glass #app { padding-bottom: calc(var(--safe-b) + 100px); }
+
+/* Sheets, toast, overlay */
+html.glass .sheet { background: rgba(246, 240, 233, .82); -webkit-backdrop-filter: blur(30px) saturate(160%); backdrop-filter: blur(30px) saturate(160%); border-radius: 26px 26px 0 0; }
+html.glass .sheet .group { background: rgba(255, 255, 255, .55); }
+html.glass .backdrop { background: rgba(60, 40, 20, .25); }
+html.glass .toast { background: rgba(29, 27, 25, .9); color: #fff; border: 0; bottom: calc(var(--safe-b) + 86px); }
+html.glass .switch { background: rgba(29, 27, 25, .16); }
+html.glass .switch.on { background: var(--green); }
+
+/* Inputs and pills */
+html.glass :is(.field, .search) { background: rgba(255, 255, 255, .5); }
+html.glass .segmented button.on, html.glass .tv-frames button.on, html.glass .tv-ico.on { background: rgba(255, 255, 255, .92); color: var(--label); border-color: transparent; box-shadow: 0 3px 10px -5px rgba(70, 45, 20, .45); }
+html.glass .tv-frames { background: rgba(29, 27, 25, .05); }
+html.glass .cats button.on { border-color: var(--ink); color: var(--ink); }
+
+/* Charts and data marks in dark ink */
+html.glass .b-bars i, html.glass .days i { background: rgba(29, 27, 25, .16); }
+html.glass .b-bars i:last-child, html.glass .days i.over { background: var(--ink); }
+html.glass .days i.future { background: rgba(29, 27, 25, .05); }
+html.glass .days .avg { border-top-color: rgba(29, 27, 25, .35); }
+html.glass .gbar { fill: rgba(255, 255, 255, .7); stroke: rgba(29, 27, 25, .18); }
+html.glass .g-val, html.glass .spark-lbl { fill: var(--sec); }
+html.glass .car-segs i { background: rgba(29, 27, 25, .12); }
+html.glass .car-segs b { background: var(--ink); }
+html.glass .ov-row, html.glass .ov-tools button { background: rgba(255, 255, 255, .72); border-color: rgba(255, 255, 255, .8); color: var(--label); }
+html.glass .ov-tools button.on { background: var(--ink); color: #fff; }
+html.glass .fl-svg .fl-hub { fill: rgba(255, 255, 255, .8); stroke: rgba(29, 27, 25, .1); }
+html.glass .fl-line { opacity: .7; }
+html.glass .fl-pkt { fill: #fff; }
+html.glass .ring-track { stroke: rgba(29, 27, 25, .08); }
+html.glass .nt-head, html.glass .nt-foot { color: var(--sec); }
+html.glass .odo-chip.up { background: rgba(30, 158, 87, .14); }
+html.glass .odo-chip.down { background: rgba(224, 69, 58, .12); }
+html.glass .flow .br { border-color: rgba(29, 27, 25, .25); }
+html.glass .warn-box { color: #9a5a12; }
+html.glass .tl-card.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink) inset, var(--lift); }
+html.glass .live-dot { background: var(--green); }
+html.glass .news-k { background: rgba(255, 255, 255, .7); }
+
+/* Glass needs a little lift on press instead of a dark flash */
+html.glass button.cell:active, html.glass button.nt-row:active { background: rgba(255, 255, 255, .35); opacity: 1; }
