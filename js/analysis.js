@@ -58,7 +58,7 @@ export function analyze(series) {
   const critiques = [], tips = [], good = [];
   const short = done.filter(m => m.work < m.expense).length;
   if (cov < 1 && family) {
-    critiques.push({ w: expense - work, t: 'هزینه‌ها از درآمد کاری جلوترند', d: `در ${faDigits(short)} ماه از ${faDigits(n)} ماه، هزینه از درآمد کاری بیشتر بود؛ ${fmtShort(family)} از خانواده.` });
+    critiques.push({ w: expense - work, t: 'هزینه‌ها از درآمد کاری جلوترند', d: `${faDigits(short)} از ${faDigits(n)} ماه؛ ${fmtShort(family)} از خانواده.` });
     tips.push({ w: expense - work, t: 'فاصله تا استقلال مالی', d: `ماهانه ${fmtShort(avgExp - avgWork)}؛ با درآمد بیشتر یا هزینهٔ کمتر بسته می‌شود.` });
   }
   if (n >= 4) {
@@ -73,14 +73,14 @@ export function analyze(series) {
     }
     if (best) {
       const avg = cats[best.c] / n;
-      critiques.push({ w: (best.b - best.a) * h, t: `${label(best.c)} رو به افزایش است`, d: `از ماهانه ${fmtShort(best.a)} در ماه‌های نخست به ${fmtShort(best.b)} در ماه‌های اخیر رسیده؛ ${faDigits((best.b / best.a).toFixed(1).replace('.', '٫'))} برابر.` });
+      critiques.push({ w: (best.b - best.a) * h, t: `${label(best.c)} رو به افزایش است`, d: `از ${fmtShort(best.a)} به ${fmtShort(best.b)} در ماه.` });
       if (best.b > avg) tips.push({ w: (best.b - avg) * 12, t: `بازگشت ${label(best.c)} به میانگین`, d: `میانگین ماهانه ${fmtShort(avg)} است؛ برگشت به آن، ماهانه ${fmtShort(best.b - avg)} و سالانه ${fmtShort((best.b - avg) * 12)} آزاد می‌شود.` });
     }
   }
   const spike = done.reduce((x, m) => (m.expense > x.expense ? m : x), done[0]);
   if (n >= 3 && spike.expense > avgExp * 1.25) {
     const c = Object.keys(spike.byCat || {}).filter(c => c !== 'other').sort((a, b) => (spike.byCat[b] - (cats[b] || 0) / n) - (spike.byCat[a] - (cats[a] || 0) / n))[0];
-    critiques.push({ w: spike.expense - avgExp, t: `${name(spike.key)}، پرهزینه‌ترین ماه`, d: `${fmtShort(spike.expense - avgExp)} بالاتر از میانگین${c ? `؛ بیشترین سهم با «${label(c)}»` : ''}.` });
+    critiques.push({ w: spike.expense - avgExp, t: `${name(spike.key)}، پرهزینه‌ترین ماه`, d: `${fmtShort(spike.expense - avgExp)} بالاتر از میانگین${c ? `، بیشترش ${label(c)}` : ''}.` });
   }
   if ((cats.habits || 0) >= 5e6) {
     critiques.push({ w: cats.habits, t: 'دخانیات و نوشیدنی', d: `${fmtShort(cats.habits)} در ${faDigits(n)} ماه؛ ماهانه حدود ${fmtShort(cats.habits / n)}.` });
@@ -92,7 +92,7 @@ export function analyze(series) {
     if (k.length <= n / 2) tips.push({ w: asset / 2, t: 'پس‌انداز منظم ماهانه', d: `سرمایه‌گذاری فقط در ${faDigits(k.length)} ماه؛ هر ماه مبلغی ثابت، مثلاً ${fmtShort(asset / n)}، بهتر است.` });
   }
   const best = done.reduce((x, m) => (m.self > x.self ? m : x), done[0]);
-  if (best.self > 0) good.push({ t: `${name(best.key)}، بهترین ماه`, d: `بدون حمایت خانواده، ${fmtShort(best.self)} از درآمد کاری باقی ماند.` });
+  if (best.self > 0) good.push({ t: `${name(best.key)}، بهترین ماه`, d: `${fmtShort(best.self)} از درآمد کاری ماند.` });
 
   const by = (a, b) => b.w - a.w;
   const flags = {};

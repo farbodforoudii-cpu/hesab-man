@@ -1346,9 +1346,9 @@ function viewAnalysis() {
   const list = (items, cls) => items.map(x => `<div class="cell col an-item ${cls}"><b>${esc(x.t)}</b><span class="sec">${esc(x.d)}</span></div>`).join('');
   const sel = series.find(m => m.key === key);
   const flagNote = [
-    A.flags.unknown ? `${fmtShort(A.flags.unknown)} ورودی نامشخص جزو درآمد حساب نشده` : '',
-    A.flags.assumed ? `${fmtShort(A.flags.assumed)} با حدس درآمد کاری حساب شده` : '',
-    A.flags.vague ? `${fmtShort(A.flags.vague)} خرج با عنوان نامعلوم (مثل W و C) شخصی حساب شده` : '',
+    A.flags.unknown ? `${fmtShort(A.flags.unknown)} ورودی نامشخص` : '',
+    A.flags.assumed ? `${fmtShort(A.flags.assumed)} درآمد حدسی` : '',
+    A.flags.vague ? `${fmtShort(A.flags.vague)} خرج بی‌عنوان` : '',
   ].filter(Boolean);
   return `<div class="view wide">
     ${head}${unlock}
@@ -1356,14 +1356,61 @@ function viewAnalysis() {
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
     <p class="foot legend-foot"><span><i style="background:#34c759"></i>ورودی</span><span><i style="background:var(--tint)"></i>خروجی</span><span>عدد بالا: تراز ماه</span></p>
-    <div class="section-title">خبرها و نکته‌ها</div>
-    <div class="feed">${N.slice(4).map(newsCard).join('')}</div>
+    ${scoreCard(K)}
+    ${actionsCard(series, A)}
+    ${notesCard(A)}
     <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
     ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join('، ')}.</p>` : ''}
   </div>`;
 }
 
 const monthName = k => monthLabel(k).split(' ')[0];
+
+// ----- Analysis, part 2: where you stand, what to do this month, what to watch -----
+// Scorecard: four readings that decide financial health, each with its target; tap for the month by month.
+function scoreCard(K) {
+  const pick = ['self', 'runway', 'family', 'disc'].map(id => K.find(k => k.id === id)).filter(Boolean);
+  const short = { self: 'پوشش با کار', runway: 'ذخیرهٔ نقدی', family: 'سهم خانواده', disc: 'هزینهٔ اختیاری' };
+  return `<div class="section-title">کارنامه</div><div class="sc">${pick.map(k => `<button class="sc-t ${k.status}" data-act="kpi" data-v="${k.id}">
+    <span><i class="kdot ${k.status}"></i>${short[k.id]}</span><b>${esc(k.value)}</b><small>${esc(k.target.replace('هدف: ', 'هدف '))}</small></button>`).join('')}</div>`;
+}
+
+// Three moves for this month, ranked by how much money each one is worth per month.
+function actionsCard(series, A) {
+  const done = series.filter(m => !m.running && (m.expense || m.work)), n = done.length;
+  if (!n) return '';
+  const key = monthKey(new Date()), out = [], T = scoped(), ms = monthSummary(T, key);
+  const c = challengeFor(key);
+  if (c) { const gap = c.income - (ms.work || 0); if (gap > 0) { const left = Math.max(1, Math.ceil((monthRange(key).end - new Date()) / 864e5)); out.push({ v: gap, t: 'برد چالش درآمد', d: `روزی ${fmtShort(gap / left)} تا آخر ماه`, a: fmtShort(gap) }); } }
+  // The category that grew most, back to its own average.
+  const h = Math.floor(n / 2);
+  if (h >= 2) {
+    let best = null;
+    for (const cat of Object.keys(CATEGORIES)) {
+      if (['other', 'fees', 'uncat'].includes(cat)) continue;
+      const recent = done.slice(-h).reduce((x, m) => x + ((m.byCat || {})[cat] || 0), 0) / h, avg = done.reduce((x, m) => x + ((m.byCat || {})[cat] || 0), 0) / n;
+      if (recent - avg >= 3e6 && (!best || recent - avg > best.save)) best = { cat, recent, avg, save: recent - avg };
+    }
+    if (best) out.push({ v: best.save, t: `${CATEGORIES[best.cat].label} به میانگین`, d: `از ${fmtShort(best.recent)} به ${fmtShort(best.avg)} در ماه`, a: `+${fmtShort(best.save)}` });
+  }
+  const P = currentPlan(), top = P.rows.filter(r => r.amt).sort((x, y) => y.amt - x.amt)[0];
+  if (P.total && top) out.push({ v: P.total, t: 'بقیهٔ سرمایه‌گذاری ماه', d: `بیشترش ${MK[top.k].label}`, a: fmtShort(P.total) });
+  const hab = done.reduce((x, m) => x + ((m.byCat || {}).habits || 0), 0) / n;
+  if (hab >= 3e6) out.push({ v: hab / 2, t: 'نصف کردن دخانیات', d: `ماهانه ${fmtShort(hab)} است`, a: `+${fmtShort(hab / 2)}` });
+  const cash = balanceAt(S.tx, S.settings);
+  if (cash < A.avgExp) out.push({ v: (A.avgExp - cash) * .5, t: 'ذخیرهٔ یک‌ماهه', d: 'نقد برای یک ماه هزینه', a: fmtShort(A.avgExp - cash) });
+  const top3 = out.sort((x, y) => y.v - x.v).slice(0, 3);
+  if (!top3.length) return '';
+  return `<div class="section-title">سه کار این ماه</div><div class="group acts">${top3.map((x, i) => `<div class="cell act-row">
+    <span class="act-n">${faDigits(i + 1)}</span><span class="grow"><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span><b class="act-v">${x.a}</b></div>`).join('')}</div>`;
+}
+
+// What to watch: the two heaviest warnings and the best piece of news, one line each.
+function notesCard(A) {
+  const items = [...A.critiques.slice(0, 2).map(x => ({ ...x, tone: 'r' })), ...A.good.slice(0, 1).map(x => ({ ...x, tone: 'g' }))];
+  if (!items.length) return '';
+  return `<div class="section-title">زیر نظر</div><div class="group notes">${items.map(x => `<div class="cell note-row"><i class="kdot ${x.tone}"></i><span class="grow"><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join('')}</div>`;
+}
 
 // Tapping a month card: that month against the average of the others.
 function monthCompareSheet(key) {

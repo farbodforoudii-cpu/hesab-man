@@ -961,3 +961,19 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .nt-row.lt2 { grid-template-columns: minmax(0, 1fr) 1fr 1fr; } .nt-row.lt2 b { text-align: left; }
 nav.tabs button span { white-space: nowrap; }
 
+
+/* Analysis: scorecard, actions, notes */
+.sc { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sc-t { display: flex; flex-direction: column; gap: 3px; text-align: right; background: var(--glass); border: 1px solid var(--border); border-radius: 20px; padding: 13px 14px; transition: transform .35s var(--spring); }
+.sc-t:active { transform: scale(.97); }
+.sc-t span { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sec); }
+.sc-t b { font-size: 24px; font-weight: 600; }
+.sc-t small { font-size: 11.5px; color: var(--ter); }
+.sc-t.r b { color: var(--red); } .sc-t.g b { color: var(--green); }
+.act-row, .note-row { gap: 12px; align-items: center; }
+.act-row .grow, .note-row .grow { display: flex; flex-direction: column; gap: 1px; }
+.act-row small, .note-row small { font-size: 12.5px; color: var(--sec); }
+.act-n { width: 26px !important; min-width: 26px; max-width: 26px; height: 26px; padding: 0 !important; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--label); color: var(--bg); flex: 0 0 auto; }
+html.glass .act-n { background: var(--ink); color: #fff; }
+.act-v { font-weight: 600; white-space: nowrap; }
+@media (min-width: 820px) { .sc { grid-template-columns: repeat(4, 1fr); } }
