@@ -96,7 +96,10 @@ function currentPlan() {
   const T = scoped(), series = monthsSeries(S.history, T, S.settings.startDate), key = monthKey(new Date());
   const done = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
   const avgExp = done.length ? done.reduce((a, m) => a + (m.expense || 0), 0) / done.length : 0;
-  return mplan({ series, held: heldByKind(), M: S.market, workNow: monthSummary(T, key).work || 0, cash: balanceAt(S.tx, S.settings), avgExp });
+  const ms = monthSummary(T, key), c = challengeFor(key), done0 = ms.asset || 0;
+  // The month's amount is the challenge: what is still left of it is what gets split across assets.
+  const P = mplan({ series, held: heldByKind(), M: S.market, workNow: ms.work || 0, cash: balanceAt(S.tx, S.settings), avgExp, fixed: c ? c.invest - done0 : null });
+  return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0 });
 }
 
 // A newer copy arrived from another device: read it in and redraw what is on screen.
@@ -1560,7 +1563,7 @@ function newsItems(series, A) {
     const c = challengeFor(monthKey(new Date())), cs = monthSummary(scoped(), monthKey(new Date()));
     if (c) N.push({ k: 'چالش', t: `چالش ${monthName(monthKey(new Date()))}: ${fmtShort(cs.work || 0)} از ${fmtShort(c.income)} درآمد`, d: `سرمایه‌گذاری ${fmtShort(cs.asset || 0)} از ${fmtShort(c.invest)}. سطح ${faDigits(c.streak + 1)}؛ با بردن این ماه، هدف ماه بعد ۱۰٪ بالاتر می‌رود.`, tone: (cs.work || 0) >= c.income ? 'g' : '' });
     const P = currentPlan(), top = P.rows.slice().sort((a, b) => b.amt - a.amt)[0];
-    if (P.total && top) N.push({ k: 'پیشنهاد', t: `سرمایه‌گذاری این ماه: ${fmtShort(P.total)}`, d: `بیشترش ${MK[top.k].label} (${fmtShort(top.amt)})، چون از سهم هدفش عقب‌تر است. جزئیات در «دارایی‌ها».` });
+    if (P.total && top) N.push({ k: 'پیشنهاد', t: `${fmtShort(P.total)} مانده تا هدف سرمایه‌گذاری چالش`, d: `بیشترش ${MK[top.k].label} (${fmtShort(top.amt)})، چون از سهم هدفش عقب‌تر است. جزئیات در «دارایی‌ها».` });
   }
   for (const x of A.critiques) N.push({ k: 'نقد', t: x.t, d: x.d, tone: 'r' });
   for (const x of A.tips) N.push({ k: 'پیشنهاد', t: x.t, d: x.d });
@@ -2003,8 +2006,8 @@ function viewAssets() {
 
     <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
     <div class="ins-card plan">
-      <div class="plan-top"><span>پیشنهاد این ماه</span><b>${fmtShort(P.total)}</b></div>
-      <p class="why">میانگین سرمایه‌گذاری ماهانهٔ ${faDigits(P.months)} ماه اخیر ${fmtShort(P.base)} است. درآمد کاری این ماه تا امروز ${fmtShort(P.workNow)} در برابر میانگین ${fmtShort(P.avgWork)}؛ ضریب ${iso(faDigits(P.pace.toFixed(2).replace('.', '٫')))} (بین ۰٫۵ و ۱٫۵). هرچه درآمد این ماه بیشتر شود، این عدد زنده بالا می‌رود.</p>
+      <div class="plan-top"><span>مانده از چالش این ماه</span><b>${fmtShort(P.total)}</b></div>
+      <p class="why">هدف سرمایه‌گذاری چالش ${fmtShort(P.target)} است و تا امروز ${fmtShort(P.doneNow)} سرمایه‌گذاری کرده‌ای. پیشنهاد زیر می‌گوید ${P.total ? `این ${fmtShort(P.total)} باقی‌مانده را` : 'پول بعدی را'} از چه بخری.</p>
       ${P.rows.map(r => `<div class="plan-row"><span class="pl-k">${MK[r.k].label}</span><span class="pl-u">${r.price && r.amt ? `${unitsTxt(r.k, r.units)} ${MK[r.k].unit}` : '—'}</span><b>${r.amt ? fmtShort(r.amt) : '۰'}</b>
         <div class="pl-bar"><i style="width:${Math.min(100, r.share * 100).toFixed(0)}%"></i><em style="right:${(r.target * 100).toFixed(0)}%"></em></div>
         <small class="pl-why">سهم فعلی ${faDigits(Math.round(r.share * 100))}٪، هدف ${faDigits(Math.round(r.target * 100))}٪${r.sig.note ? `؛ ${esc(r.sig.note)}` : ''}</small></div>`).join('')}

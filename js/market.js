@@ -45,13 +45,14 @@ const pctTxt = v => `${Math.round(v * 100).toLocaleString('fa-IR')}٪`;
 //  total = base × pace, rounded to a million.
 // The total is split to move the mix towards TARGET (the gap after adding this month's money),
 // leaning a little towards anything trading below its 90-day average.
-export function plan({ series, held, M, workNow, cash, avgExp }) {
+export function plan({ series, held, M, workNow, cash, avgExp, fixed = null }) {
   const done = series.filter(m => !m.running && (m.expense || m.work)).slice(-6);
   const avg = f => (done.length ? done.reduce((a, m) => a + (f(m) || 0), 0) / done.length : 0);
   const avgInv = avg(m => m.asset), avgWork = avg(m => m.work);
   const base = avgInv || avgWork * 0.15;
   const pace = avgWork ? Math.min(1.5, Math.max(0.5, workNow / avgWork)) : 1;
-  const total = Math.max(0, Math.round((base * pace) / 1e6) * 1e6);
+  // A fixed amount (what is left of this month's challenge) replaces the habit-based estimate.
+  const total = fixed != null ? Math.max(0, Math.round(fixed / 1e5) * 1e5) : Math.max(0, Math.round((base * pace) / 1e6) * 1e6);
   const S = Object.fromEntries(Object.keys(TARGET).map(k => [k, stats(M, k)]));
   const V = Object.values(held).reduce((a, b) => a + b, 0);
   const need = {}, sig = {};
