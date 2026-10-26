@@ -1,0 +1,22 @@
+name: probe
+on: push
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for u in \
+            "https://api.tgju.org/v1/market/indicator/summary-table-data/price_dollar_rl" \
+            "https://call1.tgju.org/ajax.json" \
+            "https://www.tgju.org/profile/price_dollar_rl" \
+            "https://www.tgju.org/profile/geram18" \
+            "https://chand.ir/" \
+            "https://servatmandi.com/" \
+            "https://www.bonbast.com/" \
+            "https://alanchand.com/currencies-price/usd" ; do
+            echo "=== $u"
+            curl -s -m 20 -A "Mozilla/5.0" -o out.txt -w "%{http_code} %{size_download}\n" "$u" || echo fail
+            head -c 400 out.txt | tr '\n' ' '; echo
+          done
+          echo "=== cors check"
+          curl -s -m 20 -I -H "Origin: https://farbodforoudii-cpu.github.io" "https://call1.tgju.org/ajax.json" | grep -i "access-control" || echo "no CORS header"
