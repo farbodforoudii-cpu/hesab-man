@@ -1,5 +1,5 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v52';
+const VERSION = 'v53';
 const SHELL = [
   './', 'index.html', 'app.css', 'glass.css', 'manifest.webmanifest',
   'js/app.js', 'js/market.js', 'js/sync.js', 'js/config.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js', 'js/analysis.js',

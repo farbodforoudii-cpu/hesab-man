@@ -1393,7 +1393,8 @@ function goalRows(T, key) {
   const daysAll = Math.round((end - start) / 864e5), dayNow = Math.min(daysAll, Math.floor((now - start) / 864e5) + 1), left = Math.max(1, daysAll - dayNow + 1);
   const disc = DISC.reduce((a, c) => a + (s.byCat[c] || 0), 0), discCap = g.spend * g.disc;
   const asset = s.asset || 0, P = currentPlan();
-  g.asset = P.total || g.asset;
+  const CH = challengeFor(key);
+  g.asset = (CH && CH.invest) || P.total || g.asset;
   const pace = (g.spend - s.expense) / left, tf = dayNow / daysAll;
   return [
     { id: 'spend', t: 'هزینهٔ زندگی', tf, v: s.expense, cap: g.spend, p: s.expense / g.spend,
@@ -1404,10 +1405,14 @@ function goalRows(T, key) {
       st: disc <= discCap * (dayNow / daysAll) * 1.1 ? 'g' : disc <= discCap ? 'o' : 'r',
       note: `${faDigits(Math.round(g.disc * 100))}٪ از سقف هزینه، تفریح، هدیه، شخصی، دخانیات`,
       why: `سقف این بخش = ${faDigits(Math.round(g.disc * 100))}٪ × ${fmtShort(g.spend)} = ${fmtShort(discCap)}. تا امروز ${fmtShort(disc)} از آن مصرف شده.` },
-    { id: 'asset', t: 'سرمایه‌گذاری', tf, v: asset, cap: g.asset, p: asset / g.asset,
-      st: asset >= g.asset ? 'g' : asset >= g.asset * (dayNow / daysAll) ? 'o' : 'r',
-      note: asset >= g.asset ? 'هدف این ماه کامل شد' : `${fmtShort(g.asset - asset)} مانده تا هدف، در ${faDigits(left)} روز`,
-      why: `هدف هوشمند این ماه = میانگین سرمایه‌گذاری ماهانهٔ ${faDigits(P.months)} ماه اخیر (${fmtShort(P.base)}) × نسبت درآمد کاری این ماه به میانگین (${iso(faDigits(P.pace.toFixed(2).replace('.', '٫')))}) = ${fmtShort(P.total)}. ماه پردرآمدتر، هدف بالاتر؛ ماه کم‌درآمدتر، پایین‌تر.` },
+    // Cash reserve: the weakest point in the analysis. Target = one month of living cost (average of the
+    // last three months), then three months; investing is tracked by the challenge card above.
+    (() => { const cash = balanceAt(S.tx, S.settings), done3 = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
+      const mexp = done3.length ? done3.reduce((x, m) => x + (m.expense || 0), 0) / done3.length : g.spend;
+      const cap = r5(cash >= mexp ? mexp * 3 : mexp), months = cap / mexp;
+      return { id: 'cash', t: 'ذخیرهٔ نقدی', tf, v: cash, cap, p: cash / cap, st: cash >= cap ? 'g' : cash >= cap / 2 ? 'o' : 'r',
+        note: cash >= cap ? 'ذخیره کامل است' : `${fmtShort(cap - cash)} مانده تا ذخیرهٔ ${faDigits(Math.round(months))} ماهه`,
+        why: `ذخیرهٔ نقدی = موجودی بلو (${fmtShort(cash)}). هدف = هزینهٔ ${faDigits(Math.round(months))} ماه زندگی (میانگین ۳ ماه اخیر ${fmtShort(mexp)} × ${faDigits(Math.round(months))}). اول یک ماه، بعد سه ماه؛ تا وقتی این حلقه کامل نشده، هر خرج غیرمنتظره از سرمایه‌گذاری‌ها برداشته می‌شود.` }; })(),
   ];
 }
 // Three rings: the arc is what is used or saved; the details and arithmetic live in the goals sheet.
@@ -1420,8 +1425,69 @@ function ring(r, i) {
       ${p > 0 ? `<circle class="ring-arc" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(p * 100).toFixed(1)}"/>` : ''}
       ${r.p > 1 ? `<circle class="ring-over" cx="40" cy="40" r="${R}" pathLength="100" style="--p:${(Math.min(1, r.p - 1) * 100).toFixed(1)}"/>` : ''}
       <b class="ring-num"><span data-cu="${Math.round(r.v)}" data-f="ring" data-div="${div}">${ringNum(r.v, div)}</span><small>${unit}</small></b></div>
-    <span class="ring-t">${esc(r.t)}</span><small class="ring-c">${r.id === 'asset' ? 'هدف' : 'سقف'} ${esc(fmtShort(r.cap))}</small></div>`;
+    <span class="ring-t">${esc(r.t)}</span><small class="ring-c">${r.id === 'cash' ? 'هدف' : 'سقف'} ${esc(fmtShort(r.cap))}</small></div>`;
 }
+// ----- Monthly challenge: stretch targets that climb when you hit them -----
+// Set once at the start of each month and then fixed, so the bar does not move under you.
+//  income: first month = the higher of 110% of your best month and 130% of your average (last 6 months);
+//          after a month you beat: +10%; after a miss: same target again (never under 110% of average).
+//  invest: a share of the income target; 30% to start, +2.5 points after every won month, up to 45%.
+// A month is won when both are reached. Won months in a row are your streak and your level.
+const r5 = v => Math.round(v / 5e6) * 5e6;
+function challengeFor(key) {
+  const C = (S.settings.challenge ||= {});
+  if (C[key]) return C[key];
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate);
+  const done = series.filter(m => !m.running && m.key < key && (m.expense || m.work)).slice(-6);
+  if (!done.length) return null;
+  const avg = done.reduce((a, m) => a + (m.work || 0), 0) / done.length, best = Math.max(...done.map(m => m.work || 0));
+  const prevKey = shiftMonth(key, -1), prev = C[prevKey], pm = series.find(m => m.key === prevKey);
+  let income = r5(Math.max(best * 1.1, avg * 1.3)), rate = .3, streak = 0;
+  if (prev) {
+    const won = pm && (pm.work || 0) >= prev.income && (pm.asset || 0) >= prev.invest;
+    income = r5(Math.max(avg * 1.1, won ? prev.income * 1.1 : prev.income));
+    rate = won ? Math.min(.45, prev.rate + .025) : prev.rate;
+    streak = won ? (prev.streak || 0) + 1 : 0;
+  }
+  C[key] = { income, invest: r5(income * rate), rate, streak, avg: Math.round(avg), best: Math.round(best), set: new Date().toISOString() };
+  saveSettings();
+  return C[key];
+}
+const LEVELS = ['شروع', 'گرم شدن', 'در مسیر', 'پرقدرت', 'حرفه‌ای', 'استاد'];
+function challengeCard(T, key) {
+  const c = challengeFor(key);
+  if (!c) return '';
+  const s = monthSummary(T, key), work = s.work || 0, inv = s.asset || 0;
+  const { start, end } = monthRange(key), daysAll = Math.round((end - start) / 864e5);
+  const left = Math.max(1, Math.ceil((end - new Date()) / 864e5));
+  const gapW = Math.max(0, c.income - work), gapI = Math.max(0, c.invest - inv);
+  // Hours behind the money gap, at last month's income per hour from «زندگی من» (when it is known).
+  const pk = shiftMonth(key, -1), L = sync.lifeMonth(pk), pm = monthsSeries(S.history, T, S.settings.startDate).find(m => m.key === pk);
+  const perH = L && L.workMin >= 20 * 60 && pm ? (pm.work || 0) / (L.workMin / 60) : null;
+  const bar = (v, t, id) => { const p = Math.min(1, v / t), pace = Math.min(1, 1 - left / daysAll);
+    return `<div class="ch-row"><div class="ch-top"><span>${id === 'w' ? 'درآمد کاری' : 'سرمایه‌گذاری'}</span><b>${fmtShort(v)} <small>از ${fmtShort(t)}</small></b></div>
+      <div class="ch-bar"><i class="${p >= 1 ? 'done' : p >= pace ? 'ok' : ''}" style="width:${(p * 100).toFixed(1)}%"></i><em style="right:${(pace * 100).toFixed(1)}%"></em></div></div>`; };
+  const lvl = LEVELS[Math.min(LEVELS.length - 1, c.streak)];
+  return `<button class="challenge" data-act="challenge">
+    <div class="ch-head"><span class="b-label"><span class="live-dot"></span>چالش ${esc(monthName(key))}</span><span class="ch-lvl">سطح ${faDigits(c.streak + 1)}، ${lvl}</span></div>
+    ${bar(work, c.income, 'w')}${bar(inv, c.invest, 'i')}
+    <p class="ch-note">${gapW ? `برای بردن این ماه: ${fmtShort(gapW)} درآمد دیگر، یعنی روزی ${fmtShort(gapW / left)} در ${faDigits(left)} روز${perH ? `؛ حدود ${faDigits(Math.ceil(gapW / perH))} ساعت کار با نرخ ماه قبل` : ''}.` : 'هدف درآمد این ماه زده شد. '}${gapI ? ` و ${fmtShort(gapI)} سرمایه‌گذاری.` : ' سرمایه‌گذاری کامل شد.'}</p>
+  </button>`;
+}
+function challengeSheet() {
+  const key = monthKey(new Date()), c = challengeFor(key);
+  if (!c) return;
+  const C = S.settings.challenge, hist = Object.keys(C).filter(k => k < key).sort().slice(-6);
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate);
+  openSheet(`<div class="sheet-nav"><span></span><b>چالش ماه</b><button class="link" data-close>بستن</button></div>
+    <div class="group"><div class="cell col"><small class="sec why">
+      <b>هدف درآمد ${fmtShort(c.income)}</b>: ${c.streak || hist.length ? 'ماه قبل را بردی؟ ۱۰٪ بالاتر؛ نبردی؟ همان هدف دوباره' : `بالاتر از ۱۱۰٪ بهترین ماهت (${fmtShort(c.best)}) و ۱۳۰٪ میانگین ۶ ماه (${fmtShort(c.avg)})`}. هیچ‌وقت کمتر از ۱۱۰٪ میانگین نمی‌شود.<br>
+      <b>هدف سرمایه‌گذاری ${fmtShort(c.invest)}</b> = ${faDigits(Math.round(c.rate * 100))}٪ هدف درآمد. با هر ماهِ برده ۲٫۵ واحد بالا می‌رود، تا ۴۵٪.<br>
+      <b>بردن ماه</b> = رسیدن به هر دو هدف. ماه‌های بردهٔ پشت سر هم، سطح تو را بالا می‌برد. خط کوچک روی نوار: جایی که با سرعت یکنواخت امروز باید باشی.</small></div></div>
+    ${hist.length ? `<div class="section-title">ماه‌های قبل</div><div class="group">${hist.map(k => { const h = C[k], m = series.find(x => x.key === k) || {}, won = (m.work || 0) >= h.income && (m.asset || 0) >= h.invest;
+      return `<div class="cell"><span class="grow">${esc(monthLabel(k))}<small class="avg-line">درآمد ${fmtShort(m.work || 0)} از ${fmtShort(h.income)}، سرمایه‌گذاری ${fmtShort(m.asset || 0)} از ${fmtShort(h.invest)}</small></span><b class="${won ? 'green' : 'red'}">${won ? 'برد' : 'باخت'}</b></div>`; }).join('')}</div>` : ''}`);
+}
+
 function goalsCard(T, key) {
   const R = goalRows(T, key), ok = R.filter(r => r.st === 'g').length;
   return `<button class="goals" data-act="goals">
@@ -1491,6 +1557,8 @@ function newsItems(series, A) {
     if (V && Math.abs(eff) > 1e6) N.push({ k: 'بازار', t: `دارایی‌هایت در ۳۰ روز ${eff >= 0 ? 'بالا رفت' : 'پایین آمد'}: ${sgnShort(eff)}`, d: `فقط اثر قیمت روی همین مقدارها (دلار، یورو، طلا، نقره)؛ ارزش فعلی ${fmtShort(V)}.`, tone: eff >= 0 ? 'g' : 'r' });
     const big = st.slice().sort((a, b) => Math.abs(b.w || 0) - Math.abs(a.w || 0))[0];
     if (big && big.w != null) N.push({ k: 'بازار', t: `${MK[big.k].label} این هفته ${pctS(big.w)}`, d: `${MK[big.k].per} ${fmt(big.last)} تومان؛ ${msignal(big).note}` });
+    const c = challengeFor(monthKey(new Date())), cs = monthSummary(scoped(), monthKey(new Date()));
+    if (c) N.push({ k: 'چالش', t: `چالش ${monthName(monthKey(new Date()))}: ${fmtShort(cs.work || 0)} از ${fmtShort(c.income)} درآمد`, d: `سرمایه‌گذاری ${fmtShort(cs.asset || 0)} از ${fmtShort(c.invest)}. سطح ${faDigits(c.streak + 1)}؛ با بردن این ماه، هدف ماه بعد ۱۰٪ بالاتر می‌رود.`, tone: (cs.work || 0) >= c.income ? 'g' : '' });
     const P = currentPlan(), top = P.rows.slice().sort((a, b) => b.amt - a.amt)[0];
     if (P.total && top) N.push({ k: 'پیشنهاد', t: `سرمایه‌گذاری این ماه: ${fmtShort(P.total)}`, d: `بیشترش ${MK[top.k].label} (${fmtShort(top.amt)})، چون از سهم هدفش عقب‌تر است. جزئیات در «دارایی‌ها».` });
   }
@@ -1641,6 +1709,7 @@ function viewDash() {
     </section>
     ${key === monthKey(new Date()) ? lifeInbox() : ''}
     ${workMoneyCard(key)}
+    ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${liveStory(T, key)}
     ${assetTile()}
@@ -1917,7 +1986,7 @@ function viewAssets() {
   // Price effect over 30 days on what you hold now (same quantities, old vs new price).
   const old30 = MARKET_KINDS.reduce((a, k) => a + (ST[k] && ST[k].m != null ? H[k] / (1 + ST[k].m) : H[k]), 0), eff = V - old30;
   const over = MARKET_KINDS.filter(k => H[k] / V - TARGET[k] > .12).sort((x, y) => H[y] / V - TARGET[y] - (H[x] / V - TARGET[x]));
-  const yrs = n => { const add = P.base * 12 * n; return MARKET_KINDS.map(k => [k, ST[k] ? add * TARGET[k] / ST[k].last : 0]); };
+  const yrs = n => { const add = P.base * n; return MARKET_KINDS.map(k => [k, ST[k] ? add * TARGET[k] / ST[k].last : 0]); };
   return `<div class="view wide">
     <div class="page-head"><h1 class="large">دارایی‌ها</h1><div class="row"><button class="chip-btn" data-act="tab" data-v="dash">بازگشت</button></div></div>
     <section class="bento an-hero"><div class="b-primary"><div class="stripes"></div>
@@ -1944,12 +2013,14 @@ function viewAssets() {
       ${over.length ? `<p class="why">اگر پول نقد لازم شد، فروش از <b>${over.map(k => MK[k].label).join(' و ')}</b> منطقی‌تر است؛ سهمش ${faDigits(Math.round(H[over[0]] / V * 100))}٪ است در برابر هدف ${faDigits(Math.round(TARGET[over[0]] * 100))}٪.</p>` : ''}
     </div>
 
-    ${M && P.base ? `<div class="section-title">مسیر ۳ تا ۵ ساله</div>
+    ${M && P.base ? `<div class="section-title">مسیر ۶ ماه، یک سال و ۳ سال</div>
     <div class="ins-card plan">
-      <p class="why">با همان عادت فعلی (ماهانه حدود ${fmtShort(P.base)}) و همین تقسیم، به قیمت امروز:</p>
-      <div class="nt-row nt-head lt"><span></span><span>۳ سال</span><span>۵ سال</span></div>
-      ${MARKET_KINDS.map((k, i) => `<div class="nt-row lt"><span class="nt-l">${MK[k].label}</span><b>+${unitsTxt(k, yrs(3)[i][1])} ${MK[k].unit}</b><b>+${unitsTxt(k, yrs(5)[i][1])} ${MK[k].unit}</b></div>`).join('')}
-      <div class="nt-row lt strong"><span class="nt-l">جمع پول تازه</span><b>${fmtShort(P.base * 36)}</b><b>${fmtShort(P.base * 60)}</b></div>
+      <p class="why">با همان عادت فعلی (ماهانه حدود ${fmtShort(P.base)}) و همین تقسیم، به قیمت امروز (دلار و یورو به عدد، طلا و نقره به گرم):</p>
+      <div class="nt-row nt-head lt"><span></span><span>۶ ماه</span><span>یک سال</span><span>۳ سال</span></div>
+      ${MARKET_KINDS.map((k, i) => `<div class="nt-row lt"><span class="nt-l">${MK[k].label}</span>${[6, 12, 36].map(n => `<b>+${unitsTxt(k, yrs(n)[i][1])}</b>`).join('')}</div>`).join('')}
+      <div class="nt-row lt strong"><span class="nt-l">پول تازه</span>${[6, 12, 36].map(n => `<b>${fmtShort(P.base * n)}</b>`).join('')}</div>
+      ${(() => { const c = challengeFor(monthKey(new Date())); return c && usd ? `<div class="nt-row lt strong ch-lt"><span class="nt-l">با بردن چالش</span>${[6, 12, 36].map(n => `<b>${fmtShort(c.invest * n)}</b>`).join('')}</div>
+      <p class="why">با چالش، سبد سرمایه‌گذاری‌ات (دلار، یورو، طلا، نقره) از حدود ${faDigits(Math.round(V / usd).toLocaleString('en-US'))} دلار امروز، در ۶ ماه به حدود <b>${faDigits(Math.round((V + c.invest * 6) / usd).toLocaleString('en-US'))}</b>، در یک سال به <b>${faDigits(Math.round((V + c.invest * 12) / usd).toLocaleString('en-US'))}</b> و در ۳ سال به <b>${faDigits(Math.round((V + c.invest * 36) / usd).toLocaleString('en-US'))} دلار</b> می‌رسد؛ با قیمت امروز و بدون حساب کردن بالا رفتن هدف‌ها.</p>` : ''; })()}
       <p class="nt-foot">رشد قیمت حساب نشده؛ اگر ریال مثل یک سال گذشته (دلار ${pctS(ST.usd && ST.usd.y)}) ارزش از دست بدهد، ارزش تومانی این سبد چند برابر می‌شود. این برنامه قاعده‌محور است، نه پیش‌بینی بازار.</p>
     </div>` : ''}
 
@@ -2297,6 +2368,7 @@ document.addEventListener('click', async e => {
     else if (a === 'tr-cmp') { S.tr.picking = !S.tr.picking; redrawTrend(); }
     else if (a === 'tr-cmpf') { const v = b.dataset.v, c = S.tr.cmps; S.tr.cmps = c.includes(v) ? c.filter(x => x !== v) : [...c, v].slice(-3); S.tr.picking = false; redrawTrend(); }
     else if (a === 'tr-cmpx') { S.tr.cmps = S.tr.cmps.filter(x => x !== b.dataset.v); if (!S.tr.cmps.length) S.tr.pct = false; redrawTrend(); }
+    else if (a === 'challenge') challengeSheet();
     else if (a === 'mk-pick') { S.mk.k = b.dataset.v; S.mk.all = false; render(); }
     else if (a === 'mk-frame') { S.mk.f = b.dataset.v; bindMarketChart(); document.querySelectorAll('[data-act="mk-frame"]').forEach(x => x.classList.toggle('on', x === b)); }
     else if (a === 'mk-all') { S.mk.all = !S.mk.all; render(); }
