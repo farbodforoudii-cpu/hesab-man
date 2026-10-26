@@ -1356,9 +1356,9 @@ function viewAnalysis() {
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
     <p class="foot legend-foot"><span><i style="background:#34c759"></i>ورودی</span><span><i style="background:var(--tint)"></i>خروجی</span><span>عدد بالا: تراز ماه</span></p>
-    ${scoreCard(K)}
+    ${bigPicture(series, A)}
+    ${lineByLine(series, A)}
     ${actionsCard(series, A)}
-    ${notesCard(A)}
     <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
     ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join('، ')}.</p>` : ''}
   </div>`;
@@ -1366,7 +1366,105 @@ function viewAnalysis() {
 
 const monthName = k => monthLabel(k).split(' ')[0];
 
-// ----- Analysis, part 2: where you stand, what to do this month, what to watch -----
+// ----- Analysis, part 2: the whole period as one picture, then the way forward -----
+// Early months vs recent months (three each), the shape of spending, and three steps with their numbers.
+function bigPicture(series, A) {
+  const d = series.filter(m => !m.running && (m.expense || m.work)), n = d.length;
+  if (n < 4) return '';
+  const k = Math.min(3, Math.floor(n / 2)), avg = (arr, f) => arr.reduce((x, m) => x + (f(m) || 0), 0) / arr.length;
+  const early = d.slice(0, k), late = d.slice(-k), span = `${monthName(early[0].key)} تا ${monthName(late.at(-1).key)}`;
+  const disc = m => DISC.reduce((x, c) => x + ((m.byCat || {})[c] || 0), 0);
+  const T = [
+    { t: 'درآمد کاری', f: m => m.work, up: true },
+    { t: 'هزینهٔ زندگی', f: m => m.expense, up: false },
+    { t: 'حمایت خانواده', f: m => m.family, up: false },
+  ].map(x => { const a = avg(early, x.f), b = avg(late, x.f), ch = a ? b / a - 1 : null; return { ...x, a, b, ch, good: ch == null ? null : (ch > 0) === x.up }; });
+  const bars = f => { const v = d.map(m => f(m) || 0), mx = Math.max(...v, 1); return `<span class="bp-bars">${v.map(x => `<i style="height:${Math.max(6, x / mx * 100).toFixed(0)}%"></i>`).join('')}</span>`; };
+  // One-sentence reading of the period.
+  const [W, E, F] = T, cov = A.cov;
+  const read = W.ch > .15 && E.ch > .1 ? 'درآمدت بالا رفته، ولی خرج هم پابه‌پایش رفته؛ فاصله هنوز با پول خانواده پر می‌شود.'
+    : W.ch > .15 ? 'درآمدت بالا رفته و خرج ثابت مانده؛ در مسیر درستی.'
+    : E.ch > .1 ? 'خرج تند‌تر از درآمد بالا رفته.'
+    : cov >= 1 ? 'درآمد کاری هزینه‌ها را می‌پوشاند.' : 'درآمد و خرج ثابت مانده‌اند؛ فاصله با پول خانواده پر می‌شود.';
+  // Where it goes: three biggest categories over the period.
+  const tot = A.expense || 1, top = Object.entries(A.cats).filter(([c]) => CATEGORIES[c] && c !== 'other').sort((x, y) => y[1] - x[1]).slice(0, 3);
+  const invMonths = d.filter(m => m.asset > 0).length, discShare = avg(d, disc) / (A.avgExp || 1);
+  // The way forward, each step with what it is worth.
+  const discNow = avg(d, disc), cut = Math.max(0, discNow - A.avgExp * .25), expAfter = A.avgExp - cut;
+  const need = Math.max(0, expAfter - A.avgWork), c = challengeFor(monthKey(new Date()));
+  const steps = [
+    cut > 2e6 && { t: 'هزینهٔ اختیاری زیر ۲۵٪', d: `از ${pct(discShare)} به ۲۵٪`, v: `+${fmtShort(cut)}` },
+    need > 0 && { t: 'درآمد کاری = هزینه', d: `از ${fmtShort(A.avgWork)} به ${fmtShort(expAfter)}`, v: `+${fmtShort(need)}` },
+    { t: 'سرمایه‌گذاری هر ماه', d: `نه یک‌جا؛ تا حالا ${faDigits(invMonths)} از ${faDigits(n)} ماه`, v: c ? fmtShort(c.invest) : '' },
+  ].filter(Boolean);
+  return `<div class="section-title">تصویر کلی، ${span}</div>
+    <div class="ins-card bp">
+      <p class="bp-read">${read}</p>
+      ${T.map(x => `<div class="bp-row"><span class="bp-t">${x.t}</span>${bars(x.f)}<span class="bp-v"><b>${fmtShort(x.b)}</b><small class="${x.good == null ? '' : x.good ? 'green' : 'red'}">${x.ch == null ? '' : `${x.ch > 0 ? '▲' : '▼'} ${pct(Math.abs(x.ch))}`}</small></span></div>`).join('')}
+      <p class="nt-foot">ماهانه، ۳ ماه آخر در برابر ۳ ماه اول</p>
+      <div class="bp-where">${top.map(([cat, v]) => `<span><i style="background:${CATEGORIES[cat].color}"></i>${CATEGORIES[cat].label}<b>${pct(v / tot)}</b></span>`).join('')}</div>
+      <p class="nt-foot">بیشترین سهم از هزینه</p>
+    </div>
+    <div class="section-title">راه بهتر شدن (در ماه)</div>
+    <div class="group acts">${steps.map((x, i) => `<div class="cell act-row"><span class="act-n">${faDigits(i + 1)}</span><span class="grow"><b>${x.t}</b><small>${x.d}</small></span><b class="act-v">${x.v}</b></div>`).join('')}</div>
+    <p class="foot">${steps.length >= 2 ? 'با این سه قدم، هزینه از کار خودت می‌آید و پول خانواده می‌تواند یکسره سرمایه شود.' : ''}</p>`;
+}
+const pct = v => `${faDigits(Math.round(v * 100))}٪`;
+
+// Every income source and every spending category on its own: monthly average, share, trend, its biggest
+// month and a one-line reading. Tap a line for its months and a suggested ceiling.
+const IN_LINES = [['work', 'درآمد کاری'], ['family', 'حمایت خانواده'], ['sale', 'فروش'], ['reimburse', 'پس گرفتن پول'], ['loanIn', 'وام'], ['otherIn', 'سایر ورودی']];
+function lineStats(d, f) {
+  const v = d.map(m => f(m) || 0), n = v.length, sum = v.reduce((a, b) => a + b, 0), avg = sum / n;
+  const k = Math.min(3, Math.floor(n / 2)), a = v.slice(0, k).reduce((x, y) => x + y, 0) / k, b = v.slice(-k).reduce((x, y) => x + y, 0) / k;
+  const peak = v.indexOf(Math.max(...v)), active = v.filter(x => x > 0).length;
+  const sd = Math.sqrt(v.reduce((x, y) => x + (y - avg) ** 2, 0) / n);
+  return { v, sum, avg, ch: a ? b / a - 1 : (b ? 1 : 0), peak, active, cv: avg ? sd / avg : 0, sorted: v.slice().sort((x, y) => x - y) };
+}
+function readLine(st, isIn, share, d) {
+  const pk = monthName(d[st.peak].key);
+  if (isIn) {
+    if (st.active <= d.length / 2) return `فقط ${faDigits(st.active)} ماه از ${faDigits(d.length)} ماه؛ منبع ثابتی نیست`;
+    if (st.ch > .2) return `رو به رشد؛ اوج ${pk}`;
+    if (st.ch < -.2) return `رو به کاهش؛ اوج ${pk} بود`;
+    return st.cv > .5 ? `نامنظم؛ اوج ${pk}` : 'ثابت و قابل اتکا';
+  }
+  if (st.active <= Math.ceil(d.length / 3)) return `یک‌باره؛ بیشترش در ${pk}`;
+  if (share >= .12 && st.ch > .2) return 'بزرگ و رو به رشد؛ اولین جا برای کم کردن';
+  if (st.ch > .4) return `تند بالا رفته؛ اوج ${pk}`;
+  if (st.ch < -.2) return 'کم شده؛ خوب';
+  if (st.cv > .6) return `نامنظم؛ اوج ${pk}`;
+  return share >= .12 ? 'بزرگ ولی ثابت' : 'ثابت';
+}
+function lineByLine(series, A) {
+  const d = series.filter(m => !m.running && (m.expense || m.work));
+  if (d.length < 3) return '';
+  const totIn = IN_LINES.reduce((x, [f]) => x + d.reduce((y, m) => y + (m[f] || 0), 0), 0) || 1, totOut = A.expense || 1;
+  const ins = IN_LINES.map(([f, l]) => ({ id: f, l, st: lineStats(d, m => m[f]), isIn: true })).filter(x => x.st.sum > 1e6);
+  const outs = Object.keys(CATEGORIES).filter(c => !['fees', 'uncat'].includes(c)).map(c => ({ id: c, l: CATEGORIES[c].label, col: CATEGORIES[c].color, st: lineStats(d, m => (m.byCat || {})[c]) })).filter(x => x.st.sum > 1e6);
+  const row = (x, tot) => { const share = x.st.sum / tot, mx = Math.max(...x.st.v, 1), bad = x.isIn ? x.st.ch < -.1 : x.st.ch > .1, good = x.isIn ? x.st.ch > .1 : x.st.ch < -.1;
+    return `<button class="cell ll" data-act="line" data-v="${x.isIn ? 'in' : 'out'}:${x.id}">
+      <span class="ll-t"><b>${x.col ? `<i class="dot" style="background:${x.col}"></i>` : ''}${esc(x.l)}</b><small>${readLine(x.st, x.isIn, share, d)}</small></span>
+      <span class="bp-bars ll-bars">${x.st.v.map(v => `<i style="height:${Math.max(6, v / mx * 100).toFixed(0)}%"></i>`).join('')}</span>
+      <span class="ll-v"><b>${fmtShort(x.st.avg)}</b><small class="${good ? 'green' : bad ? 'red' : ''}">${pct(share)}${Math.abs(x.st.ch) >= .1 ? ` ${x.st.ch > 0 ? '▲' : '▼'}` : ''}</small></span></button>`; };
+  outs.sort((a, b) => b.st.sum - a.st.sum); ins.sort((a, b) => b.st.sum - a.st.sum);
+  return `<div class="section-title">درآمدها، یکی‌یکی</div><div class="group">${ins.map(x => row(x, totIn)).join('')}</div>
+    <div class="section-title">خرج‌ها، یکی‌یکی</div><div class="group">${outs.map(x => row(x, totOut)).join('')}</div>
+    <p class="foot">میانگین ماهانه، سهم از کل، و ▲▼ ۳ ماه آخر در برابر ۳ ماه اول.</p>`;
+}
+function lineSheet(v) {
+  const [side, id] = v.split(':'), isIn = side === 'in';
+  const series = monthsSeries(S.history, scoped(), S.settings.startDate), d = series.filter(m => !m.running && (m.expense || m.work));
+  const f = isIn ? m => m[id] : m => (m.byCat || {})[id], st = lineStats(d, f);
+  const name = isIn ? (IN_LINES.find(x => x[0] === id) || [, id])[1] : CATEGORIES[id].label;
+  const mid = st.sorted[Math.floor(st.sorted.length / 2)], cap = Math.round(mid / 1e6) * 1e6;
+  const rows = d.map((m, i) => [monthLabel(m.key), fmt(st.v[i])]);
+  const run = series.find(m => m.running);
+  if (run) rows.push([`${monthLabel(run.key)} (تا الان)`, fmt(f(run) || 0)]);
+  infoSheet(name, [['میانگین ماهانه', fmt(st.avg)], ...rows],
+    isIn ? `${readLine(st, true, 0, d)}.` : `${readLine(st, false, st.sum / (d.reduce((x, m) => x + (m.expense || 0), 0) || 1), d)}.<br><b>سقف پیشنهادی: ${fmtShort(cap)} در ماه</b> (میانهٔ ماه‌های تو؛ نصف ماه‌ها کمتر از این خرج کرده‌ای).`);
+}
+
 // Scorecard: four readings that decide financial health, each with its target; tap for the month by month.
 function scoreCard(K) {
   const pick = ['self', 'runway', 'family', 'disc'].map(id => K.find(k => k.id === id)).filter(Boolean);
@@ -1401,7 +1499,7 @@ function actionsCard(series, A) {
   if (cash < A.avgExp) out.push({ v: (A.avgExp - cash) * .5, t: 'ذخیرهٔ یک‌ماهه', d: 'نقد برای یک ماه هزینه', a: fmtShort(A.avgExp - cash) });
   const top3 = out.sort((x, y) => y.v - x.v).slice(0, 3);
   if (!top3.length) return '';
-  return `<div class="section-title">سه کار این ماه</div><div class="group acts">${top3.map((x, i) => `<div class="cell act-row">
+  return `<div class="section-title">همین ماه</div><div class="group acts">${top3.map((x, i) => `<div class="cell act-row">
     <span class="act-n">${faDigits(i + 1)}</span><span class="grow"><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span><b class="act-v">${x.a}</b></div>`).join('')}</div>`;
 }
 
@@ -2438,6 +2536,7 @@ document.addEventListener('click', async e => {
     else if (a === 'tr-cmpf') { const v = b.dataset.v, c = S.tr.cmps; S.tr.cmps = c.includes(v) ? c.filter(x => x !== v) : [...c, v].slice(-3); S.tr.picking = false; redrawTrend(); }
     else if (a === 'tr-cmpx') { S.tr.cmps = S.tr.cmps.filter(x => x !== b.dataset.v); if (!S.tr.cmps.length) S.tr.pct = false; redrawTrend(); }
     else if (a === 'challenge') challengeSheet();
+    else if (a === 'line') lineSheet(b.dataset.v);
     else if (a === 'mk-pick') { S.mk.k = b.dataset.v; S.mk.all = false; render(); }
     else if (a === 'mk-frame') { S.mk.f = b.dataset.v; bindMarketChart(); document.querySelectorAll('[data-act="mk-frame"]').forEach(x => x.classList.toggle('on', x === b)); }
     else if (a === 'mk-all') { S.mk.all = !S.mk.all; render(); }
