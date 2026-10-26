@@ -917,3 +917,19 @@ nav.tabs.pop button.on svg { animation: tabPop .5s var(--spring); }
 .li-more { background: var(--fill); color: var(--sec); border-radius: 999px; padding: 6px 10px; font-size: 12px; letter-spacing: 1px; }
 .li-pay:active, .li-more:active { transform: scale(.94); }
 .li-pay:disabled { opacity: .5; }
+
+/* shared monthly report with «زندگی من» */
+.wm { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.wm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 760px) { .wm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.wm-grid > div { background: var(--fill); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
+.wm-grid span { font-size: 12px; color: var(--sec); }
+.wm-grid b { font-size: 17px; font-weight: 700; }
+.wm-grid em { font-style: normal; font-size: 11.5px; line-height: 1.6; color: var(--sec); }
+.wm-rate b { color: var(--tint); }
+.wm-trend { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; height: 110px; align-items: end; }
+.wm-bar { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
+.wm-bar i { width: 100%; max-width: 32px; border-radius: 8px 8px 4px 4px; background: var(--fill); }
+.wm-bar.on i { background: var(--tint); }
+.wm-bar small { font-size: 10.5px; color: var(--sec); white-space: nowrap; }
+.wm-bar span { font-size: 11px; color: var(--sec); }

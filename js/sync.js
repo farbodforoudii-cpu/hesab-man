@@ -89,7 +89,7 @@ async function pull() {
 
 // «زندگی من»: bills for finished packages (read here) and the answers given here (payments).
 // Kept on this device apart from transactions; only payment records are ever written to the life side.
-let life = { bills: {}, pays: {}, cursor: null, out: [] };
+let life = { bills: {}, pays: {}, months: {}, money: {}, status: null, cursor: null, out: [] };
 const saveLife = () => raw.set('lifeMirror', life);
 async function pullLife() {
   let changed = false, more = true;
@@ -98,6 +98,9 @@ async function pullLife() {
     for (const { data: d } of rows) {
       if (d.kind === 'bill') { if (d.deleted) delete life.bills[d.seriesId]; else life.bills[d.seriesId] = d; changed = true; }
       else if (d.kind === 'payment' && (!life.pays[d.seriesId] || life.pays[d.seriesId].updatedAt <= d.updatedAt)) { life.pays[d.seriesId] = d; changed = true; }
+      else if (d.kind === 'monthsum') { life.months[d.month] = d; changed = true; }
+      else if (d.kind === 'lifestatus') { life.status = d; changed = true; }
+      else if (d.kind === 'moneysum' && (!life.money[d.month] || life.money[d.month].updatedAt <= d.updatedAt)) life.money[d.month] = d;
     }
     if (rows.length) life.cursor = rows[rows.length - 1].server_updated_at;
     more = rows.length === 1000;
@@ -154,7 +157,7 @@ export const sync = {
     state.cursor = (await db.get('syncCursor')) || null;
     state.lastSync = (await db.get('syncLast')) || null;
     meta = (await db.get('syncMeta')) || meta;
-    life = (await db.get('lifeMirror')) || life;
+    life = { ...life, ...((await db.get('lifeMirror')) || {}) };
     changes.onWrite = state.key ? track : null;
     set({ status: state.key ? 'idle' : 'off' });
     addEventListener('online', () => sync.run());
@@ -194,7 +197,7 @@ export const sync = {
     await raw.set('syncKey', null);
     meta = { at: {}, dirty: {}, gone: {} };
     await saveMeta();
-    life = { bills: {}, pays: {}, cursor: null, out: [] };
+    life = { bills: {}, pays: {}, months: {}, money: {}, status: null, cursor: null, out: [] };
     await saveLife();
     await raw.set('syncCursor', null);
     set({ status: 'off', error: '', cursor: null });
@@ -211,6 +214,24 @@ export const sync = {
     }).sort((a, b) => a.to.localeCompare(b.to));
   },
   lifeBill: id => life.bills[id],
+  // The shared monthly report: hours and sessions from «زندگی من», per month (YYYY-MM), and its open receivables.
+  lifeMonth: k => life.months[k] || null,
+  lifeStatus: () => life.status,
+  // This app's half of the report: work income per month, sent only when it changed.
+  async publishMoney(rows) {
+    if (!state.key) return;
+    const now = new Date().toISOString(), out = [];
+    for (const r of rows) {
+      const old = life.money[r.month];
+      if (old && old.work === r.work && old.expense === r.expense) continue;
+      const rec = { id: `money_${r.month}`, kind: 'moneysum', month: r.month, work: r.work, expense: r.expense, createdAt: old?.createdAt || now, updatedAt: now };
+      life.money[r.month] = rec; out.push(rec);
+    }
+    if (!out.length) return;
+    life.out = life.out.filter(x => !out.some(o => o.id === x.id)).concat(out);
+    await saveLife();
+    clearTimeout(timer); timer = setTimeout(() => sync.run(), 1500);
+  },
   // how: 'tx' (recorded here now), 'existing' (already recorded), 'skip' (not to be collected), 'undo'.
   async answerBill(seriesId, how, txId = null) {
     const now = new Date().toISOString();

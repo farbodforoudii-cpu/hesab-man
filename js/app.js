@@ -66,6 +66,8 @@ async function boot() {
   // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
   await sync.init();
   sync.onRemote = reload;
+  // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
+  if (sync.state.key) render();
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
   sync.run();
 }
@@ -185,7 +187,13 @@ async function fixLateMehr() {
   await saveSettings();
 }
 
-function refresh() { S.tpl = buildTemplates(S.tx.filter(t => !isRound(t))); }
+function refresh() { S.tpl = buildTemplates(S.tx.filter(t => !isRound(t))); clearTimeout(moneyTimer); moneyTimer = setTimeout(publishMoney, 2000); }
+// This app's half of the shared monthly report with «زندگی من»: work income and living cost per month.
+let moneyTimer;
+function publishMoney() {
+  const rows = monthsSeries(S.history, scoped(), S.settings.startDate).map(m => ({ month: m.key, work: Math.round(m.work || 0), expense: Math.round(m.expense || 0) }));
+  sync.publishMoney(rows).catch(() => {});
+}
 
 // Self-updating: whenever the app is opened or comes back online, look for a new version and
 // switch to it automatically (only while nothing is being typed).
@@ -820,6 +828,30 @@ function lifeInbox() {
       <span class="li-txt"><b>${esc(b.name)}</b><small>${b.paid ? 'در «زندگی من» پرداخت شده؛ این‌جا ثبت نشده' : `${esc(b.period)}، ${faDigits(b.count)} جلسه`}${b.missing ? `، ${faDigits(b.missing)} بدون قیمت` : ''}</small></span>
       <span class="li-end"><b class="li-amt">${fmtShort(b.total)}</b><span class="row li-acts"><button class="li-more" data-act="bill-more" data-v="${esc(b.seriesId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="bill-pay" data-v="${esc(b.seriesId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>
     ${open.length ? `<p class="foot">طلب باز: ${fmtShort(sum)} تومان، جمع ${faDigits(open.length)} دورهٔ تمام‌شده که هنوز پرداخت نشده است. «رسید» دریافت را در کوچینگ ثبت می‌کند.</p>` : ''}`;
+}
+
+// ----- shared monthly report: hours from «زندگی من», income from here -----
+const hrs = min => iso(faDigits(Math.round(min / 6) / 10).replace('.', '٫'));
+function workMoneyCard(key) {
+  const L = sync.lifeMonth(key);
+  if (!L) return '';
+  const work = monthsSeries(S.history, scoped(), S.settings.startDate).reduce((m, x) => (m[x.key] = x.work || 0, m), {});
+  // A month counts once it has 20 work hours; a month that has only begun would give a misleading rate.
+  const rate = k => { const l = sync.lifeMonth(k); return l && l.workMin >= 20 * 60 && work[k] != null ? work[k] / (l.workMin / 60) : null; };
+  const r = rate(key), st = sync.lifeStatus();
+  const pts = Array.from({ length: 6 }, (_, i) => shiftMonth(key, i - 5)).map(k => ({ k, v: rate(k) }));
+  const top = Math.max(1, ...pts.map(p => p.v || 0));
+  return `<div class="section-title">کار و درآمد ${esc(monthLabel(key))}، با «زندگی من»</div>
+    <div class="group wm"><div class="wm-grid">
+      <div><span>ساعت کار</span><b>${L.estMin ? '≈' : ''}${hrs(L.workMin)} ساعت</b><em>جلسه ${hrs(L.clientMin)} + شیفت ${hrs(L.shiftMin)}</em></div>
+      <div><span>جلسه و شیفت</span><b>${faDigits(L.sessions)} جلسه، ${faDigits(L.shifts)} شیفت</b><em>برگزارشده</em></div>
+      <div><span>ارزش جلسه‌ها</span><b>${fmtShort(L.earned)}</b><em>مجموع مبلغ جلسه‌های برگزارشده${L.unpriced ? `؛ ${faDigits(L.unpriced)} جلسه بدون قیمت` : ''}</em></div>
+      <div><span>دریافتی کاری</span><b>${fmtShort(work[key] || 0)}</b><em>با پول دیررسیدهٔ همین ماه</em></div>
+      <div class="wm-rate"><span>درآمد هر ساعت کار</span><b>${r != null ? fmtShort(r) : '—'}</b><em>${r != null ? `= دریافتی کاری ÷ ${hrs(L.workMin)} ساعت کار` : 'دریافتی کاری ÷ ساعت کار؛ پس از ۲۰ ساعت کار در ماه حساب می‌شود'}</em></div>
+      <div><span>طلب باز</span><b>${st ? fmtShort(st.open) : '—'}</b><em>${st ? `${faDigits(st.openSessions)} جلسهٔ برگزارشده که هنوز پرداخت نشده` : ''}</em></div>
+    </div>
+    <div class="wm-trend" role="img" aria-label="درآمد هر ساعت کار در شش ماه اخیر">${pts.map(p => `<div class="wm-bar ${p.k === key ? 'on' : ''}"><small>${p.v ? fmtShort(p.v) : '—'}</small><i style="height:${p.v ? Math.max(6, p.v / top * 100).toFixed(0) : 0}%"></i><span>${esc(monthLabel(p.k).split(' ')[0])}</span></div>`).join('')}</div></div>
+    <p class="foot">ستون‌ها: درآمد هر ساعت کار در شش ماه اخیر (دریافتی کاری همان ماه ÷ ساعت جلسه و شیفت همان ماه در «زندگی من»).${L.estMin ? ' ساعت‌های تخمینی سوابق قدیمی با «≈» آمده‌اند.' : ''}</p>`;
 }
 
 const billDesc = b => `جلسه‌های ${b.name}، ${b.period}`;
@@ -1558,6 +1590,7 @@ function viewDash() {
       </div>
     </section>
     ${key === monthKey(new Date()) ? lifeInbox() : ''}
+    ${workMoneyCard(key)}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${liveStory(T, key)}
     ${assetTile()}
