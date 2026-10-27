@@ -13,6 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: python3 tools/prices.py
+      - name: Check the live price relay used by the app's refresh button
+        run: curl -s -m 30 https://paclucymaqgellnlctbv.supabase.co/functions/v1/prices || true
       - run: |
           git config user.name "prices-bot"
           git config user.email "prices-bot@users.noreply.github.com"

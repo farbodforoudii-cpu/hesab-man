@@ -20,7 +20,8 @@ try:
     cur = json.loads(get('https://call1.tgju.org/ajax.json'))['current']
     for k, key in KEYS.items():
         c = cur[key]
-        out['now'][k] = {'p': round(num(c['p'])), 'dp': float(c.get('dp') or 0), 'ts': c.get('ts')}
+        # dp is the size of today's move; dt gives its direction ('low' = down).
+        out['now'][k] = {'p': round(num(c['p'])), 'dp': float(c.get('dp') or 0) * (-1 if c.get('dt') == 'low' else 1), 'ts': c.get('ts')}
 except Exception as e:
     out['err'] = str(e)
 
