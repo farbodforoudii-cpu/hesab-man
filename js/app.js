@@ -1322,7 +1322,7 @@ function openDetail(kind, v) {
 
 // ----- Analysis: the long view from the first month on -----
 // Bump when the encrypted history bundle is rebuilt so devices offer to reload it.
-const HIST_REV = 7;
+const HIST_REV = 8;
 function viewAnalysis() {
   const head = pageHead('تحلیل');
   const unlock = histUnlock();
