@@ -116,6 +116,32 @@ async function pushLife() {
   await saveLife();
 }
 
+// «فربد کوچینگ»: sales Farbod approved on the coach page (read here) and the answers given here (receipts).
+// Same rule as «زندگی من»: kept apart from transactions, and income is recorded only on a tap.
+let coach = { sales: {}, rcv: {}, cursor: null, out: [] };
+const saveCoach = () => raw.set('coachMirror', coach);
+async function pullCoach() {
+  let changed = false, more = true;
+  while (more) {
+    const rows = await rpc('eco_pull', { p_key: state.key, p_app: 'coach', p_after: coach.cursor, p_limit: 1000 });
+    for (const { data: d } of rows) {
+      if (d.kind === 'sale') { if (d.deleted) delete coach.sales[d.saleId]; else coach.sales[d.saleId] = d; changed = true; }
+      else if (d.kind === 'receipt' && (!coach.rcv[d.saleId] || coach.rcv[d.saleId].updatedAt <= d.updatedAt)) { coach.rcv[d.saleId] = d; changed = true; }
+    }
+    if (rows.length) coach.cursor = rows[rows.length - 1].server_updated_at;
+    more = rows.length === 1000;
+  }
+  await saveCoach();
+  return changed;
+}
+async function pushCoach() {
+  if (!coach.out.length) return;
+  const out = coach.out;
+  await rpc('eco_push', { p_key: state.key, p_app: 'coach', p_rows: out });
+  coach.out = coach.out.filter(x => !out.includes(x));
+  await saveCoach();
+}
+
 async function push() {
   const ids = Object.keys(meta.dirty);
   if (!ids.length) return;
@@ -158,6 +184,7 @@ export const sync = {
     state.lastSync = (await db.get('syncLast')) || null;
     meta = (await db.get('syncMeta')) || meta;
     life = { ...life, ...((await db.get('lifeMirror')) || {}) };
+    coach = { ...coach, ...((await db.get('coachMirror')) || {}) };
     changes.onWrite = state.key ? track : null;
     set({ status: state.key ? 'idle' : 'off' });
     addEventListener('online', () => sync.run());
@@ -199,6 +226,8 @@ export const sync = {
     await saveMeta();
     life = { bills: {}, pays: {}, months: {}, money: {}, status: null, cursor: null, out: [] };
     await saveLife();
+    coach = { sales: {}, rcv: {}, cursor: null, out: [] };
+    await saveCoach();
     await raw.set('syncCursor', null);
     set({ status: 'off', error: '', cursor: null });
   },
@@ -214,6 +243,22 @@ export const sync = {
     }).sort((a, b) => a.to.localeCompare(b.to));
   },
   lifeBill: id => life.bills[id],
+  // Approved «فربد کوچینگ» sales still waiting for an answer here, oldest first.
+  coachInbox() {
+    if (!state.key) return [];
+    return Object.values(coach.sales).filter(x => { const r = coach.rcv[x.saleId]; return !r || r.how === 'undo'; })
+      .sort((a, b) => String(a.approvedAt).localeCompare(String(b.approvedAt)));
+  },
+  coachSale: id => coach.sales[id],
+  // how: 'tx' (recorded here now), 'existing' (already recorded), 'skip', 'undo'.
+  async answerSale(saleId, how, txId = null) {
+    const now = new Date().toISOString();
+    const r = { id: `rcv_${saleId}`, kind: 'receipt', saleId, how, txId, at: now, createdAt: coach.rcv[saleId]?.createdAt || now, updatedAt: now };
+    coach.rcv[saleId] = r;
+    coach.out = coach.out.filter(x => x.saleId !== saleId).concat(r);
+    await saveCoach();
+    clearTimeout(timer); timer = setTimeout(() => sync.run(), 800);
+  },
   // The shared monthly report: hours and sessions from «زندگی من», per month (YYYY-MM), and its open receivables.
   lifeMonth: k => life.months[k] || null,
   lifeStatus: () => life.status,
@@ -254,6 +299,8 @@ export const sync = {
       await push();
       await pushLife();
       changed = (await pullLife()) || changed;
+      await pushCoach();
+      changed = (await pullCoach()) || changed;
       state.lastSync = new Date().toISOString();
       await raw.set('syncLast', state.lastSync);
       set({ status: 'idle' });
