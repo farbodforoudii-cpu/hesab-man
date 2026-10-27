@@ -1007,3 +1007,18 @@ html.glass .act-n { background: var(--ink); color: #fff; }
 .car-slide.on .car-prog em { animation: fdGrow .9s var(--out) .2s both; }
 @keyframes fdGrow { from { transform: scaleX(0); } }
 [data-clock] { direction: ltr; unicode-bidi: isolate; }
+
+/* Signal card (assets): verdict, action with prices, the six readings */
+.sig2 { margin: 12px 0 4px; }
+.sig2-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sig2-act { font-size: 14px; font-weight: 600; line-height: 1.6; }
+.sig2-rows { margin-top: 10px; display: grid; gap: 2px; }
+.sig2-r { display: flex; align-items: center; gap: 9px; padding: 7px 0; border-top: 1px solid var(--sep); font-size: 13.5px; }
+.sig2-r span { flex: 1; color: var(--sec); } .sig2-r small { font-size: 11px; }
+.sig2-r b { font-weight: 600; }
+.kdot.n { background: var(--ter); }
+.sig2-foot { margin: 8px 0 0; font-size: 12px; color: var(--ter); line-height: 1.6; }
+.macro .mc-t { display: block; font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.macro p { margin: 0 0 6px; font-size: 14px; line-height: 1.7; color: var(--sec); }
+.macro .mc-risk { color: var(--orange); }
+.macro.old { opacity: .6; }

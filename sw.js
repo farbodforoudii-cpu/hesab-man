@@ -1,5 +1,5 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v58';
+const VERSION = 'v59';
 const SHELL = [
   './', 'index.html', 'app.css', 'glass.css', 'manifest.webmanifest',
   'js/app.js', 'js/market.js', 'js/sync.js', 'js/config.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js', 'js/analysis.js',
@@ -19,8 +19,8 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
-  // Live prices: network first, the cached copy only when offline.
-  if (new URL(e.request.url).pathname.endsWith('/data/prices.json')) {
+  // Live prices and the Iran outlook: network first, the cached copy only when offline.
+  if (/\/data\/(prices|macro)\.json$/.test(new URL(e.request.url).pathname)) {
     e.respondWith(caches.open(VERSION).then(cache => fetch(e.request, { cache: 'no-store' })
       .then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; })
       .catch(() => cache.match(e.request, { ignoreSearch: true }))));

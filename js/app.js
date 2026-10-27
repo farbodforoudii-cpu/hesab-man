@@ -7,7 +7,7 @@ import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.j
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
-import { MK, TARGET, fetchMarket, stats as mstats, signal as msignal, plan as mplan, maSeries, rsiSeries } from './market.js';
+import { MK, TARGET, MACRO_DAYS, fetchMarket, stats as mstats, signal as msignal, plan as mplan, emaSeries, rsiSeries } from './market.js';
 import { createChart, createSeriesMarkers, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode } from '../vendor/lightweight-charts.mjs';
 
 const S = {
@@ -85,6 +85,7 @@ async function loadMarket() {
   } catch { /* offline: keep the cached copy */ }
 }
 const MARKET_KINDS = ['usd', 'eur', 'gold', 'silver'];
+const sigOf = t => msignal(t, S.market && S.market.macro);
 // Price used for an asset: the live market price when there is one, otherwise the one typed in.
 const livePrice = k => (MARKET_KINDS.includes(k) && S.market && S.market.now && S.market.now[k] && S.market.now[k].p) || assetsState().prices[k] || 0;
 const marketAge = () => S.market ? ago(S.market.at) : '';
@@ -1726,7 +1727,7 @@ function liveItems(series) {
     NOW.push({ k: 'چالش', t: gap > 0 ? `${pct(w / c.income)} هدف درآمد ${mName}` : `هدف درآمد ${mName} زده شد`, d: gap > 0 ? `${fmtShort(w)} از ${fmtShort(c.income)}؛ روزی ${fmtShort(gap / left)} تا آخر ماه.` : `${fmtShort(w)} از ${fmtShort(c.income)}.`, bar: Math.min(1, w / c.income) }); }
   const st = S.market ? MARKET_KINDS.map(k => mstats(S.market, k)).filter(x => x && x.day != null) : [];
   const mv = st.sort((a, b) => Math.abs(b.day) - Math.abs(a.day))[0];
-  if (mv) NOW.push({ k: 'بازار', t: `${MK[mv.k].label} امروز ${pctS(mv.day)}`, d: `${MK[mv.k].per} ${fmt(mv.last)} تومان؛ ${msignal(mv).tag ? `سیگنال: ${msignal(mv).tag}.` : ''}`, ago: S.market.at });
+  if (mv) NOW.push({ k: 'بازار', t: `${MK[mv.k].label} امروز ${pctS(mv.day)}`, d: `${MK[mv.k].per} ${fmt(mv.last)} تومان؛ ${sigOf(mv).tag ? `سیگنال: ${sigOf(mv).tag}.` : ''}`, ago: S.market.at });
 
   // Each record, read in one line against the month, the challenge or the category's usual size.
   const since = now - 7 * 864e5, month = T.filter(t => monthKey(new Date(t.ts)) === key), monthOut = month.filter(t => t.type === 'expense');
@@ -2157,18 +2158,14 @@ function viewAssets() {
       <div><span class="b-pill">${M ? '<span class="live-dot"></span>' : ''}همهٔ دارایی</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
       <p class="b-note">${usd ? `${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار` : ''}${M && Math.abs(eff) > 1e6 ? `، ۳۰ روز <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</p></div></section>
 
-    ${M ? `<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
-    <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = msignal(t);
+    ${M ? `${macroCard(M.macro)}<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
+    <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = sigOf(t);
       return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
         <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.tag ? `<span class="news-k ${sg.tone || ''}">${sg.tag}</span>` : ''}</button>`; }).join('')}</div>
     <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
       <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw mk-tall" id="mk-chart"></div>
-      ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : (() => { const t = ST[S.mk.k], sg = msignal(t);
-        return `<div class="sig"><span class="sig-tag ${sg.tone || ''}">${sg.tag}</span><div class="sig-chips">
-          <span><small>روند</small><b>${t.trend > 0 ? 'صعودی' : t.trend < 0 ? 'نزولی' : 'بی‌جهت'}</b></span>
-          <span><small>RSI ۱۴ روزه</small><b>${t.rsi != null ? faDigits(Math.round(t.rsi)) : '—'}</b></span>
-          <span><small>تا میانگین ۹۰</small><b>${t.pos >= 0 ? '+' : '−'}${faDigits(Math.round(Math.abs(t.pos) * 100))}٪</b></span></div></div>
-        <p class="tv-hint">میانگین ۲۰ و ۹۰ روزه، RSI، ▲ خریدهای گذشته</p>`; })()}</div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
+      ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : (() => { const t = ST[S.mk.k], sg = sigOf(t);
+        return `${sigCard(t, sg)}<p class="tv-hint">EMA ۲۰ و ۵۰، خط‌چین: حمایت و مقاومت، ▲ خریدهای گذشته</p>`; })()}</div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
 
     <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
     <div class="ins-card plan">
@@ -2205,6 +2202,28 @@ function viewAssets() {
     </div></div>`;
 }
 
+// Iran's conditions: the hand-written outlook in data/macro.json, the heaviest reading in every signal.
+function macroCard(m) {
+  if (!m) return '';
+  const days = Math.floor((Date.now() - new Date(m.at)) / 864e5), old = days > MACRO_DAYS;
+  return `<div class="section-title">شرایط ایران</div><div class="ins-card macro${old ? ' old' : ''}">
+    <b class="mc-t">${esc(m.title)}</b><p>${esc(m.note)}</p><p class="mc-risk">${esc(m.risk)}</p>
+    <small class="sec">${old ? 'به‌روز نیست؛ در سیگنال حساب نمی‌شود' : days ? `${faDigits(days)} روز پیش به‌روز شد` : 'امروز به‌روز شد'}</small></div>`;
+}
+
+// Signal card: the verdict, what to do and at what price, then the six readings behind it.
+function sigCard(t, sg) {
+  if (!sg.checks.length) return '';
+  const P = v => fmt(Math.round(v));
+  const act = { now: 'زمان ورود مناسب است؛ پله‌ای بخر.', in: 'در محدودهٔ خرید است؛ پله‌ای بخر.',
+    dip: `خرید پله‌ای روی اصلاح: ${P(sg.zone[0])} تا ${P(sg.zone[1])}`,
+    sup: sg.sup.length ? `خرید فقط نزدیک حمایت: ${sg.sup.map(P).join(' و ')}` : 'فعلاً خرید نکن.',
+    wait: `صبر تا برگشت بالای ${P(sg.wait[1])} (EMA ۵۰) یا نگه داشتن ${P(sg.wait[0])} (کف ابر)` }[sg.mode];
+  return `<div class="sig2"><div class="sig2-top"><span class="sig-tag ${sg.tone || ''}">${esc(sg.tag)}</span><span class="sig2-act">${act}</span></div>
+    <div class="sig2-rows">${sg.checks.map(c => `<div class="sig2-r"><i class="kdot ${c.v > 0 ? 'g' : c.v < 0 ? 'r' : 'n'}"></i><span>${esc(c.n)}${c.w ? ' <small>(×۲)</small>' : ''}</span><b>${esc(c.r)}</b></div>`).join('')}</div>
+    <p class="sig2-foot">روند (ایچیموکو، EMA، ایران) می‌گوید بخری یا نه؛ زمان (سطح‌ها، RSI، MACD) می‌گوید کی.</p></div>`;
+}
+
 let mkChart = null;
 function bindMarketChart() {
   const wrap = document.getElementById('mk-chart');
@@ -2224,7 +2243,7 @@ function bindMarketChart() {
     rightPriceScale: { borderColor: ink(.14), scaleMargins: { top: .2, bottom: .08 } },
     timeScale: { borderColor: ink(.14), fixLeftEdge: true, fixRightEdge: true, tickMarkFormatter: t => { const d = typeof t === 'string' ? new Date(t + 'T12:00') : t.year ? new Date(t.year, t.month - 1, t.day, 12) : new Date(t * 1000); return monthLabel(monthKey(d)).split(' ')[0]; } },
     crosshair: { mode: CrosshairMode.Magnet, vertLine: { color: ink(.45), labelBackgroundColor: isGlass() ? '#1d1b19' : '#e9e9ee' }, horzLine: { color: ink(.45) } },
-    localization: { priceFormatter: fmtP, timeFormatter: t => formatJalali(typeof t === 'string' ? new Date(t + 'T12:00') : new Date(t.year, t.month - 1, t.day, 12)) },
+    localization: { timeFormatter: t => formatJalali(typeof t === 'string' ? new Date(t + 'T12:00') : new Date(t.year, t.month - 1, t.day, 12)) },
     handleScroll: { vertTouchDrag: false },
   });
   const legend = document.getElementById('mk-legend');
@@ -2238,17 +2257,21 @@ function bindMarketChart() {
     if (!all) {
       const full = H[kk] || [], from = pts.length ? pts[0][0] : '';
       const line = (arr, opt) => mkChart.addSeries(LineSeries, { lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, priceFormat: { type: 'custom', formatter: fmtP }, ...opt }).setData(arr.filter(r => r[0] >= from).map(([d, v]) => ({ time: d, value: v })));
-      line(maSeries(full, 20), { color: ink(.55) });
-      line(maSeries(full, 90), { color: ink(.4), lineStyle: LineStyle.Dashed });
+      line(emaSeries(full, 20), { color: ink(.55) });
+      line(emaSeries(full, 50), { color: ink(.4), lineStyle: LineStyle.Dashed });
+      const st = mstats(S.market, kk);
+      if (st) { for (const v of st.lv.sup) se.createPriceLine({ price: v, color: 'rgba(30,158,87,.55)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false });
+        for (const v of st.lv.res) se.createPriceLine({ price: v, color: 'rgba(224,69,58,.5)', lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false }); }
       const rsi = rsiSeries(full).filter(r => r[0] >= from);
       const rs = mkChart.addSeries(LineSeries, { color: COL[kk], lineWidth: 1, priceLineVisible: false, lastValueVisible: true, priceFormat: { type: 'custom', formatter: v => faDigits(Math.round(v)) } }, 1);
       rs.setData(rsi.map(([d, v]) => ({ time: d, value: v })));
       rs.createPriceLine({ price: 70, color: 'rgba(224,69,58,.5)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
       rs.createPriceLine({ price: 35, color: 'rgba(30,158,87,.6)', lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false });
-      // Buy days: RSI first dips under 35, or price drops 5% under its 90-day average inside an uptrend.
-      const ma90 = Object.fromEntries(maSeries(full, 90)), ma20 = Object.fromEntries(maSeries(full, 20)), px = Object.fromEntries(full);
-      let was = false; const marks = [];
-      for (const [d, r] of rsi) { const g = ma90[d] ? px[d] / ma90[d] - 1 : 0, buy = r < 35 || (g < -0.05 && ma20[d] > ma90[d]); if (buy && !was) marks.push({ time: d, position: 'belowBar', shape: 'arrowUp', color: '#1e9e57', size: 1 }); was = buy; }
+      // Buy days: RSI first dips under 35, or price pulls back under EMA 50 while EMA 50 is over EMA 200 (a dip in an uptrend).
+      const e50 = Object.fromEntries(emaSeries(full, 50)), e200 = Object.fromEntries(emaSeries(full, 200)), px = Object.fromEntries(full);
+      let was = false, lastAt = 0; const marks = [];
+      // At most one mark per 10 days, so a price hovering around EMA 50 does not fill the chart.
+      for (const [d, r] of rsi) { const buy = r < 35 || (px[d] < e50[d] && e50[d] > e200[d]), t = Date.parse(d); if (buy && !was && t - lastAt >= 10 * 864e5) { marks.push({ time: d, position: 'belowBar', shape: 'arrowUp', color: '#1e9e57', size: 1 }); lastAt = t; } was = buy; }
       if (marks.length) createSeriesMarkers(se, marks);
       try { mkChart.panes()[1].setHeight(70); } catch {}
     }
