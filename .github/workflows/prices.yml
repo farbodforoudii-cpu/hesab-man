@@ -1,7 +1,8 @@
 name: prices
 on:
   schedule:
-    - cron: '17 3-19/2 * * *'   # every 2 hours, 06:47–22:47 Tehran
+    - cron: '17 8-15 * * *'      # hourly while Tehran trades, 11:47–18:47 Tehran
+    - cron: '17 3,5,17,19 * * *' # outside market hours: 06:47, 08:47, 20:47, 22:47 Tehran
   workflow_dispatch:
 permissions:
   contents: write
