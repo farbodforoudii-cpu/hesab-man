@@ -64,13 +64,21 @@ function levels(c, last) {
   return { sup: piv.filter(p => p < last).sort((a, b) => b - a).slice(0, 2), res: piv.filter(p => p > last).sort((a, b) => a - b).slice(0, 2), top: Math.max(...w) };
 }
 
+// Daily closes with today's live price as the last point (replacing today's close if it is already there),
+// so the cards, the chart and the signal all read the same number.
+export function liveHist(M, k) {
+  const h = (M && M.hist && M.hist[k]) || [], now = M && M.now && M.now[k];
+  if (!now || !now.p) return h;
+  const d = (now.ts || '').slice(0, 10) || new Date().toISOString().slice(0, 10), lastD = h.length ? h[h.length - 1][0] : '';
+  return d > lastD ? [...h, [d, now.p]] : [...h.slice(0, -1), [lastD, now.p]];
+}
+
 // Everything the signal reads, from daily closing prices.
 export function stats(M, k) {
-  const h = (M && M.hist && M.hist[k]) || [], now = M && M.now && M.now[k];
-  const last = now ? now.p : h.length ? h[h.length - 1][1] : null;
+  const h = liveHist(M, k), now = M && M.now && M.now[k];
+  const last = h.length ? h[h.length - 1][1] : null;
   if (!last) return null;
   const c = h.map(r => r[1]);
-  if (now && h.length && now.ts.slice(0, 10) > h[h.length - 1][0]) c.push(last); else if (c.length) c[c.length - 1] = last;
   const back = n => (c.length > n ? c[c.length - 1 - n] : null);
   const ma = n => avgOf(c.slice(-n));
   const ma20 = ma(20), ma90 = ma(90), r = rsiSeries(h);

@@ -7,7 +7,7 @@ import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.j
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
 import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
-import { MK, TARGET, MACRO_DAYS, fetchMarket, stats as mstats, signal as msignal, plan as mplan, emaSeries, rsiSeries } from './market.js';
+import { MK, TARGET, MACRO_DAYS, fetchMarket, stats as mstats, signal as msignal, plan as mplan, emaSeries, rsiSeries, liveHist } from './market.js';
 import { createChart, createSeriesMarkers, AreaSeries, LineSeries, LineStyle, CrosshairMode, LastPriceAnimationMode } from '../vendor/lightweight-charts.mjs';
 
 const S = {
@@ -2251,7 +2251,7 @@ function bindMarketChart() {
   const wrap = document.getElementById('mk-chart');
   if (mkChart) { try { mkChart.remove(); } catch {} mkChart = null; }
   if (!wrap || !S.market) return;
-  const days = { '3m': 92, '6m': 183, '1y': 366 }[S.mk.f], H = S.market.hist, k = S.mk.k, all = S.mk.all;
+  const days = { '3m': 92, '6m': 183, '1y': 366 }[S.mk.f], H = Object.fromEntries(MARKET_KINDS.map(x => [x, liveHist(S.market, x)])), k = S.mk.k, all = S.mk.all;
   const cut = arr => (arr || []).slice(-days);
   const ink = a => isGlass() ? `rgba(29,27,25,${a})` : `rgba(235,235,245,${a})`;
   const COL = { usd: '#2e7d4f', eur: '#3d5afe', gold: '#d4a017', silver: '#8a8f98' };
