@@ -64,7 +64,10 @@ async function boot() {
   render();
   requestPersistence();
   setupUpdates();
+  // Prices and the Iran outlook: on start, every 30 minutes, and the moment the phone is back online or the app is reopened.
   loadMarket(); setInterval(loadMarket, 30 * 60e3);
+  addEventListener('online', loadMarket);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadMarket(); });
   // Sync starts after the one-time fixes above, so they never overwrite another device's copy.
   await sync.init();
   sync.onRemote = reload;
@@ -79,7 +82,8 @@ async function boot() {
 async function loadMarket() {
   try {
     const M = await fetchMarket();
-    if (!M || !M.now || (S.market && S.market.at === M.at)) return;
+    const mAt = x => x && x.macro && x.macro.at;
+    if (!M || !M.now || (S.market && S.market.at === M.at && mAt(S.market) === mAt(M))) return;
     S.market = M; await db.set('market', M);
     if (['dash', 'an', 'assets'].includes(S.view) && !document.querySelector('.sheet')) render();
   } catch { /* offline: keep the cached copy */ }
@@ -2208,7 +2212,7 @@ function macroCard(m) {
   const days = Math.floor((Date.now() - new Date(m.at)) / 864e5), old = days > MACRO_DAYS;
   return `<div class="section-title">شرایط ایران</div><div class="ins-card macro${old ? ' old' : ''}">
     <b class="mc-t">${esc(m.title)}</b><p>${esc(m.note)}</p><p class="mc-risk">${esc(m.risk)}</p>
-    <small class="sec">${old ? 'به‌روز نیست؛ در سیگنال حساب نمی‌شود' : days ? `${faDigits(days)} روز پیش به‌روز شد` : 'امروز به‌روز شد'}</small></div>`;
+    <small class="sec">${old ? 'به‌روز نیست؛ در سیگنال حساب نمی‌شود' : `${/T/.test(m.at) ? ago(m.at) : days ? `${faDigits(days)} روز پیش` : 'امروز'} به‌روز شد`}</small></div>`;
 }
 
 // Signal card: the verdict, what to do and at what price, then the six readings behind it.
