@@ -36,6 +36,7 @@ const ICON = {
   chevL: '<svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>',
   chevR: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
   del: '<svg viewBox="0 0 24 24"><path d="M9 6h11v12H9l-6-6z"/><path d="M13 10l4 4M17 10l-4 4"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 11-2.34-5.66"/><path d="M20 4v5h-5"/></svg>',
 };
 
 // ---------- data ----------
@@ -79,14 +80,30 @@ async function boot() {
 }
 
 // Live prices: keep the last copy for offline use; redraw the screens that show money in assets.
+// Returns true when the market could be reached (new data or not), false when offline.
 async function loadMarket() {
   try {
     const M = await fetchMarket();
     const mAt = x => x && x.macro && x.macro.at;
-    if (!M || !M.now || (S.market && S.market.at === M.at && mAt(S.market) === mAt(M))) return;
+    if (!M || !M.now) return false;
+    if (S.market && S.market.at === M.at && mAt(S.market) === mAt(M)) return true;
     S.market = M; await db.set('market', M);
     if (['dash', 'an', 'assets'].includes(S.view) && !document.querySelector('.sheet')) render();
-  } catch { /* offline: keep the cached copy */ }
+    return true;
+  } catch { return false; /* offline: keep the cached copy */ }
+}
+
+// The refresh button: live prices, the Iran outlook, the other devices' records and a new app version, all at once.
+let swReg = null;
+async function refreshAll(btn) {
+  if (btn.classList.contains('spin')) return;
+  btn.classList.add('spin');
+  const t0 = Date.now();
+  const [ok] = await Promise.all([loadMarket(), sync.run().catch(() => {}), swReg ? swReg.update().catch(() => {}) : null]);
+  await new Promise(r => setTimeout(r, Math.max(0, 600 - (Date.now() - t0))));
+  btn.classList.remove('spin');
+  if (!document.querySelector('.sheet')) render();
+  toast(ok ? `به‌روز شد، ${clock()}` : 'اینترنت در دسترس نیست؛ آخرین داده‌ها نمایش داده می‌شود');
 }
 const MARKET_KINDS = ['usd', 'eur', 'gold', 'silver'];
 const sigOf = t => msignal(t, S.market && S.market.macro);
@@ -255,6 +272,7 @@ function setupUpdates() {
   const swap = () => { if (reloading) return; if (idle()) { reloading = true; location.reload(); } else setTimeout(swap, 4000); };
   if (navigator.serviceWorker.controller) navigator.serviceWorker.addEventListener('controllerchange', swap);
   navigator.serviceWorker.register('sw.js').then(reg => {
+    swReg = reg;
     const check = () => { if (navigator.onLine) reg.update().catch(() => {}); };
     window.addEventListener('online', check);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
@@ -469,7 +487,7 @@ function render() {
 
 // Page header with a quick way back to entry (entry itself is not a tab).
 function pageHead(title, extra = '') {
-  return `<div class="page-head"><h1 class="large">${title}</h1><div class="row">${extra}${canEdit() ? `<button class="add-pill" data-act="go-entry">${ICON.add}<span>ثبت</span></button>` : ''}</div></div>`;
+  return `<div class="page-head"><h1 class="large">${title}</h1><div class="row">${extra}<button class="icon-round refresh" data-act="refresh" aria-label="به‌روزرسانی">${ICON.refresh}</button>${canEdit() ? `<button class="add-pill" data-act="go-entry">${ICON.add}<span>ثبت</span></button>` : ''}</div></div>`;
 }
 
 // iPad is for reading: analysis and reports only. Recording happens on the phone, unless editing is
@@ -2613,6 +2631,7 @@ document.addEventListener('click', async e => {
     }
     else if (a === 'sync-copy') { await copyText(sync.state.key); toast('کد کپی شد'); }
     else if (a === 'sync-now') { await sync.run(); render(); }
+    else if (a === 'refresh') refreshAll(b);
     else if (a === 'sync-out') { if (!confirm('همگام‌سازی روی این دستگاه خاموش شود؟ داده‌های این دستگاه می‌مانند.')) return; await sync.signOut(); render(); }
     else if (a === 'pick-json') document.getElementById('file-json').click();
     else if (a === 'pick-xlsx') document.getElementById('file-xlsx').click();

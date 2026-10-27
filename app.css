@@ -1022,3 +1022,11 @@ html.glass .act-n { background: var(--ink); color: #fff; }
 .macro p { margin: 0 0 6px; font-size: 14px; line-height: 1.7; color: var(--sec); }
 .macro .mc-risk { color: var(--orange); }
 .macro.old { opacity: .6; }
+
+/* Refresh button in every page head */
+.icon-round.refresh { width: 36px; height: 36px; color: var(--sec); }
+.icon-round.refresh svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.icon-round.refresh.spin svg { animation: rfSpin .8s linear infinite; }
+.icon-round.refresh:active { transform: scale(.9); }
+@keyframes rfSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-round.refresh.spin svg { animation-duration: 2s; } }

@@ -1,4 +1,5 @@
-// Live market prices (from data/prices.json, refreshed every 2 hours by a GitHub Action), simple trend
+import { SUPABASE_URL } from './config.js';
+// Market prices: live «now» from a small relay, daily history from data/prices.json (a GitHub Action); simple trend
 // statistics, and a monthly investment plan built from Farbod's own income and investing habits.
 // Nothing here predicts the market: every number is a rule written out next to it.
 
@@ -12,10 +13,17 @@ export const MK = {
 // currency side, silver adds upside with more swing.
 export const TARGET = { gold: .35, usd: .30, eur: .15, silver: .20 };
 
+// Live prices straight from the market, relayed by a small Supabase function (the phone cannot read
+// tgju directly). data/prices.json still brings the daily history; the live «now» wins when it is newer.
+const LIVE_URL = SUPABASE_URL + '/functions/v1/prices';
 export async function fetchMarket() {
-  const res = await fetch('data/prices.json', { cache: 'no-store' });
+  const [res, live] = await Promise.all([
+    fetch('data/prices.json', { cache: 'no-store' }),
+    fetch(LIVE_URL, { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null),
+  ]);
   if (!res.ok) throw new Error('prices ' + res.status);
   const M = await res.json();
+  if (live && live.now && live.at > M.at) { M.now = { ...M.now, ...live.now }; M.at = live.at; M.live = true; }
   // Iran's economic and political picture, written by hand after reading the news (no sources shown in the app).
   try { const r = await fetch('data/macro.json', { cache: 'no-store' }); if (r.ok) M.macro = await r.json(); } catch {}
   return M;
