@@ -459,7 +459,7 @@ function odometer(el) {
 const isWide = () => window.innerWidth >= 820;
 
 function render() {
-  const n = pendingList().length + sync.lifeInbox().length;
+  const n = pendingList().length + sync.lifeInbox().length + sync.coachInbox().length;
   const entry = S.view === 'entry' || !S.settings.startDate;
   document.body.classList.toggle('no-tabs', entry);
   const tabs = [['dash', 'chart', 'خلاصه'], ['an', 'spark', 'تحلیل'], ['assets', 'coins', 'دارایی'], ['list', 'list', 'تراکنش‌ها'], ['settings', 'gear', 'تنظیمات']];
@@ -895,6 +895,59 @@ function lifeInbox() {
     ${open.length ? `<p class="foot">طلب باز ${fmtShort(sum)}، ${faDigits(open.length)} دوره.</p>` : ''}`;
 }
 
+// ----- «فربد کوچینگ»: approved online sales waiting to be received -----
+// Farbod approves a card-to-card payment on the coach page; here one tap records it as coaching income.
+const planLabel = d => ({ 30: 'یک‌ماهه', 60: 'دوماهه', 90: 'سه‌ماهه', 180: 'شش‌ماهه' })[d] || `${faDigits(d)} روزه`;
+const saleDesc = x => `فربد کوچینگ، ${x.name}، برنامهٔ ${planLabel(x.days)}`;
+function coachInbox() {
+  const L = sync.coachInbox();
+  if (!L.length) return '';
+  return `<div class="section-title">از «فربد کوچینگ»</div>
+    <div class="group life-inbox">${L.map(x => `<div class="cell li-row">
+      <span class="li-txt"><b>${esc(x.name)}</b><small>برنامهٔ ${planLabel(x.days)}، کد پیگیری ${esc(faDigits(String(x.ref)))}</small></span>
+      <span class="li-end"><b class="li-amt">${fmtShort(x.amount)}</b><span class="row li-acts"><button class="li-more" data-act="sale-more" data-v="${esc(x.saleId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="sale-pay" data-v="${esc(x.saleId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>`;
+}
+
+async function receiveSale(id) {
+  const x = sync.coachSale(id);
+  if (!x) return;
+  // The same deposit already typed in or imported from the bank? Link to it instead of counting it twice.
+  const paid = new Date(x.paidAt);
+  const same = S.tx.find(t => t.dir === 'in' && !t.life && !t.coach && Math.abs(t.amount - x.amount) < 1000 && Math.abs(new Date(t.ts) - paid) < 3 * 864e5);
+  if (same) {
+    await putTx({ ...same, coach: id, ctx: 'coaching', type: same.type || 'income_work' }); await sync.answerSale(id, 'existing', same.id); render();
+    return toast(`همان دریافت «${same.desc}» قبلاً ثبت شده بود؛ به آن وصل شد`);
+  }
+  const now = new Date();
+  const tx = { id: newId(), ts: x.paidAt || now.toISOString(), dir: 'in', amount: x.amount, desc: saleDesc(x), cp: x.name, type: 'income_work', cat: null,
+    ctx: 'coaching', src: 'coach', coach: id, created: now.toISOString(), status: 'ok' };
+  const before = balanceAt(S.tx, S.settings);
+  await putTx(tx);
+  await sync.answerSale(id, 'tx', tx.id);
+  render();
+  island(tx, before, balanceAt(S.tx, S.settings));
+  toast(`ثبت شد، ${tx.desc}`, async () => { await delTx(tx.id); await sync.answerSale(id, 'undo'); render(); });
+}
+
+function saleOptions(id) {
+  const x = sync.coachSale(id);
+  if (!x) return;
+  const paid = new Date(x.paidAt);
+  const same = S.tx.filter(t => t.dir === 'in' && !t.coach && Math.abs(t.amount - x.amount) < 1000 && Math.abs(new Date(t.ts) - paid) < 10 * 864e5)
+    .sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, 4);
+  openSheet(`<div class="sheet-nav"><span></span><b>${esc(x.name)}</b><button class="link" data-close>بستن</button></div>
+    <p class="foot" style="margin:0 4px 12px">${esc(saleDesc(x))}، ${iso(fmt(x.amount))} تومان</p>
+    ${same.length ? `<div class="section-title" style="margin-top:0">همین دریافت قبلاً ثبت شده؟</div><div class="group">${same.map(t =>
+      `<button class="cell" data-act="link" data-v="${esc(t.id)}"><span>${esc(t.desc)}<small> ، ${esc(dayLabel(new Date(t.ts)))}</small></span><b>${iso(fmt(t.amount))}</b></button>`).join('')}</div>` : ''}
+    <div class="group" style="margin-top:14px">
+      <button class="cell" data-act="elsewhere"><span>جای دیگری ثبت شده است</span></button>
+      <button class="cell danger" data-act="skip">این فروش این‌جا ثبت نمی‌شود</button></div>`, {
+    link: async v => { const t = S.tx.find(y => y.id === v); if (!t) return; await putTx({ ...t, coach: id }); await sync.answerSale(id, 'existing', v); closeSheet(); render(); toast('به همان دریافت وصل شد'); },
+    elsewhere: async () => { await sync.answerSale(id, 'existing'); closeSheet(); render(); toast('کنار گذاشته شد؛ جای دیگری ثبت شده'); },
+    skip: async () => { await sync.answerSale(id, 'skip'); closeSheet(); render(); toast('کنار گذاشته شد'); },
+  });
+}
+
 // ----- shared monthly report: hours from «زندگی من», income from here -----
 const hrs = min => iso(faDigits(Math.round(min / 6) / 10).replace('.', '٫'));
 function workMoneyCard(key) {
@@ -975,6 +1028,7 @@ function viewList() {
   const pend = S.listFilter === 'pending';
   return `<div class="view">
     ${pageHead('تراکنش‌ها')}
+    ${coachInbox()}
     ${lifeInbox()}
     ${listBento()}
     <input class="search" id="q" placeholder="جستجو" value="${esc(S.listQuery)}">
@@ -1894,7 +1948,7 @@ function viewDash() {
         <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
     </section>
-    ${key === monthKey(new Date()) ? lifeInbox() : ''}
+    ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() : ''}
     ${workMoneyCard(key)}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
@@ -2540,9 +2594,11 @@ document.addEventListener('click', async e => {
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
-    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx', 'bill-pay', 'bill-more'].includes(a)) readOnlyToast();
+    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx', 'bill-pay', 'bill-more', 'sale-pay', 'sale-more'].includes(a)) readOnlyToast();
     else if (a === 'bill-pay') { b.disabled = true; await receiveBill(b.dataset.v); }
     else if (a === 'bill-more') billOptions(b.dataset.v);
+    else if (a === 'sale-pay') { b.disabled = true; await receiveSale(b.dataset.v); }
+    else if (a === 'sale-more') saleOptions(b.dataset.v);
     else if (a === 'device') {
       try {
         if (b.dataset.v === 'role') localStorage.setItem('deviceRole', isTablet() ? 'phone' : 'tablet');
