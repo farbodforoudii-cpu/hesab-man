@@ -1030,3 +1030,17 @@ html.glass .act-n { background: var(--ink); color: #fff; }
 .icon-round.refresh:active { transform: scale(.9); }
 @keyframes rfSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .icon-round.refresh.spin svg { animation-duration: 2s; } }
+
+/* Folded cards: the month's numbers table and Iran's conditions open on tap */
+details.ins-card > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14.5px; font-weight: 600; color: var(--tint); }
+details.ins-card > summary::-webkit-details-marker { display: none; }
+details.ins-card > summary svg { width: 16px; height: 16px; margin-inline-start: auto; color: var(--ter); transition: transform .3s var(--spring); }
+details.ins-card[open] > summary svg { transform: rotate(-90deg); }
+details.ins-card[open] > summary { margin-bottom: 10px; }
+.nt-fold > summary { color: var(--tint); }
+.macro > summary { flex-wrap: wrap; color: var(--label); }
+.macro .mc-k { width: 100%; font-size: 12px; font-weight: 500; color: var(--sec); }
+.macro > summary .mc-t { display: inline; margin: 0; font-size: 15.5px; }
+.macro > summary small { font-size: 12px; font-weight: 400; }
+.flow .logic { margin-top: 12px; }
+.flow .logic li { font-size: 15.5px; }

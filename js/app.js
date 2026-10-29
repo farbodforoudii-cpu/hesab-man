@@ -478,8 +478,7 @@ function render() {
   }
   if (S.view === 'list') setTimeout(() => { S.lastId = null; }, 1500);
   if (S.view === 'list') bindList();
-  if (S.view === 'dash') bindTrend();
-  if (S.view === 'an') bindCarousel();
+  if (S.view === 'an') { bindCarousel(); bindTrend(); }
   if (S.view === 'assets') bindMarketChart();
   if (S.view === 'entry' && S.step === 'what') bindWhat();
   if (S.view === 'entry' && S.step === 'amount') bindAmount();
@@ -1107,7 +1106,6 @@ function viewHistory(key) {
     ${pageHead('خلاصه', monthNav(key))}
     ${histUnlock()}
     ${storyHtml(key, { ins: ins.sort((a, b) => b[1] - a[1]), outs, days, h, bank: h.bank, lateNet: lateIn })}
-    <div id="trend">${trendCard()}</div>
   </div>`;
 }
 
@@ -1256,22 +1254,20 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
   const body = rows.map((r, i) => r.g ? `<div class="nt-g">${r.g}</div>` : `<${r.k ? `button data-act="detail" data-k="series" data-v="${r.k}"` : 'div'} class="nt-row${r.strong ? ' strong' : ''}" style="animation-delay:${(i * .04).toFixed(2)}s">
       <span class="nt-l">${r.l}</span><b data-cu="${Math.abs(Math.round(r.v))}" data-f="short"${r.signed ? ' data-raw="1"' : ''}>${num(r.v, r.signed)}</b>${running ? '' : `<span class="nt-u">${r.u == null ? '' : num(r.u, r.signed)}</span>${delta(r)}`}</${r.k ? 'button' : 'div'}>`).join('');
 
-  return `<div class="ins-card">
-      <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(name)}${running ? '، در جریان' : ''}</p>
-      <ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
-    </div>
-    ${flowCard({ work, fam, inT, outT, exp, asset, loan, net, running })}
-    <div class="ins-card nt${running ? ' run' : ''}">
+  // One card for the month: the flow first, then the few sentences that read it; the numbers fold under it.
+  const title = `${name}${running ? '، در جریان' : ''}`, logic = `<ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`;
+  return `${flowCard({ work, fam, inT, outT, exp, asset, loan, net, running, title, extra: logic }) || `<div class="ins-card"><p class="eyebrow-s">${esc(title)}</p>${logic}</div>`}
+    <details class="ins-card nt nt-fold${running ? ' run' : ''}"><summary>${running ? 'عددهای تا امروز' : 'عددها، در برابر میانگین'}${ICON.chevL}</summary>
       <div class="nt-row nt-head"><span></span><span>${running ? 'تا امروز' : 'این ماه'}</span>${running ? '' : '<span>میانگین</span><span>تغییر</span>'}</div>
       ${body}
       ${running || !span ? '' : `<p class="nt-foot">میانگین: ${span}</p>`}
-    </div>
+    </details>
     <button class="cell more-row ins-more" data-act="story-more"><span class="grow tint">همهٔ جزئیات ${esc(name)}</span>${ICON.chevL}</button>`;
 }
 
 // Money flow: where the month's money came from (right), through the month (centre), to where it went
 // (left). Line thickness is the amount; dots keep moving along the lines so the month reads as a stream.
-function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running }) {
+function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running, title = 'جریان پول', extra = '' }) {
   const pos = v => Math.max(0, v || 0);
   const src = [['درآمد کاری', pos(work)], ['حمایت خانواده', pos(fam)], ['سایر ورودی‌ها', pos(inT - work - fam)]].filter(x => x[1] >= 1e5);
   const dst = [['هزینهٔ زندگی', pos(exp)], ['سرمایه‌گذاری', pos(asset)], ['اقساط', pos(loan)], ['سایر خروجی‌ها', pos(outT - exp - asset - loan)]].filter(x => x[1] >= 1e5);
@@ -1289,13 +1285,13 @@ function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running }) {
   }).join('');
   const [nn, ...nu] = fmtShort(Math.abs(net)).split(' ');
   return `<div class="ins-card flow"><span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br2"></span>
-    <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}جریان پول</p>
+    <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(title)}</p>
     <svg viewBox="0 0 340 ${H}" class="fl-svg" role="img" aria-label="جریان پول ماه">${side(src, false)}${side(dst, true)}
       <rect x="140" y="${(hy - 26).toFixed(1)}" width="60" height="52" rx="12" class="fl-hub"/>
       <text x="170" y="${(hy + 1).toFixed(1)}" text-anchor="middle" class="fl-v ${net >= 0 ? 'up' : 'down'}" direction="ltr">${net >= 0 ? '+' : '−'}${esc(nn)}</text>
       <text x="170" y="${(hy + 15).toFixed(1)}" text-anchor="middle" class="fl-l">${esc(nu.join(' ') || 'تومان')}</text>
       <text x="170" y="${(hy - 33).toFixed(1)}" text-anchor="middle" class="fl-l">تراز</text></svg>
-    </div>`;
+    ${extra}</div>`;
 }
 
 // The same story for months recorded in the app, built from transactions.
@@ -1432,9 +1428,10 @@ function viewAnalysis() {
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
     <p class="foot legend-foot"><span><i style="background:#34c759"></i>ورودی</span><span><i style="background:var(--tint)"></i>خروجی</span><span>عدد بالا: تراز ماه</span></p>
+    <div class="section-title">روند، ماه به ماه</div>
+    <div id="trend">${trendCard()}</div>
     ${bigPicture(series, A)}
     ${lineByLine(series, A)}
-    ${actionsCard(series, A)}
     <button class="btn-primary an-share" data-act="report">${ICON.share}<span>گزارش متنی (برای خودم یا Claude)</span></button>
     ${flagNote.length ? `<p class="foot an-flags">دقت داده: ${flagNote.map(esc).join('، ')}.</p>` : ''}
   </div>`;
@@ -1539,51 +1536,6 @@ function lineSheet(v) {
   if (run) rows.push([`${monthLabel(run.key)} (تا الان)`, fmt(f(run) || 0)]);
   infoSheet(name, [['میانگین ماهانه', fmt(st.avg)], ...rows],
     isIn ? `${readLine(st, true, 0, d)}.` : `${readLine(st, false, st.sum / (d.reduce((x, m) => x + (m.expense || 0), 0) || 1), d)}.<br><b>سقف پیشنهادی: ${fmtShort(cap)} در ماه</b> (میانهٔ ماه‌های تو؛ نصف ماه‌ها کمتر از این خرج کرده‌ای).`);
-}
-
-// Scorecard: four readings that decide financial health, each with its target; tap for the month by month.
-function scoreCard(K) {
-  const pick = ['self', 'runway', 'family', 'disc'].map(id => K.find(k => k.id === id)).filter(Boolean);
-  const short = { self: 'پوشش با کار', runway: 'ذخیرهٔ نقدی', family: 'سهم خانواده', disc: 'هزینهٔ اختیاری' };
-  return `<div class="section-title">کارنامه</div><div class="sc">${pick.map(k => `<button class="sc-t ${k.status}" data-act="kpi" data-v="${k.id}">
-    <span><i class="kdot ${k.status}"></i>${short[k.id]}</span><b>${esc(k.value)}</b><small>${esc(k.target.replace('هدف: ', 'هدف '))}</small></button>`).join('')}</div>`;
-}
-
-// Three moves for this month, ranked by how much money each one is worth per month.
-function actionsCard(series, A) {
-  const done = series.filter(m => !m.running && (m.expense || m.work)), n = done.length;
-  if (!n) return '';
-  const key = monthKey(new Date()), out = [], T = scoped(), ms = monthSummary(T, key);
-  const c = challengeFor(key);
-  if (c) { const gap = c.income - (ms.work || 0); if (gap > 0) { const left = Math.max(1, Math.ceil((monthRange(key).end - new Date()) / 864e5)); out.push({ v: gap, t: 'برد چالش درآمد', d: `روزی ${fmtShort(gap / left)} تا آخر ماه`, a: fmtShort(gap) }); } }
-  // The category that grew most, back to its own average.
-  const h = Math.floor(n / 2);
-  if (h >= 2) {
-    let best = null;
-    for (const cat of Object.keys(CATEGORIES)) {
-      if (['other', 'fees', 'uncat'].includes(cat)) continue;
-      const recent = done.slice(-h).reduce((x, m) => x + ((m.byCat || {})[cat] || 0), 0) / h, avg = done.reduce((x, m) => x + ((m.byCat || {})[cat] || 0), 0) / n;
-      if (recent - avg >= 3e6 && (!best || recent - avg > best.save)) best = { cat, recent, avg, save: recent - avg };
-    }
-    if (best) out.push({ v: best.save, t: `${CATEGORIES[best.cat].label} به میانگین`, d: `از ${fmtShort(best.recent)} به ${fmtShort(best.avg)} در ماه`, a: `+${fmtShort(best.save)}` });
-  }
-  const P = currentPlan(), top = P.rows.filter(r => r.amt).sort((x, y) => y.amt - x.amt)[0];
-  if (P.total && top) out.push({ v: P.total, t: 'بقیهٔ سرمایه‌گذاری ماه', d: `بیشترش ${MK[top.k].label}`, a: fmtShort(P.total) });
-  const hab = done.reduce((x, m) => x + ((m.byCat || {}).habits || 0), 0) / n;
-  if (hab >= 3e6) out.push({ v: hab / 2, t: 'نصف کردن دخانیات', d: `ماهانه ${fmtShort(hab)} است`, a: `+${fmtShort(hab / 2)}` });
-  const cash = balanceAt(S.tx, S.settings);
-  if (cash < A.avgExp) out.push({ v: (A.avgExp - cash) * .5, t: 'ذخیرهٔ یک‌ماهه', d: 'نقد برای یک ماه هزینه', a: fmtShort(A.avgExp - cash) });
-  const top3 = out.sort((x, y) => y.v - x.v).slice(0, 3);
-  if (!top3.length) return '';
-  return `<div class="section-title">همین ماه</div><div class="group acts">${top3.map((x, i) => `<div class="cell act-row">
-    <span class="act-n">${faDigits(i + 1)}</span><span class="grow"><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span><b class="act-v">${x.a}</b></div>`).join('')}</div>`;
-}
-
-// What to watch: the two heaviest warnings and the best piece of news, one line each.
-function notesCard(A) {
-  const items = [...A.critiques.slice(0, 2).map(x => ({ ...x, tone: 'r' })), ...A.good.slice(0, 1).map(x => ({ ...x, tone: 'g' }))];
-  if (!items.length) return '';
-  return `<div class="section-title">زیر نظر</div><div class="group notes">${items.map(x => `<div class="cell note-row"><i class="kdot ${x.tone}"></i><span class="grow"><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join('')}</div>`;
 }
 
 // Tapping a month card: that month against the average of the others.
@@ -1953,7 +1905,6 @@ function viewDash() {
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${liveStory(T, key)}
-    <div id="trend">${trendCard()}</div>
   </div>`;
 }
 
@@ -2234,14 +2185,18 @@ function viewAssets() {
       <div><span class="b-pill">${M ? '<span class="live-dot"></span>' : ''}همهٔ دارایی</span><h3 class="b-hero">${fmtShort(total)}</h3></div>
       <p class="b-note">${usd ? `${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار` : ''}${M && Math.abs(eff) > 1e6 ? `، ۳۰ روز <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</p></div></section>
 
-    ${M ? `${macroCard(M.macro)}<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
+    <div class="section-title">چه چیزهایی داری</div>
+    <div class="group">${rows.map(([l, v, sub, id]) => `<${id ? `button data-act="as-edit" data-v="${id}"` : 'div'} class="cell bar-row"><span class="grow">${esc(l)}<small class="avg-line">${esc(sub)}</small></span><b>${fmtShort(v)}</b>${id ? ICON.chevL : ''}<i class="bar in" style="width:${(v / mx * 100).toFixed(1)}%"></i></${id ? 'button' : 'div'}>`).join('')}</div>
+    <button class="btn-plain" data-act="as-add">+ افزودن دارایی</button>
+
+    ${M ? `<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
     <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = sigOf(t);
       return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
         <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.tag ? `<span class="news-k ${sg.tone || ''}">${sg.tag}</span>` : ''}</button>`; }).join('')}</div>
     <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
       <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw mk-tall" id="mk-chart"></div>
       ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : (() => { const t = ST[S.mk.k], sg = sigOf(t);
-        return `${sigCard(t, sg)}<p class="tv-hint">EMA ۲۰ و ۵۰، خط‌چین: حمایت و مقاومت، ▲ خریدهای گذشته</p>`; })()}</div>` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
+        return `${sigCard(t, sg)}<p class="tv-hint">EMA ۲۰ و ۵۰، خط‌چین: حمایت و مقاومت، ▲ خریدهای گذشته</p>`; })()}</div>${macroCard(M.macro)}` : `<p class="foot">نرخ زنده هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
 
     <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
     <div class="ins-card plan">
@@ -2264,27 +2219,21 @@ function viewAssets() {
       <p class="nt-foot">ماهی ${fmtShort(inv)}؛ امروز ${usd ? `${faDigits(Math.round(V / usd).toLocaleString('en-US'))} دلار` : fmtShort(V)}</p>
     </div>`; })() : ''}
 
-    <div class="dash">
-      <div class="span-6">
-        <div class="section-title">چه چیزهایی داری</div>
-        <div class="group">${rows.map(([l, v, sub, id]) => `<${id ? `button data-act="as-edit" data-v="${id}"` : 'div'} class="cell bar-row"><span class="grow">${esc(l)}<small class="avg-line">${esc(sub)}</small></span><b>${fmtShort(v)}</b>${id ? ICON.chevL : ''}<i class="bar in" style="width:${(v / mx * 100).toFixed(1)}%"></i></${id ? 'button' : 'div'}>`).join('')}</div>
-        <button class="btn-plain" data-act="as-add">+ افزودن دارایی</button>
-      </div>
-      ${manual.length ? `<div class="span-6">
+    ${manual.length ? `<div>
         <div class="section-title">قیمت‌های دستی (تومان)</div>
         <div class="group">${manual.map(p => `<button class="cell" data-act="as-prices"><span class="grow">${PRICE_LABELS[p]}</span><b>${A.prices[p] ? fmt(A.prices[p]) : '—'}</b>${ICON.chevL}</button>`).join('')}</div>
         
       </div>` : ''}
-    </div></div>`;
+  </div>`;
 }
 
 // Iran's conditions: the hand-written outlook in data/macro.json, the heaviest reading in every signal.
 function macroCard(m) {
   if (!m) return '';
   const days = Math.floor((Date.now() - new Date(m.at)) / 864e5), old = days > MACRO_DAYS;
-  return `<div class="section-title">شرایط ایران</div><div class="ins-card macro${old ? ' old' : ''}">
-    <b class="mc-t">${esc(m.title)}</b><p>${esc(m.note)}</p><p class="mc-risk">${esc(m.risk)}</p>
-    <small class="sec">${old ? 'به‌روز نیست؛ در سیگنال حساب نمی‌شود' : `${/T/.test(m.at) ? ago(m.at) : days ? `${faDigits(days)} روز پیش` : 'امروز'} به‌روز شد`}</small></div>`;
+  return `<details class="ins-card macro${old ? ' old' : ''}"><summary><span class="mc-k">شرایط ایران</span><b class="mc-t">${esc(m.title)}</b>
+      <small class="sec">${old ? 'به‌روز نیست؛ در سیگنال حساب نمی‌شود' : `${/T/.test(m.at) ? ago(m.at) : days ? `${faDigits(days)} روز پیش` : 'امروز'} به‌روز شد`}</small>${ICON.chevL}</summary>
+    <p>${esc(m.note)}</p><p class="mc-risk">${esc(m.risk)}</p></details>`;
 }
 
 // Signal card: the verdict, what to do and at what price, then the six readings behind it.
@@ -2464,9 +2413,6 @@ ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">�
       <div class="cell"><span class="grow">ظاهر</span><div class="segmented sm">${[['glass', 'شیشه‌ای'], ['dark', 'تیره']].map(([k, l]) => `<button data-act="theme" data-v="${k}" class="${(LS('theme') === 'dark' ? 'dark' : 'glass') === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       ${toggle('showHistory', 'نشان دادن ثبت‌های آزمایشی قبل از شروع')}
     </div>
-
-    <div class="section-title">تحلیل</div>
-    <div class="group"><button class="cell" data-act="pack"><span class="tint">گزارش متنی (برای خودم یا Claude)</span></button></div>
 
     <div class="section-title">حساب</div>
     <div class="group">
