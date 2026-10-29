@@ -73,6 +73,7 @@ async function boot() {
   await sync.init();
   sync.onRemote = reload;
   await fixLifeDup0804();
+  await fixBlu0807();
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
@@ -228,6 +229,28 @@ async function fixLifeDup0804() {
   if (dup.length) render();
 }
 
+// One-off (1405/08/07): matched against Blu's statement of 1–7 Aban, every record agrees except these.
+// The mobile bill was 8,400 (typed 84,000); three card-to-card fees (4,700) were missing; a courier fee was
+// filed as a transfer, one Snapp ride under «other», and «علف» under personal instead of habits.
+// Each change applies only if the record still holds the old value, so later edits are never overwritten.
+async function fixBlu0807() {
+  if (S.settings.fixBlu0807 || !S.tx.some(t => t.id === 'mvt5po0qfb6uq7')) return;
+  const by = id => S.tx.find(t => t.id === id), list = [];
+  const fix = (id, test, patch) => { const t = by(id); if (t && test(t)) list.push({ ...t, ...patch }); };
+  fix('mvt5po0qfb6uq7', t => t.amount === 84000, { amount: 8400 });
+  fix('mvmsab6a5fc971', t => t.type === 'transfer_out', { type: 'expense', cat: 'other' });
+  fix('mvs2nopw3bqt15', t => t.cat === 'other', { cat: 'car' });
+  fix('mvsi9jwfupkgq7', t => t.cat === 'personal', { cat: 'habits' });
+  if (!by('blu0807-fee')) {
+    const now = new Date().toISOString();
+    list.push({ id: 'blu0807-fee', ts: fromJalali(1405, 8, 7, 20, 35).toISOString(), dir: 'out', amount: 4700, desc: 'کارمزد کارت‌به‌کارت (۳ مورد)', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  }
+  if (list.length) await putTx(list);
+  S.settings.fixBlu0807 = true;
+  await saveSettings();
+  if (list.length) render();
+}
+
 // One-off (1405/08/03): what Seenzhin still owed at the end of Mehr was let go as help.
 // Needs the history bundle that separates Seenzhin money (rev 5+), so it also runs after loading it.
 async function forgiveSeenzhin() {
@@ -306,7 +329,8 @@ async function delTx(id) {
 const isRound = t => t.src === 'roundup';
 function roundFor(t) {
   const st = S.settings;
-  if (!st.roundUp || t.type !== 'expense' || t.src !== 'manual' || !st.roundSince || t.created < st.roundSince) return null;
+  // Bank fees are taken by Blu itself and are not rounded into the Box.
+  if (!st.roundUp || t.type !== 'expense' || t.cat === 'fees' || t.src !== 'manual' || !st.roundSince || t.created < st.roundSince) return null;
   const step = st.roundStep || 100000, r = (step - t.amount % step) % step;
   return r;
 }
