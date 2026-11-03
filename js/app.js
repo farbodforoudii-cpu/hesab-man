@@ -280,7 +280,13 @@ function refresh() { S.tpl = buildTemplates(S.tx.filter(t => !isRound(t))); clea
 // This app's half of the shared monthly report with «زندگی من»: work income and living cost per month.
 let moneyTimer;
 function publishMoney() {
-  const rows = monthsSeries(S.history, scoped(), S.settings.startDate).map(m => ({ month: m.key, work: Math.round(m.work || 0), expense: Math.round(m.expense || 0) }));
+  // Gordan's salary by the month it arrived (it pays around the 17th for the month before).
+  const GD = /گردان|gordan|gardan/i, gd = {};
+  for (const t of scoped()) if (t.type === 'income_work' && GD.test(`${t.cp || ''} ${t.desc || ''}`)) { const k = monthKey(new Date(t.ts)); gd[k] = (gd[k] || 0) + t.amount; }
+  const rows = monthsSeries(S.history, scoped(), S.settings.startDate).map(m => {
+    const hist = (m.ins || []).filter(([l]) => GD.test(l || '')).reduce((a, [, v]) => a + v, 0);
+    return { month: m.key, work: Math.round(m.work || 0), expense: Math.round(m.expense || 0), gordan: Math.round((m.live ? gd[m.key] : hist) || 0) };
+  });
   sync.publishMoney(rows).catch(() => {});
 }
 
