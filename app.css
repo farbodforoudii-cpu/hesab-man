@@ -1044,3 +1044,17 @@ details.ins-card[open] > summary { margin-bottom: 10px; }
 .macro > summary small { font-size: 12px; font-weight: 400; }
 .flow .logic { margin-top: 12px; }
 .flow .logic li { font-size: 15.5px; }
+
+/* the month ahead, from «زندگی من» */
+.fc { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.fc-hero { display: flex; flex-direction: column; gap: 3px; }
+.fc-hero span, .fc-rows span, .fc-out span { font-size: 12.5px; color: var(--sec); }
+.fc-hero b { font-size: 28px; font-weight: 800; }
+.fc em { font-style: normal; font-size: 12px; line-height: 1.7; color: var(--sec); }
+.fc-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 760px) { .fc-rows { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.fc-rows > div { background: var(--fill); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.fc-rows b { font-size: 16px; font-weight: 700; }
+.fc-out { background: var(--fill); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 3px; box-shadow: inset 0 0 0 1.5px var(--tint); }
+.fc-out b { font-size: 22px; font-weight: 800; color: var(--tint); }
+.fc-out.neg b { color: var(--red); }

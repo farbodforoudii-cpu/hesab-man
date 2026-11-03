@@ -121,8 +121,10 @@ function currentPlan() {
   const done = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
   const avgExp = done.length ? done.reduce((a, m) => a + (m.expense || 0), 0) / done.length : 0;
   const ms = monthSummary(T, key), c = challengeFor(key), done0 = ms.asset || 0;
+  // Work income of the month: what «زندگی من» expects from the schedule when it is more than what has arrived.
+  const L = sync.lifeMonth(key), workNow = Math.max(ms.work || 0, (L && L.fcValue) || 0);
   // The month's amount is the challenge: what is still left of it is what gets split across assets.
-  const P = mplan({ series, held: heldByKind(), M: S.market, workNow: ms.work || 0, cash: balanceAt(S.tx, S.settings), avgExp, fixed: c ? c.invest - done0 : null });
+  const P = mplan({ series, held: heldByKind(), M: S.market, workNow, cash: balanceAt(S.tx, S.settings), avgExp, fixed: c ? c.invest - done0 : null });
   return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0 });
 }
 
@@ -969,6 +971,34 @@ function saleOptions(id) {
     elsewhere: async () => { await sync.answerSale(id, 'existing'); closeSheet(); render(); toast('کنار گذاشته شد؛ جای دیگری ثبت شده'); },
     skip: async () => { await sync.answerSale(id, 'skip'); closeSheet(); render(); toast('کنار گذاشته شد'); },
   });
+}
+
+// ----- the month ahead: income expected from «زندگی من»'s schedule, and what it leaves for spending and saving -----
+function forecastCard(key) {
+  const L = sync.lifeMonth(key);
+  if (!L || !L.fcValue) return '';
+  const T = scoped(), s = monthSummary(T, key), now = new Date();
+  const { start, end } = monthRange(key);
+  const days = Math.round((end - start) / 864e5), dayNow = Math.min(days, Math.floor((now - start) / 864e5) + 1), left = Math.max(1, days - dayNow + 1);
+  const series = monthsSeries(S.history, T, S.settings.startDate);
+  const E = Math.max(L.fcValue, s.work || 0), got = s.work || 0, due = Math.max(0, E - got);
+  const proj = projectMonth(key, s.expense || 0, baseline(series, m => m.expense || 0), now) || s.expense || 0;
+  const inv = currentPlan().target || 0, invLeft = Math.max(0, inv - (s.asset || 0));
+  const free = E - (s.expense || 0) - invLeft, daily = free / left;
+  const surplus = E - proj;
+  const missing = (L.fcUnpriced || 0) + (L.fcShiftsUnpriced || 0);
+  return `<div class="section-title">پیش‌بینی ${esc(monthLabel(key))}، از برنامهٔ «زندگی من»</div>
+    <div class="group fc"><div class="fc-hero"><span>درآمد کاری مورد انتظار</span><b>${fmtShort(E)}</b>
+      <em>= کار انجام‌شده ${fmtShort(L.fcValue - (L.fcPlanned || 0))} + ${faDigits(L.fcSessions || 0)} جلسه${L.fcShifts ? ` و ${faDigits(L.fcShifts)} شیفت` : ''} باقی‌مانده در برنامه ${fmtShort(L.fcPlanned || 0)}${missing ? `؛ ${faDigits(missing)} مورد بدون مبلغ حساب نشده` : ''}</em></div>
+      <div class="fc-rows">
+        <div><span>رسیده تا امروز</span><b>${fmtShort(got)}</b></div>
+        <div><span>مانده که باید برسد</span><b>${fmtShort(due)}</b></div>
+        <div><span>خرج پیش‌بینی ماه</span><b>${fmtShort(proj)}</b></div>
+        <div><span>سرمایه‌گذاری این ماه</span><b>${fmtShort(invLeft)}</b></div>
+      </div>
+      <div class="fc-out ${daily > 0 ? '' : 'neg'}"><span>${daily > 0 ? 'سقف خرج روزانه تا آخر ماه' : 'با این برنامه کسری دارید'}</span><b>${daily > 0 ? `${fmtShort(daily)} در روز` : fmtShort(-free)}</b>
+        <em>= (درآمد مورد انتظار ${fmtShort(E)} − خرج تا امروز ${fmtShort(s.expense || 0)} − سرمایه‌گذاری مانده ${fmtShort(invLeft)}) ÷ ${faDigits(left)} روز مانده</em></div></div>
+    <p class="foot">${surplus >= 0 ? `مازاد پیش‌بینی ماه: ${fmtShort(surplus)} (= درآمد مورد انتظار − خرج پیش‌بینی). سرمایه‌گذاری تا همین اندازه بی‌خطر است.` : `خرج پیش‌بینی ${fmtShort(-surplus)} بیشتر از درآمد مورد انتظار است.`} پول هر دوره معمولاً در پایان همان دوره می‌رسد.</p>`;
 }
 
 // ----- shared monthly report: hours from «زندگی من», income from here -----
@@ -1925,6 +1955,7 @@ function viewDash() {
       </div>
     </section>
     ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() : ''}
+    ${key === monthKey(new Date()) ? forecastCard(key) : ''}
     ${workMoneyCard(key)}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
