@@ -268,8 +268,8 @@ export const sync = {
     const now = new Date().toISOString(), out = [];
     for (const r of rows) {
       const old = life.money[r.month];
-      if (old && old.work === r.work && old.expense === r.expense && old.gordan === r.gordan) continue;
-      const rec = { id: `money_${r.month}`, kind: 'moneysum', month: r.month, work: r.work, expense: r.expense, gordan: r.gordan, createdAt: old?.createdAt || now, updatedAt: now };
+      if (old && old.work === r.work && old.expense === r.expense) continue;
+      const rec = { id: `money_${r.month}`, kind: 'moneysum', month: r.month, work: r.work, expense: r.expense, createdAt: old?.createdAt || now, updatedAt: now };
       life.money[r.month] = rec; out.push(rec);
     }
     if (!out.length) return;
