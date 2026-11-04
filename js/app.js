@@ -74,6 +74,7 @@ async function boot() {
   sync.onRemote = reload;
   await fixLifeDup0804();
   await fixBlu0807();
+  await fixBlu0813();
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
@@ -251,6 +252,19 @@ async function fixBlu0807() {
   S.settings.fixBlu0807 = true;
   await saveSettings();
   if (list.length) render();
+}
+
+// One-off (1405/08/13): Blu's statement to 12 Aban matches every record; only the fee of the
+// card-to-card payment of 9 Aban (2,500) was missing.
+async function fixBlu0813() {
+  if (S.settings.fixBlu0813 || !S.tx.some(t => t.id === 'mvwcn585fbfpwj')) return;
+  if (!S.tx.some(t => t.id === 'blu0813-fee')) {
+    const now = new Date().toISOString();
+    await putTx({ id: 'blu0813-fee', ts: fromJalali(1405, 8, 9, 15, 14).toISOString(), dir: 'out', amount: 2500, desc: 'کارمزد کارت‌به‌کارت', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  }
+  S.settings.fixBlu0813 = true;
+  await saveSettings();
+  render();
 }
 
 // One-off (1405/08/03): what Seenzhin still owed at the end of Mehr was let go as help.
