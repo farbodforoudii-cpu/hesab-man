@@ -124,9 +124,21 @@ function currentPlan() {
   const ms = monthSummary(T, key), c = challengeFor(key), done0 = ms.asset || 0;
   // Work income of the month: what «زندگی من» expects from the schedule when it is more than what has arrived.
   const L = sync.lifeMonth(key), workNow = Math.max(ms.work || 0, (L && L.fcValue) || 0);
-  // The month's amount is the challenge: what is still left of it is what gets split across assets.
-  const P = mplan({ series, held: heldByKind(), M: S.market, workNow, cash: balanceAt(S.tx, S.settings), avgExp, fixed: c ? c.invest - done0 : null });
-  return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0 });
+  // Money that is really free to invest, in three steps:
+  //  1) the month's surplus  = expected work income + usual family support − forecast living costs;
+  //  2) after obligations    = minus instalments and fund payments (the usual of the last 3 months);
+  //  3) free now             = the smaller of what is left of (2) after this month's buys, and cash minus a 10-day buffer.
+  // The challenge sets the goal; the plan never suggests more than what is free now.
+  const avg3 = f => done.length ? done.reduce((a, m) => a + (f(m) || 0), 0) / done.length : 0;
+  const famE = Math.max(ms.family || 0, avg3(m => m.family));
+  const proj = projectMonth(key, ms.expense || 0, avgExp || null, new Date()) || ms.expense || 0;
+  const oblig = Math.max((ms.loanPay || 0) + (ms.fundIn || 0), avg3(m => (m.loanPay || 0) + (m.fundIn || 0)));
+  const cash = balanceAt(S.tx, S.settings), buffer = avgExp / 3;
+  const surplus = workNow + famE - proj, afterOblig = surplus - oblig;
+  const free = Math.max(0, Math.min(afterOblig - done0, cash - buffer));
+  const left = c ? Math.max(0, c.invest - done0) : free;
+  const P = mplan({ series, held: heldByKind(), M: S.market, workNow, cash, avgExp, fixed: Math.min(left, free) });
+  return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0, left, free: { workNow, famE, proj, oblig, surplus, afterOblig, cash, buffer, free } });
 }
 
 // A newer copy arrived from another device: read it in and redraw what is on screen.
@@ -1012,7 +1024,7 @@ function forecastCard(key) {
       </div>
       <div class="fc-out ${daily > 0 ? '' : 'neg'}"><span>${daily > 0 ? 'سقف خرج روزانه تا آخر ماه' : 'با این برنامه کسری دارید'}</span><b>${daily > 0 ? `${fmtShort(daily)} در روز` : fmtShort(-free)}</b>
         <em>= (درآمد مورد انتظار ${fmtShort(E)} − خرج تا امروز ${fmtShort(s.expense || 0)} − سرمایه‌گذاری مانده ${fmtShort(invLeft)}) ÷ ${faDigits(left)} روز مانده</em></div></div>
-    <p class="foot">${surplus >= 0 ? `مازاد پیش‌بینی ماه: ${fmtShort(surplus)} (= درآمد مورد انتظار − خرج پیش‌بینی). سرمایه‌گذاری تا همین اندازه بی‌خطر است.` : `خرج پیش‌بینی ${fmtShort(-surplus)} بیشتر از درآمد مورد انتظار است.`} پول هر دوره معمولاً در پایان همان دوره می‌رسد.</p>`;
+    <p class="foot">${surplus >= 0 ? `مازاد پیش‌بینی ماه: ${fmtShort(surplus)} (= درآمد مورد انتظار − خرج پیش‌بینی). پول آزاد برای سرمایه‌گذاری، بعد از قسط، صندوق و ذخیره، در «دارایی» آمده است.` : `خرج پیش‌بینی ${fmtShort(-surplus)} بیشتر از درآمد مورد انتظار است.`} پول هر دوره معمولاً در پایان همان دوره می‌رسد.</p>`;
 }
 
 // ----- shared monthly report: hours from «زندگی من», income from here -----
@@ -2246,7 +2258,6 @@ function viewAssets() {
   const M = S.market, ST = Object.fromEntries(MARKET_KINDS.map(k => [k, mstats(M, k)]));
   // Price effect over 30 days on what you hold now (same quantities, old vs new price).
   const old30 = MARKET_KINDS.reduce((a, k) => a + (ST[k] && ST[k].m != null ? H[k] / (1 + ST[k].m) : H[k]), 0), eff = V - old30;
-  const over = MARKET_KINDS.filter(k => H[k] / V - TARGET[k] > .12).sort((x, y) => H[y] / V - TARGET[y] - (H[x] / V - TARGET[x]));
   const yrs = n => { const add = P.base * n; return MARKET_KINDS.map(k => [k, ST[k] ? add * TARGET[k] / ST[k].last : 0]); };
   return `<div class="view wide">
     ${pageHead('دارایی‌ها')}
@@ -2261,7 +2272,7 @@ function viewAssets() {
     ${M ? `<div class="section-title"><span class="live-dot"></span>نرخ بازار، ${esc(marketAge())}</div>
     <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = sigOf(t);
       return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
-        <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.tag ? `<span class="news-k ${sg.tone || ''}">${sg.tag}</span>` : ''}</button>`; }).join('')}</div>
+        <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.buyW ? `<span class="news-k ${sg.buyW === 'مناسب' ? 'g' : sg.buyW === 'گران' ? 'r' : ''}">خرید: ${sg.buyW}</span>` : ''}</button>`; }).join('')}</div>
     <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
       <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw mk-tall" id="mk-chart"></div>
       ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : (() => { const t = ST[S.mk.k], sg = sigOf(t);
@@ -2269,14 +2280,13 @@ function viewAssets() {
 
     <div class="section-title">برنامهٔ سرمایه‌گذاری این ماه</div>
     <div class="ins-card plan">
-      <div class="plan-top"><span>مانده از چالش این ماه</span><b>${fmtShort(P.total)}</b></div>
-      <p class="why">هدف ${fmtShort(P.target)}، تا امروز ${fmtShort(P.doneNow)}.</p>
+      <div class="plan-top"><span>قابل خرید الان</span><b>${fmtShort(P.total)}</b></div>
+      <p class="why">چالش: هدف ${fmtShort(P.target)}، تا امروز ${fmtShort(P.doneNow)}، مانده ${fmtShort(P.left)}.${P.total < P.left ? ' بیشتر از پول آزاد پیشنهاد نمی‌شود.' : ''}</p>
+      ${freeRows(P.free)}
       ${P.rows.map(r => `<div class="plan-row"><span class="pl-k">${MK[r.k].label}</span><span class="pl-u">${r.price && r.amt ? `${unitsTxt(r.k, r.units)} ${MK[r.k].unit}` : '—'}</span><b>${r.amt ? fmtShort(r.amt) : '۰'}</b>
         <div class="pl-bar"><i style="width:${Math.min(100, r.share * 100).toFixed(0)}%"></i><em style="right:${(r.target * 100).toFixed(0)}%"></em></div>
         <small class="pl-why">سهم ${faDigits(Math.round(r.share * 100))}٪ از هدف ${faDigits(Math.round(r.target * 100))}٪${r.sig.tag ? `، ${esc(r.sig.tag)}` : ''}</small></div>`).join('')}
 
-      ${P.lowCash ? '<p class="warn-line">اول نقد کنار بگذار؛ ذخیره کم است.</p>' : ''}
-      ${over.length ? `<p class="why">نیاز به نقد؟ اول از <b>${over.map(k => MK[k].label).join(' و ')}</b> بفروش.</p>` : ''}
     </div>
 
     ${M && P.base ? (() => { const c = challengeFor(monthKey(new Date())), inv = c ? c.invest : P.base;
@@ -2305,17 +2315,32 @@ function macroCard(m) {
     <p>${esc(m.note)}</p><p class="mc-risk">${esc(m.risk)}</p></details>`;
 }
 
+// Free money, step by step, each line with its own arithmetic.
+function freeRows(f) {
+  const row = (l, v, d, strong) => `<div class="fr-row${strong ? ' strong' : ''}"><span>${l}<small>${d}</small></span><b>${v < 0 ? sgnShort(v) : fmtShort(v)}</b></div>`;
+  return `<div class="fr">
+    ${row('مازاد ماه (پیش‌بینی)', f.surplus, `درآمد کاری ${fmtShort(f.workNow)} + حمایت ${fmtShort(f.famE)} − خرج پیش‌بینی ${fmtShort(f.proj)}`)}
+    ${row('بعد از تعهدها', f.afterOblig, `منهای قسط و صندوق ${fmtShort(f.oblig)}`)}
+    ${row('نقد آزاد', f.cash - f.buffer, `موجودی ${fmtShort(f.cash)} − ذخیرهٔ ۱۰ روز خرج ${fmtShort(f.buffer)}`)}
+    ${f.free > 0 ? '' : '<p class="fr-note">فعلاً پول آزاد برای خرید نیست؛ با رسیدن درآمد دوباره حساب می‌شود.</p>'}
+  </div>`;
+}
+
 // Signal card: the verdict, what to do and at what price, then the six readings behind it.
 function sigCard(t, sg) {
   if (!sg.checks.length) return '';
   const P = v => fmt(Math.round(v));
-  const act = { now: 'زمان ورود مناسب است؛ پله‌ای بخر.', in: 'در محدودهٔ خرید است؛ پله‌ای بخر.',
-    dip: `خرید پله‌ای روی اصلاح: ${P(sg.zone[0])} تا ${P(sg.zone[1])}`,
-    sup: sg.sup.length ? `خرید فقط نزدیک حمایت: ${sg.sup.map(P).join(' و ')}` : 'فعلاً خرید نکن.',
-    wait: `صبر تا برگشت بالای ${P(sg.wait[1])} (EMA ۵۰) یا نگه داشتن ${P(sg.wait[0])} (کف ابر)` }[sg.mode];
-  return `<div class="sig2"><div class="sig2-top"><span class="sig-tag ${sg.tone || ''}">${esc(sg.tag)}</span><span class="sig2-act">${act}</span></div>
+  // What to do, for a buyer: follows the buying moment first, then the trend.
+  const below = sg.sup.find(x => x < t.last), lv = below ? P(below) : null;
+  const act = sg.trendW === 'نزولی' ? `صبر تا برگشت بالای ${P(sg.wait[1])} (EMA ۵۰) یا نگه داشتن ${P(sg.wait[0])} (کف ابر)`
+    : sg.buyW === 'مناسب' ? 'زمان خوبی برای خرید است؛ پله‌ای بخر.'
+    : sg.buyW === 'گران' ? (lv ? `الان گران است؛ صبر تا نزدیک ${lv} (حمایت)، بعد پله‌ای بخر.` : 'الان گران است؛ صبر تا اولین اصلاح.')
+    : sg.trendW === 'صعودی' ? `خرید پله‌ای؛ پلهٔ بعد نزدیک ${lv || P(sg.zone[0])}.` : (lv ? `خرید فقط نزدیک حمایت ${lv}.` : 'فعلاً خرید نکن.');
+  const tone = w => ({ صعودی: 'g', مناسب: 'g', نزولی: 'r', گران: 'r' })[w] || '';
+  return `<div class="sig2"><div class="sig2-top"><span class="sig-tag ${tone(sg.trendW)}">روند: ${sg.trendW}</span><span class="sig-tag ${tone(sg.buyW)}">زمان خرید: ${sg.buyW}</span></div>
+    <p class="sig2-act">${act}</p>
     <div class="sig2-rows">${sg.checks.map(c => `<div class="sig2-r"><i class="kdot ${c.v > 0 ? 'g' : c.v < 0 ? 'r' : 'n'}"></i><span>${esc(c.n)}${c.w ? ' <small>(×۲)</small>' : ''}</span><b>${esc(c.r)}</b></div>`).join('')}</div>
-    <p class="sig2-foot">روند (ایچیموکو، EMA، ایران) می‌گوید بخری یا نه؛ زمان (سطح‌ها، RSI، MACD) می‌گوید کی.</p></div>`;
+    <p class="sig2-foot">روند (ایچیموکو، EMA، ایران) می‌گوید بازار به کدام سمت می‌رود؛ زمان خرید (سطح‌ها، RSI، MACD${t.prem != null ? '، حباب' : ''}) می‌گوید الان ارزان است یا گران.</p></div>`;
 }
 
 let mkChart = null;

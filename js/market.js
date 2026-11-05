@@ -23,7 +23,7 @@ export async function fetchMarket() {
   ]);
   if (!res.ok) throw new Error('prices ' + res.status);
   const M = await res.json();
-  if (live && live.now && live.at > M.at) { M.now = { ...M.now, ...live.now }; M.at = live.at; M.live = true; }
+  if (live && live.now && live.at > M.at) { M.now = { ...M.now, ...live.now }; if (live.world) M.world = { ...M.world, ...live.world }; M.at = live.at; M.live = true; }
   // Iran's economic and political picture, written by hand after reading the news (no sources shown in the app).
   try { const r = await fetch('data/macro.json', { cache: 'no-store' }); if (r.ok) M.macro = await r.json(); } catch {}
   return M;
@@ -88,7 +88,12 @@ export function stats(M, k) {
   const enough = c.length >= 80;
   // Ichimoku (9, 26, 52) on closes: today's cloud was drawn 26 days ago.
   const ichi = enough ? { ten: mid(c, 9), kij: mid(c, 26), a: (mid(c, 9, 26) + mid(c, 26, 26)) / 2, b: mid(c, 52, 26), lag: c[c.length - 27] } : null;
-  return { k, last, day: now ? now.dp / 100 : null, w: pctOf(last, back(7)), m: pctOf(last, back(30)), y: pctOf(last, back(250)),
+  // Premium of Tehran's price over the world price at today's dollar (gold and silver only):
+  //  gold 18k per gram = ounce ÷ 31.1035 × 0.75 × dollar;  silver 999 per gram = ounce ÷ 31.1035 × 0.999 × dollar.
+  const W = M && M.world, usd = M && M.now && M.now.usd && M.now.usd.p;
+  const oz = W && { gold: W.ons && W.ons / 31.1035 * .75, silver: W.silver && W.silver / 31.1035 * .999 }[k];
+  const prem = oz && usd ? last / (oz * usd) - 1 : null;
+  return { k, last, prem, day: now ? now.dp / 100 : null, w: pctOf(last, back(7)), m: pctOf(last, back(30)), y: pctOf(last, back(250)),
     ma20, ma90, pos: pctOf(last, ma90), trend: ma20 && ma90 ? (ma20 > ma90 * 1.01 ? 1 : ma20 < ma90 * 0.99 ? -1 : 0) : 0, rsi: r.length ? r[r.length - 1][1] : null,
     e20: e(20), e50: e(50), e200: e(200), macd: { m: macdL[macdL.length - 1][1], s: sigL[sigL.length - 1][1], h: hist[hist.length - 1], hPrev: hist[hist.length - 4] },
     ichi, lv: levels(c, last) };
@@ -120,9 +125,14 @@ export function signal(s, macro) {
   const wid = Math.abs(macd.h) > Math.abs(macd.hPrev);
   ck.push({ n: 'MACD', v: macd.h > 0 && wid ? 1 : macd.h < 0 && wid ? -1 : 0,
     r: macd.h > 0 ? (wid ? 'شتاب رو به بالا' : 'مثبت، کند شده') : wid ? (macd.m > 0 ? 'مثبت، شتاب کم می‌شود' : 'منفی، رو به پایین') : (macd.m > 0 ? 'مثبت، شتاب کم می‌شود' : 'منفی، کند شده') });
+  // For a buyer: paying well over the world price is a poor entry, paying under it a good one.
+  if (s.prem != null) ck.push({ n: 'حباب (در برابر قیمت جهانی)', v: s.prem > .03 ? -1 : s.prem < -.01 ? 1 : 0,
+    r: `${fa(Math.round(Math.abs(s.prem) * 1000) / 10)}٪ ${s.prem >= 0 ? 'گران‌تر' : 'ارزان‌تر'} از جهانی` });
   const fresh = macro && macro.at && (Date.now() - new Date(macro.at)) / 864e5 <= MACRO_DAYS, mv = fresh && macro.bias ? macro.bias[s.k] || 0 : 0;
   ck.push({ n: 'شرایط ایران', v: mv, w: 2, r: fresh ? (macro.why && macro.why[s.k]) || '' : 'به‌روز نیست' });
-  const trend = ck[0].v + ck[1].v + mv * 2, timing = ck[2].v + ck[3].v + ck[4].v, score = trend + timing;
+  const trend = ck[0].v + ck[1].v + mv * 2, timing = ck[2].v + ck[3].v + ck[4].v + (s.prem != null ? ck[5].v : 0), score = trend + timing;
+  // The same reading in two words: where the market is heading, and whether now is a good moment to buy.
+  const trendW = trend >= 2 ? 'صعودی' : trend >= 0 ? 'خنثی' : 'نزولی', buyW = timing >= 1 ? 'مناسب' : timing <= -1 ? 'گران' : 'معمولی';
   // Where to buy: in an uptrend between the first support under EMA 20 and EMA 20; otherwise the level to wait for.
   const zLo = [...lv.sup].find(x => x < e20) || e20 * .98, zone = [zLo, e20];
   // mode: what the card says next — 'now', 'dip' (buy zone), 'in' (already in the zone), 'sup' (near support), 'wait'.
@@ -132,7 +142,7 @@ export function signal(s, macro) {
   else if (trend >= 0 && timing >= 1) { tag = 'خرید نزدیک حمایت'; tone = ''; tilt = 1; mode = 'sup'; }
   else if (trend >= 0) { tag = 'خنثی'; tone = ''; tilt = .85; mode = 'sup'; }
   else { tag = 'صبر'; tone = 'r'; tilt = .5; mode = 'wait'; }
-  return { tag, tone, tilt, score, trend, timing, mode, zone, sup: lv.sup, wait: [bot, e50], checks: ck,
+  return { tag, tone, tilt, score, trend, timing, trendW, buyW, mode, zone, sup: lv.sup, wait: [bot, e50], checks: ck,
     note: `${tag}؛ ${ck.filter(x => x.v).map(x => `${x.n} ${x.v > 0 ? '+' : '−'}`).join('، ') || 'نشانه‌ها خنثی'}.` };
 }
 const fa = n => n.toLocaleString('fa-IR');
