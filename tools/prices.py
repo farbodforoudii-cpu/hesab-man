@@ -22,6 +22,8 @@ try:
         c = cur[key]
         # dp is the size of today's move; dt gives its direction ('low' = down).
         out['now'][k] = {'p': round(num(c['p'])), 'dp': float(c.get('dp') or 0) * (-1 if c.get('dt') == 'low' else 1), 'ts': c.get('ts')}
+    # World prices for the premium of Tehran's gold and silver over the global price (debug list of candidate keys).
+    print('world keys:', {k: cur[k].get('p') for k in cur if any(x in k for x in ('ons', 'silver', 'xag', 'xau', 'gold'))})
 except Exception as e:
     out['err'] = str(e)
 
