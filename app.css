@@ -1117,3 +1117,8 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .ins-card.map .by-sub { margin-top: 10px; }
 .ins-card.buy .nt-row, .ins-card.map .nt-row { grid-template-columns: minmax(0, 1fr) auto; }
 .ins-card.map .nt-row:last-of-type { border-bottom: 0; }
+/* Free money as a small receipt */
+.fr-row span { font-size: 14px; }
+.fr-sum { border-bottom: 0; border-top: 1.5px solid var(--label); margin-top: -1px; }
+.fr-sum span, .fr-sum b { font-weight: 700; }
+.fr-gap { height: 14px; }

@@ -75,6 +75,7 @@ async function boot() {
   await fixLifeDup0804();
   await fixBlu0807();
   await fixBlu0813();
+  if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
   sync.onChange(() => { if (S.view === 'settings' && !document.querySelector('#sync-code:focus')) render(); });
@@ -132,13 +133,14 @@ function currentPlan() {
   const avg3 = f => done.length ? done.reduce((a, m) => a + (f(m) || 0), 0) / done.length : 0;
   const famE = Math.max(ms.family || 0, avg3(m => m.family));
   const proj = projectMonth(key, ms.expense || 0, avgExp || null, new Date()) || ms.expense || 0;
-  const oblig = Math.max((ms.loanPay || 0) + (ms.fundIn || 0), avg3(m => (m.loanPay || 0) + (m.fundIn || 0)));
+  // Obligations are only the ones still running (settings.obligations, each with its last month).
+  const obl = (S.settings.obligations || []).filter(o => !o.until || key <= o.until), oblig = obl.reduce((a, o) => a + o.amount, 0);
   const cash = balanceAt(S.tx, S.settings), buffer = avgExp / 3;
   const surplus = workNow + famE - proj, afterOblig = surplus - oblig;
   const free = Math.max(0, Math.min(afterOblig - done0, cash - buffer));
   const left = c ? Math.max(0, c.invest - done0) : free;
   const P = mplan({ series, held: heldByKind(), M: S.market, workNow, cash, avgExp, fixed: Math.min(left, free) });
-  return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0, left, free: { workNow, famE, proj, oblig, surplus, afterOblig, cash, buffer, free } });
+  return Object.assign(P, { target: c ? c.invest : P.total, doneNow: done0, left, free: { workNow, famE, proj, obl, oblig, surplus, afterOblig, cash, buffer, free } });
 }
 
 // A newer copy arrived from another device: read it in and redraw what is on screen.
@@ -2283,11 +2285,18 @@ function macroCard(m) {
 
 // Free money, step by step, each line with its own arithmetic.
 function freeRows(f) {
-  const row = (l, v, d, strong) => `<div class="fr-row${strong ? ' strong' : ''}"><span>${l}<small>${d}</small></span><b>${v < 0 ? sgnShort(v) : fmtShort(v)}</b></div>`;
+  const row = (l, v, sign = '') => `<div class="fr-row"><span>${l}</span><b>${sign && v ? sgnShort(sign === '−' ? -Math.abs(v) : Math.abs(v)) : fmtShort(Math.abs(v))}</b></div>`;
+  const sum = (l, v) => `<div class="fr-row fr-sum"><span>${l}</span><b class="${v < 0 ? 'red' : ''}">${v < 0 ? sgnShort(v) : fmtShort(v)}</b></div>`;
   return `<div class="fr">
-    ${row('پول اضافهٔ این ماه', f.surplus, `درآمد کار ${fmtShort(f.workNow)} + کمک خانواده ${fmtShort(f.famE)} − خرج‌های ماه ${fmtShort(f.proj)}`)}
-    ${row('بعد از قسط و صندوق', f.afterOblig, `منهای ${fmtShort(f.oblig)}`)}
-    ${row('نقد آزاد الان', f.cash - f.buffer, `موجودی ${fmtShort(f.cash)} − خرج ۱۰ روز ${fmtShort(f.buffer)} که باید بماند`)}
+    ${row('درآمد کار (با برنامهٔ «زندگی من»)', f.workNow, '+')}
+    ${row('کمک خانواده', f.famE, '+')}
+    ${row('خرج‌های ماه (پیش‌بینی)', f.proj, '−')}
+    ${f.obl.map(o => row(`${esc(o.label)}${o.until ? ` (تا ${esc(monthName(o.until))})` : ''}`, o.amount, '−')).join('')}
+    ${sum('پول اضافهٔ این ماه', f.afterOblig)}
+    <div class="fr-gap"></div>
+    ${row('موجودی الان', f.cash)}
+    ${row('خرج ۱۰ روز که باید بماند', f.buffer, '−')}
+    ${sum('نقد آزاد', f.cash - f.buffer)}
     <p class="fr-note">${f.free > 0 ? `می‌توانی بخری: کمترینِ دو عدد بالا، منهای خریدهای این ماه = ${fmtShort(f.free)}` : 'فعلاً پولی برای خرید نمی‌ماند؛ با رسیدن درآمد دوباره حساب می‌شود.'}</p>
   </div>`;
 }
