@@ -75,6 +75,7 @@ async function boot() {
   await fixLifeDup0804();
   await fixBlu0807();
   await fixBlu0813();
+  await fixNoBox();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -266,6 +267,23 @@ async function fixBlu0807() {
   S.settings.fixBlu0807 = true;
   await saveSettings();
   if (list.length) render();
+}
+
+// One-off (1405/08/16): Farbod closes Blu's Box and turns off rounding. The Box goes back into the main
+// balance: the opening balance gets back what the Box held on 1 Aban, the round-up records go (they were
+// only money moved from the main balance into the Box), and the Box leaves the assets.
+async function fixNoBox() {
+  if (S.settings.fixNoBox) return;
+  const A = assetsState(), box = A.items.find(it => it.kind === 'box');
+  if (box) { S.settings.openingBalance = (S.settings.openingBalance || 0) + (box.qty || 0); A.items = A.items.filter(it => it.kind !== 'box'); }
+  S.settings.roundUp = false;
+  const rounds = S.tx.filter(isRound).map(t => t.id);
+  S.tx = S.tx.filter(t => !isRound(t));
+  for (const id of rounds) await db.deleteTx(id);
+  S.settings.fixNoBox = true;
+  await saveSettings();
+  refresh();
+  render();
 }
 
 // One-off (1405/08/13): Blu's statement to 12 Aban matches every record; only the fee of the
