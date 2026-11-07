@@ -75,6 +75,9 @@ async function boot() {
   await fixLifeDup0804();
   await fixBlu0807();
   await fixBlu0813();
+  await fixNoBox();
+  await fixBlu0816();
+  await fixBlu0816b();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -266,6 +269,55 @@ async function fixBlu0807() {
   S.settings.fixBlu0807 = true;
   await saveSettings();
   if (list.length) render();
+}
+
+// One-off (1405/08/16): Farbod closes Blu's Box and turns off rounding. The Box goes back into the main
+// balance: the opening balance gets back what the Box held on 1 Aban, the round-up records go (they were
+// only money moved from the main balance into the Box), and the Box leaves the assets.
+async function fixNoBox() {
+  if (S.settings.fixNoBox) return;
+  const A = assetsState(), box = A.items.find(it => it.kind === 'box');
+  if (box) { S.settings.openingBalance = (S.settings.openingBalance || 0) + (box.qty || 0); A.items = A.items.filter(it => it.kind !== 'box'); }
+  S.settings.roundUp = false;
+  const rounds = S.tx.filter(isRound).map(t => t.id);
+  S.tx = S.tx.filter(t => !isRound(t));
+  for (const id of rounds) await db.deleteTx(id);
+  S.settings.fixNoBox = true;
+  await saveSettings();
+  refresh();
+  render();
+}
+
+// One-off (1405/08/16): Blu's statement to 16 Aban. The Box was emptied into the main account and recorded
+// as «بلو باکس» (+5,082,500); with the Box folded back into the balance (fixNoBox) that record would count
+// it twice, so it goes. Two amounts were a few toman off and three card-to-card fees were missing.
+async function fixBlu0816() {
+  if (S.settings.fixBlu0816 || !S.settings.fixNoBox || !S.tx.some(t => t.id === 'mw5crknp7juw56')) return;
+  const by = id => S.tx.find(t => t.id === id), list = [];
+  const fix = (id, test, patch) => { const t = by(id); if (t && test(t)) list.push({ ...t, ...patch }); };
+  fix('mw2f8h5o97byds', t => t.amount === 605400, { amount: 605440 });
+  fix('mw5crknp7juw56', t => t.amount === 3402800, { amount: 3402870 });
+  const now = new Date().toISOString(), fee = (id, d, h, m, amount) => ({ id, ts: fromJalali(1405, 8, d, h, m).toISOString(), dir: 'out', amount, desc: 'کارمزد کارت‌به‌کارت', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  for (const f of [fee('blu0816-fee1', 13, 13, 36, 1800), fee('blu0816-fee2', 14, 15, 29, 1100), fee('blu0816-fee3', 15, 15, 22, 1100)]) if (!by(f.id)) list.push(f);
+  if (list.length) await putTx(list);
+  const boxOut = S.tx.find(t => t.id === 'mw66ez16yxuef9' && t.amount === 5082500);
+  if (boxOut) await delTx(boxOut.id);
+  S.settings.fixBlu0816 = true;
+  await saveSettings();
+  render();
+}
+
+// One-off (1405/08/16): the 8,000,000 that arrived on 16 Aban is part of a client's tuition (paid from a
+// different account), so it is work income.
+async function fixBlu0816b() {
+  if (S.settings.fixBlu0816b || !S.settings.fixBlu0816) return;
+  if (!S.tx.some(t => t.id === 'blu0816-work')) {
+    const now = new Date().toISOString();
+    await putTx({ id: 'blu0816-work', ts: fromJalali(1405, 8, 16, 14, 5).toISOString(), dir: 'in', amount: 8e6, desc: 'شهریهٔ مراجع (قسمتی)', cp: '', type: 'income_work', ctx: 'coaching', src: 'manual', created: now, updated: now, status: 'ok' });
+  }
+  S.settings.fixBlu0816b = true;
+  await saveSettings();
+  render();
 }
 
 // One-off (1405/08/13): Blu's statement to 12 Aban matches every record; only the fee of the
