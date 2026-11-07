@@ -77,6 +77,7 @@ async function boot() {
   await fixBlu0813();
   await fixNoBox();
   await fixBlu0816();
+  await fixBlu0816b();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -302,6 +303,19 @@ async function fixBlu0816() {
   const boxOut = S.tx.find(t => t.id === 'mw66ez16yxuef9' && t.amount === 5082500);
   if (boxOut) await delTx(boxOut.id);
   S.settings.fixBlu0816 = true;
+  await saveSettings();
+  render();
+}
+
+// One-off (1405/08/16): the 8,000,000 that arrived on 16 Aban is part of a client's tuition (paid from a
+// different account), so it is work income.
+async function fixBlu0816b() {
+  if (S.settings.fixBlu0816b || !S.settings.fixBlu0816) return;
+  if (!S.tx.some(t => t.id === 'blu0816-work')) {
+    const now = new Date().toISOString();
+    await putTx({ id: 'blu0816-work', ts: fromJalali(1405, 8, 16, 14, 5).toISOString(), dir: 'in', amount: 8e6, desc: 'شهریهٔ مراجع (قسمتی)', cp: '', type: 'income_work', ctx: 'coaching', src: 'manual', created: now, updated: now, status: 'ok' });
+  }
+  S.settings.fixBlu0816b = true;
   await saveSettings();
   render();
 }
