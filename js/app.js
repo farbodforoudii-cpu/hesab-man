@@ -984,6 +984,10 @@ function saleOptions(id) {
 
 
 const billDesc = b => `جلسه‌های ${b.name}، ${b.period}`;
+// Does a recorded receipt name the same client? Amount alone misleads: two packages can cost almost the same.
+const STOP = new Set(['و', 'خانم', 'آقای', 'آقا', 'جلسه', 'جلسه‌های', 'گروه', 'کلاس', 'خانواده']);
+const nameWords = b => String(b.name || '').split(/[\s،,]+/).filter(w => w.length > 1 && !STOP.has(w));
+const namesMatch = (t, b) => { const txt = `${t.desc || ''} ${t.cp || ''}`; return nameWords(b).some(w => txt.includes(w)); };
 async function receiveBill(id) {
   const b = sync.lifeBill(id);
   if (!b) return;
@@ -995,7 +999,10 @@ async function receiveBill(id) {
     return toast(`مبلغ ${b.period} در جدول Numbers همان ماه حساب شده است؛ دوباره ثبت نشد`);
   }
   // The same deposit typed in by hand already? Link to it instead of counting it twice.
-  const same = S.tx.find(t => t.dir === 'in' && t.type === 'income_work' && !t.life && Math.abs(t.amount - b.total) < 1000 && new Date(t.ts) >= new Date(b.from));
+  const near = S.tx.filter(t => t.dir === 'in' && t.type === 'income_work' && !t.life && Math.abs(t.amount - b.total) < 1000 && new Date(t.ts) >= new Date(b.from));
+  const same = near.find(t => namesMatch(t, b));
+  // Same amount under another name: let the user choose instead of linking silently.
+  if (!same && near.length) return billOptions(id);
   if (same) {
     await putTx({ ...same, life: id }); await sync.answerBill(id, 'existing', same.id); render();
     return toast(`همان دریافت «${same.desc}» قبلاً ثبت شده بود؛ به آن وصل شد`);
@@ -1017,11 +1024,11 @@ function billOptions(id) {
   if (!b) return;
   const from = new Date(b.from);
   const same = S.tx.filter(t => t.dir === 'in' && !t.life && Math.abs(t.amount - b.total) < 1000 && new Date(t.ts) >= from)
-    .sort((x, y) => y.ts.localeCompare(x.ts)).slice(0, 4);
+    .sort((x, y) => (namesMatch(y, b) - namesMatch(x, b)) || y.ts.localeCompare(x.ts)).slice(0, 4);
   openSheet(`<div class="sheet-nav"><span></span><b>${esc(b.name)}</b><button class="link" data-close>بستن</button></div>
     <p class="foot" style="margin:0 4px 12px">${esc(billDesc(b))}، ${iso(fmt(b.total))} تومان</p>
     ${same.length ? `<div class="section-title" style="margin-top:0">همین دریافت قبلاً ثبت شده؟</div><div class="group">${same.map(t =>
-      `<button class="cell" data-act="link" data-v="${esc(t.id)}"><span>${esc(t.desc)}<small> ، ${esc(dayLabel(new Date(t.ts)))}</small></span><b>${iso(fmt(t.amount))}</b></button>`).join('')}</div>` : ''}
+      `<button class="cell" data-act="link" data-v="${esc(t.id)}"><span>${esc(t.desc)}<small> ، ${esc(dayLabel(new Date(t.ts)))}${namesMatch(t, b) ? '' : '، نام دیگری دارد'}</small></span><b>${iso(fmt(t.amount))}</b></button>`).join('')}</div>` : ''}
     <div class="group" style="margin-top:14px">
       <button class="cell" data-act="elsewhere"><span>جای دیگری ثبت شده است</span></button>
       <button class="cell danger" data-act="skip">این طلب دریافت نمی‌شود</button></div>`, {
