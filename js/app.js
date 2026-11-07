@@ -76,6 +76,7 @@ async function boot() {
   await fixBlu0807();
   await fixBlu0813();
   await fixNoBox();
+  await fixBlu0816();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -283,6 +284,25 @@ async function fixNoBox() {
   S.settings.fixNoBox = true;
   await saveSettings();
   refresh();
+  render();
+}
+
+// One-off (1405/08/16): Blu's statement to 16 Aban. The Box was emptied into the main account and recorded
+// as «بلو باکس» (+5,082,500); with the Box folded back into the balance (fixNoBox) that record would count
+// it twice, so it goes. Two amounts were a few toman off and three card-to-card fees were missing.
+async function fixBlu0816() {
+  if (S.settings.fixBlu0816 || !S.settings.fixNoBox || !S.tx.some(t => t.id === 'mw5crknp7juw56')) return;
+  const by = id => S.tx.find(t => t.id === id), list = [];
+  const fix = (id, test, patch) => { const t = by(id); if (t && test(t)) list.push({ ...t, ...patch }); };
+  fix('mw2f8h5o97byds', t => t.amount === 605400, { amount: 605440 });
+  fix('mw5crknp7juw56', t => t.amount === 3402800, { amount: 3402870 });
+  const now = new Date().toISOString(), fee = (id, d, h, m, amount) => ({ id, ts: fromJalali(1405, 8, d, h, m).toISOString(), dir: 'out', amount, desc: 'کارمزد کارت‌به‌کارت', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  for (const f of [fee('blu0816-fee1', 13, 13, 36, 1800), fee('blu0816-fee2', 14, 15, 29, 1100), fee('blu0816-fee3', 15, 15, 22, 1100)]) if (!by(f.id)) list.push(f);
+  if (list.length) await putTx(list);
+  const boxOut = S.tx.find(t => t.id === 'mw66ez16yxuef9' && t.amount === 5082500);
+  if (boxOut) await delTx(boxOut.id);
+  S.settings.fixBlu0816 = true;
+  await saveSettings();
   render();
 }
 
