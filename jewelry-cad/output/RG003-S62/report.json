@@ -9,8 +9,8 @@
   24.14,
   11.0
  ],
- "min_radial_wall_mm": 1.13,
- "median_radial_wall_mm": 1.76,
+ "min_radial_wall_mm": 1.44,
+ "median_radial_wall_mm": 2.01,
  "volume_mm3": 882.4,
  "est_weight_g": {
   "silver_925": 9.14,

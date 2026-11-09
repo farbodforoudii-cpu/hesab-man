@@ -17,7 +17,7 @@
       24.17,
       5.0
     ],
-    "min_radial_wall_mm": 1.08,
+    "min_radial_wall_mm": 1.32,
     "volume_mm3": 587.6,
     "est_weight_g": 6.09,
     "watertight": true,
@@ -51,7 +51,7 @@
       23.47,
       4.0
     ],
-    "min_radial_wall_mm": 1.29,
+    "min_radial_wall_mm": 1.36,
     "volume_mm3": 595.6,
     "est_weight_g": 6.17,
     "watertight": true,
@@ -85,7 +85,7 @@
       24.14,
       11.0
     ],
-    "min_radial_wall_mm": 1.13,
+    "min_radial_wall_mm": 1.44,
     "volume_mm3": 882.4,
     "est_weight_g": 9.14,
     "watertight": true,
