@@ -35,6 +35,29 @@ for k, key in KEYS.items():
     except Exception as e:
         out.setdefault('histErr', {})[k] = str(e)
 
+# World drivers of Tehran's prices, from stooq daily closes (keyless CSV): last value, % move on the
+# previous close, and 30 closes. Read by the Iran outlook; the app does not use them yet.
+DRIVERS = {'gold': 'xauusd', 'silver': 'xagusd', 'dxy': 'dx.f', 'brent': 'cb.f', 'eurusd': 'eurusd', 'us10y': '10usy.b'}
+
+def daily(sym):
+    rows = [r.split(',') for r in get(f'https://stooq.com/q/d/l/?s={sym}&i=d', 20).strip().splitlines()[1:]]
+    rows = [r for r in rows if len(r) >= 5 and r[4] not in ('', 'N/D')]
+    if len(rows) < 2:
+        raise ValueError('no data')
+    c = [float(r[4]) for r in rows]
+    return {'p': c[-1], 'dp': round((c[-1] / c[-2] - 1) * 100, 2), 'd': rows[-1][0], 'hist': [[r[0], float(r[4])] for r in rows[-30:]]}
+
+out['drivers'] = {}
+for k, sym in DRIVERS.items():
+    try:
+        out['drivers'][k] = daily(sym)
+    except Exception as e:
+        out.setdefault('driversErr', {})[k] = str(e)
+# tgju's world ounce prices stay first; stooq fills them in when tgju fails.
+for w, k in (('ons', 'gold'), ('silver', 'silver')):
+    if w not in out.get('world', {}) and k in out['drivers']:
+        out.setdefault('world', {})[w] = out['drivers'][k]['p']
+
 # Keep the previous file's values for anything that failed this time.
 try:
     old = json.load(open('data/prices.json'))
@@ -42,9 +65,12 @@ try:
         out['now'].setdefault(k, old.get('now', {}).get(k))
         out['hist'].setdefault(k, old.get('hist', {}).get(k, []))
     if not out.get('world') and old.get('world'): out['world'] = old['world']
+    for k in DRIVERS:
+        if k not in out['drivers'] and k in old.get('drivers', {}): out['drivers'][k] = old['drivers'][k]
 except Exception:
     pass
 if not any(out['now'].values()):
     raise SystemExit('no prices')
 json.dump(out, open('data/prices.json', 'w'), ensure_ascii=False, separators=(',', ':'))
-print({k: v and v['p'] for k, v in out['now'].items()}, {k: len(v) for k, v in out['hist'].items()})
+print({k: v and v['p'] for k, v in out['now'].items()}, {k: len(v) for k, v in out['hist'].items()},
+      {k: (v['p'], v['dp']) for k, v in out['drivers'].items()}, out.get('driversErr', ''))
