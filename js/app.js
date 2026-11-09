@@ -1351,16 +1351,18 @@ function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running, title 
     const pk = REDUCED() ? '' : Array.from({ length: n }, (_, k) => `<circle r="2.2" class="fl-pkt"><animateMotion dur="${dur}s" begin="${(k * dur / n + i * .3).toFixed(2)}s" repeatCount="indefinite" path="${d}"/></circle>`).join('');
     const tx = out ? 8 : 332, an = out ? 'start' : 'end';
     return `<path d="${d}" class="fl-line ${out ? 'out' : 'in'}" stroke-width="${w(v).toFixed(1)}" style="--i:${i}"/>${pk}
-      <text x="${tx}" y="${y - 3}" text-anchor="${an}" class="fl-l">${esc(l)}</text><text x="${tx}" y="${y + 13}" text-anchor="${an}" class="fl-v">${esc(fmtShort(v))}</text>`;
+`;
   }).join('');
-  const [nn, ...nu] = fmtShort(Math.abs(net)).split(' ');
+  // Labels are HTML laid over the drawing: inside SVG, Safari and Chrome both mix up a number and its unit.
+  const tags = (list, out) => list.map(([l, v], i) => `<span class="fl-tag ${out ? 'out' : 'in'}" style="top:${((ys(list.length, i) - 15) / H * 100).toFixed(2)}%"><small>${esc(l)}</small><b>${fmtShort(v)}</b></span>`).join('');
+  const [nn, ...nu] = fmtShort(Math.abs(net)).replace(/[\u2066-\u2069]/g, '').split(' ');
   return `<div class="ins-card flow"><span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br2"></span>
     <p class="eyebrow-s">${running ? '<span class="live-dot"></span>' : ''}${esc(title)}</p>
-    <svg viewBox="0 0 340 ${H}" class="fl-svg" role="img" aria-label="جریان پول ماه">${side(src, false)}${side(dst, true)}
+    <div class="fl-wrap"><svg viewBox="0 0 340 ${H}" class="fl-svg" role="img" aria-label="جریان پول ماه">${side(src, false)}${side(dst, true)}
       <rect x="140" y="${(hy - 26).toFixed(1)}" width="60" height="52" rx="12" class="fl-hub"/>
       <text x="170" y="${(hy + 1).toFixed(1)}" text-anchor="middle" class="fl-v ${net >= 0 ? 'up' : 'down'}" direction="ltr">${net >= 0 ? '+' : '−'}${esc(nn)}</text>
       <text x="170" y="${(hy + 15).toFixed(1)}" text-anchor="middle" class="fl-l">${esc(nu.join(' ') || 'تومان')}</text>
-      <text x="170" y="${(hy - 33).toFixed(1)}" text-anchor="middle" class="fl-l">آخر ماه</text></svg>
+      <text x="170" y="${(hy - 33).toFixed(1)}" text-anchor="middle" class="fl-l">آخر ماه</text></svg>${tags(src, false)}${tags(dst, true)}</div>
     ${extra}</div>`;
 }
 
