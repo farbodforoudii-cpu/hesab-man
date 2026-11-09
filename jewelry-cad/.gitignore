@@ -1,0 +1,4 @@
+output/**/*.stl
+output/**/*.3dm
+output/**/*.3mf
+__pycache__/
