@@ -13,9 +13,16 @@ MATERIALS = json.load(open(ROOT / "materials.json"))
 
 
 def wall_thickness(tm, n=3000):
-    """Radial wall thickness: rays from points on the inner (finger) surface straight outward."""
+    """Radial wall thickness: rays from points on the inner (finger) surface straight outward.
+    Only the central 75 % of the band width at each angle is probed: the rounded side edges are
+    thin by nature (they are the edge radius, not the wall)."""
     r = np.hypot(tm.vertices[:, 0], tm.vertices[:, 1])
     inner = tm.vertices[r < r.min() + 0.25]
+    ang = np.round(np.degrees(np.arctan2(inner[:, 1], inner[:, 0]))).astype(int)
+    zmax = {}
+    for a_, z_ in zip(ang, np.abs(inner[:, 2])):
+        zmax[a_] = max(zmax.get(a_, 0), z_)
+    inner = inner[np.abs(inner[:, 2]) <= 0.75 * np.array([zmax[a_] for a_ in ang])]
     if len(inner) > n:
         inner = inner[np.random.default_rng(0).choice(len(inner), n, replace=False)]
     d = inner.copy(); d[:, 2] = 0; d /= np.linalg.norm(d, axis=1)[:, None]

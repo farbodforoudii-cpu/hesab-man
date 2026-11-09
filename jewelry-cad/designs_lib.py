@@ -73,58 +73,39 @@ def diagonal_dome(p):
     return grid_mesh(polar(R, TH, Z), polar(Ri, TH, Z))
 
 
-def _signet_body(p):
-    """Tapered shank + conical head with a flat face (ellipse a x b) at height H above centre."""
-    r0 = inner_radius(p["iso_size"])
-    th = theta_samples(400, 400, 120)
-    phi = phi_of(th)
-    v = edge_rows(25)
-    W = taper(phi, p["shank_top_width_mm"], p["shank_bottom_width_mm"], 2.0)
-    T = taper(phi, p["shank_top_thickness_mm"], p["shank_bottom_thickness_mm"], 2.0)
-    Z = v[:, None] * W[None, :] / 2
-    R = r0 + T[None, :] * (1 - 0.25 * v[:, None] ** 2)
-    Ri = comfort_inner(r0, Z, W[None, :] / 2, p["comfort_fit_mm"])
-    TH = np.broadcast_to(th[None, :], R.shape)
-    shank = to_manifold(grid_mesh(polar(R, TH, Z), polar(Ri, TH, Z)))
-    a, b = p["face_length_mm"] / 2, p["face_width_mm"] / 2   # a: around the ring (X), b: along finger (Z)
-    H = r0 + p["head_height_mm"]
-    pts = np.vstack([ellipse_pts(a, b, H),
-                     ellipse_pts(a, b, H - p["face_rim_mm"]),                    # short vertical rim
-                     # foot of the head: sits just above the finger hole, buried inside the shank,
-                     # so the head's side walls meet the shank surface (no knife-edge at the bore)
-                     ellipse_pts(a * p["head_base_scale"], p["shank_top_width_mm"] / 2 * 0.9,
-                                 r0 + p["head_base_y_offset_mm"])])
-    head = Manifold.hull_points(pts)
-    body = shank + head
-    return body, H, a, b
+import sdf
+
+
+def classic_signet(p):
+    """Classic signet: shank flares smoothly into a flat round/oval face (implicit model)."""
+    return sdf.build(p)
 
 
 def onyx_signet(p):
-    """Round signet with a flat seat for a glued flat stone (stone is NOT part of the casting)."""
-    body, H, a, b = _signet_body(p)
-    seat = cyl_y(p["stone_diameter_mm"] / 2 + p["stone_clearance_mm"], H - p["stone_seat_depth_mm"], H + 1)
-    return to_trimesh(body - seat)
+    """Classic signet with a flat seat for a glued flat stone (stone is NOT part of the casting)."""
+    rs = p["stone_diameter_mm"] / 2 + p["stone_clearance_mm"]
+    def seat(X, Y, Z, H):           # positive inside the pocket
+        return np.minimum(rs - np.sqrt(X ** 2 + Z ** 2), Y - (H - p["stone_seat_depth_mm"]))
+    return sdf.build(p, extra_cut_fn=seat)
 
 
-def sunburst_signet(p):
-    """Oval signet with radial V grooves from a small centre dome."""
-    body, H, a, b = _signet_body(p)
-    n, d, wv = p["ray_count"], p["ray_depth_mm"], p["ray_width_mm"]
-    r_start, L = p["ray_start_mm"], max(a, b) + 1
-    rays = []
-    for i in range(n):
-        g = Manifold.hull_points(np.array([
-            [r_start, H + 0.5, -wv / 2], [r_start, H + 0.5, wv / 2], [L, H + 0.5, -wv / 2], [L, H + 0.5, wv / 2],
-            [r_start, H - d, 0], [L, H - d, 0]]))
-        rays.append(g.rotate((0, 360.0 * i / n, 0)))
-    rays = Manifold.batch_boolean(rays, __import__("manifold3d").OpType.Add)
-    # keep a plain rim: rays only inside the face ellipse shrunk by rim_mm
-    rim = p["face_border_mm"]
-    clip = Manifold.hull_points(np.vstack([ellipse_pts(a - rim, b - rim, H - 2),
-                                           ellipse_pts(a - rim, b - rim, H + 2)]))
-    body = body - (rays ^ clip)
-    dot = Manifold.sphere(p["center_dot_radius_mm"], 64).translate((0, H - p["center_dot_radius_mm"] + p["center_dot_height_mm"], 0))
-    return to_trimesh(body + dot)
+def sunburst_oval_signet(p):
+    """Oval signet whose face is cut into swirling V facets (sunburst) around a small centre dome."""
+    a, b = p["face_length_mm"] / 2, p["face_width_mm"] / 2
+    n, depth, swirl = p["ray_count"], p["ray_depth_mm"], math.radians(p["ray_swirl_deg"])
+    rd, hd = p["center_dot_radius_mm"], p["center_dot_height_mm"]
+    def top(X, Z):                 # how far below the face plane the surface sits (negative = raised)
+        r = np.sqrt((X / a) ** 2 + (Z / b) ** 2)           # 0 centre .. 1 rim
+        ang = np.arctan2(Z / b, X / a)
+        ph = (ang * n / (2 * math.pi) - swirl * r * n / (2 * math.pi)) % 1.0
+        v = 1 - np.abs(2 * ph - 1)                          # triangle wave: 0 ridge, 1 valley
+        r0 = (rd + 0.3) / min(a, b)
+        ramp = np.clip((r - r0) / 0.15, 0, 1)
+        g = depth * v * ramp
+        rm = np.sqrt(X ** 2 + Z ** 2)
+        dot = hd * np.sqrt(np.clip(1 - (rm / rd) ** 2, 0, 1))
+        return g - dot
+    return sdf.build(p, top_height_fn=top, step=0.05)
 
 
-BUILDERS = {f.__name__: f for f in [fluted_band, bar_band, diagonal_dome, onyx_signet, sunburst_signet]}
+BUILDERS = {f.__name__: f for f in [fluted_band, bar_band, diagonal_dome, classic_signet, onyx_signet, sunburst_oval_signet]}

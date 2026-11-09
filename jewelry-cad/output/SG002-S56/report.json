@@ -5,12 +5,12 @@
  "inner_diameter_mm": 17.83,
  "target_inner_diameter_mm": 17.83,
  "overall_size_mm": [
-  21.41,
-  22.68,
-  9.0
+  21.43,
+  22.73,
+  9.31
  ],
- "min_radial_wall_mm": 0.99,
- "median_radial_wall_mm": 1.44,
+ "min_radial_wall_mm": 1.32,
+ "median_radial_wall_mm": 1.9,
  "volume_mm3": 654.7,
  "est_weight_g": {
   "silver_925": 6.78,
