@@ -1,6 +1,6 @@
 """Fetch live Iranian market prices (toman) and a year of daily closes; write data/prices.json.
 Runs in GitHub Actions (the phone cannot read tgju directly: no CORS). Sources: tgju.org, alanchand as fallback."""
-import json, re, time, urllib.request, datetime
+import json, re, time, urllib.request, urllib.parse, datetime
 
 UA = {'User-Agent': 'Mozilla/5.0'}
 KEYS = {'usd': 'price_dollar_rl', 'eur': 'price_eur', 'gold': 'geram18', 'silver': 'silver_999'}
@@ -35,25 +35,43 @@ for k, key in KEYS.items():
     except Exception as e:
         out.setdefault('histErr', {})[k] = str(e)
 
-# World drivers of Tehran's prices, from stooq daily closes (keyless CSV): last value, % move on the
-# previous close, and 30 closes. Read by the Iran outlook; the app does not use them yet.
-DRIVERS = {'gold': 'xauusd', 'silver': 'xagusd', 'dxy': 'dx.f', 'brent': 'cb.f', 'eurusd': 'eurusd', 'us10y': '10usy.b'}
+# World drivers of Tehran's prices: last value, % move on the previous close, and 30 daily closes.
+# Read by the Iran outlook; the app does not use them yet. Yahoo's chart data first, stooq's CSV as fallback
+# (both keyless; gold, silver, dollar index and Brent are front-month futures on Yahoo).
+DRIVERS = {'gold': ('GC=F', 'xauusd'), 'silver': ('SI=F', 'xagusd'), 'dxy': ('DX-Y.NYB', 'dx.f'),
+           'brent': ('BZ=F', 'cb.f'), 'eurusd': ('EURUSD=X', 'eurusd'), 'us10y': ('^TNX', '10usy.b')}
 
-def daily(sym):
-    rows = [r.split(',') for r in get(f'https://stooq.com/q/d/l/?s={sym}&i=d', 20).strip().splitlines()[1:]]
-    rows = [r for r in rows if len(r) >= 5 and r[4] not in ('', 'N/D')]
+def summary(rows, src):
     if len(rows) < 2:
         raise ValueError('no data')
-    c = [float(r[4]) for r in rows]
-    return {'p': c[-1], 'dp': round((c[-1] / c[-2] - 1) * 100, 2), 'd': rows[-1][0], 'hist': [[r[0], float(r[4])] for r in rows[-30:]]}
+    return {'p': rows[-1][1], 'dp': round((rows[-1][1] / rows[-2][1] - 1) * 100, 2), 'd': rows[-1][0], 'src': src, 'hist': rows[-30:]}
+
+def yahoo(sym):
+    r = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=2mo&interval=1d', 20))['chart']['result'][0]
+    day = lambda t: datetime.datetime.utcfromtimestamp(t).strftime('%Y-%m-%d')
+    rows = [[day(t), round(c, 4)] for t, c in zip(r['timestamp'], r['indicators']['quote'][0]['close']) if c is not None]
+    return summary(rows, 'yahoo')
+
+def stooq(sym):
+    text = get(f'https://stooq.com/q/d/l/?s={sym}&i=d', 20)
+    rows = [r.split(',') for r in text.strip().splitlines()[1:]]
+    rows = [[r[0], float(r[4])] for r in rows if len(r) >= 5 and r[4] not in ('', 'N/D')]
+    if len(rows) < 2:
+        raise ValueError('no data: ' + text[:60])
+    return summary(rows, 'stooq')
 
 out['drivers'] = {}
-for k, sym in DRIVERS.items():
-    try:
-        out['drivers'][k] = daily(sym)
-    except Exception as e:
-        out.setdefault('driversErr', {})[k] = str(e)
-# tgju's world ounce prices stay first; stooq fills them in when tgju fails.
+for k, (ysym, ssym) in DRIVERS.items():
+    errs = []
+    for fetch, sym in ((yahoo, ysym), (stooq, ssym)):
+        try:
+            out['drivers'][k] = fetch(sym)
+            break
+        except Exception as e:
+            errs.append(f'{fetch.__name__}: {e}'[:120])
+    else:
+        out.setdefault('driversErr', {})[k] = errs
+# tgju's world ounce prices stay first; the drivers fill them in when tgju fails.
 for w, k in (('ons', 'gold'), ('silver', 'silver')):
     if w not in out.get('world', {}) and k in out['drivers']:
         out.setdefault('world', {})[w] = out['drivers'][k]['p']
