@@ -1,15 +1,10 @@
 # jewelry-cad
 
-Parametric jewelry models (mm) for resin printing + casting. Separate project from hesab-man.
+Parametric jewelry models (mm) for resin printing + casting, plus the product catalog. See `CLAUDE.md`.
 
-## Run
 ```
-pip install manifold3d trimesh numpy networkx rhino3dm matplotlib
-python jewelry.py designs/fluted_band_64.json          # -> output/<name>/ (STL, 3DM, report.json)
-python render.py output/<name>/<name>.stl output/<name>/preview.png
+pip install manifold3d trimesh numpy networkx rtree rhino3dm matplotlib
+python jewelry.py all                      # build every design in designs/
+python jewelry.py designs/SG001-S64.json   # build one
 ```
-
-- `designs/*.json` — one file per design (the source of truth). ISO ring size = inner circumference in mm.
-- `report.json` — watertight check, measured dimensions, volume, estimated weight per metal.
-- Geometry check only: minimum wall, shrinkage and sprue must be confirmed by the caster.
-- STL/3DM are not committed (large); regenerate from the JSON.
+Output per design: `output/<id>/` STL (caster), 3DM (Rhino), preview.png, report.json. STL/3DM are not committed.

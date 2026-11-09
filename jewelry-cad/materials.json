@@ -1,0 +1,6 @@
+{
+  "silver_925":       {"name_fa": "نقره ۹۲۵",      "density_g_cm3": 10.36},
+  "fine_silver_999":  {"name_fa": "نقره ۹۹۹",      "density_g_cm3": 10.49},
+  "gold_18k_yellow":  {"name_fa": "طلای ۱۸ عیار زرد", "density_g_cm3": 15.6},
+  "gold_14k_yellow":  {"name_fa": "طلای ۱۴ عیار زرد", "density_g_cm3": 13.1}
+}

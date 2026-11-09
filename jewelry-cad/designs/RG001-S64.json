@@ -1,0 +1,21 @@
+{
+  "design_id": "RG001-S64",
+  "model_code": "RG001",
+  "name_fa": "حلقهٔ شیاردار",
+  "name_en": "Fluted Band",
+  "collection": "Fluted",
+  "type": "fluted_band",
+  "iso_size": 64,
+  "finger": "middle",
+  "width_mm": 5.0,
+  "base_thickness_mm": 1.4,
+  "rib_height_mm": 0.5,
+  "rib_count": 60,
+  "rib_sharpness": 0.6,
+  "edge_chamfer_mm": 0.2,
+  "comfort_fit_mm": 0.15,
+  "rib_end_round_mm": 0.6,
+  "material": "silver_925",
+  "status": "design",
+  "min_wall_design_mm": null
+}

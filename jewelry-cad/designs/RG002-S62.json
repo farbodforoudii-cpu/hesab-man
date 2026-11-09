@@ -1,0 +1,23 @@
+{
+  "design_id": "RG002-S62",
+  "model_code": "RG002",
+  "name_fa": "حلقهٔ پلاک صاف با شیار",
+  "name_en": "Bar Band",
+  "collection": "Fluted",
+  "type": "bar_band",
+  "iso_size": 62,
+  "finger": "index",
+  "width_mm": 4.0,
+  "thickness_mm": 2.3,
+  "panel_length_mm": 9.0,
+  "gap_to_grooves_mm": 0.4,
+  "groove_pitch_mm": 0.75,
+  "grooves_per_side": 10,
+  "groove_depth_mm": 0.35,
+  "rib_sharpness": 0.5,
+  "edge_chamfer_mm": 0.2,
+  "comfort_fit_mm": 0.15,
+  "material": "silver_925",
+  "status": "design",
+  "min_wall_design_mm": null
+}
