@@ -39,11 +39,18 @@ def fluted_band(p):
     c, k = p["edge_chamfer_mm"], p["comfort_fit_mm"]
     ro = r_in0 + t + h
     th = np.linspace(0, 2 * math.pi, n * 32, endpoint=False)
-    zs = np.linspace(-w / 2, w / 2, 41)
-    # rounded ribs, sharp V grooves between them
-    rib = r_in0 + t + h * np.abs(np.cos(n * th / 2)) ** p["rib_sharpness"]
-    chamfer_limit = ro - c + (w / 2 - np.abs(zs))          # 45° chamfer on outer edges
-    r_out = np.minimum(rib[None, :], chamfer_limit[:, None])
+    # z samples: denser near the edges where the rib ends are rounded
+    u = np.linspace(-1, 1, 49)
+    zs = (w / 2) * np.sin(u * math.pi / 2)
+    rib = np.abs(np.cos(n * th / 2)) ** p["rib_sharpness"]           # 0..1, rounded ribs, V grooves
+    # rib ends: height falls to 0 over rib_end_round_mm with a quarter-circle curve,
+    # so each rib finishes rounded instead of being cut by the chamfer (no saw-tooth rim)
+    e = p.get("rib_end_round_mm", 0.6)
+    d = np.clip((np.abs(zs) - (w / 2 - e)) / e, 0, 1)
+    h_z = h * np.sqrt(1 - d ** 2)
+    r_base = r_in0 + t
+    edge = np.minimum(0, (w / 2 - np.abs(zs)) - c)                    # small chamfer on the plain rim
+    r_out = (r_base + edge)[:, None] + h_z[:, None] * rib[None, :]
     r_in = np.broadcast_to((r_in0 + k * (2 * zs / w) ** 2)[:, None], r_out.shape)  # comfort fit
     return tube_mesh(r_out, np.array(r_in), th, zs)
 
@@ -64,7 +71,7 @@ def validate(tm, p):
         "target_inner_diameter_mm": round(2 * inner_radius(p["iso_size"]), 3),
         "outer_diameter_max_mm": round(2 * r.max(), 3),
         "width_mm": round(float(np.ptp(tm.vertices[:, 2])), 3),
-        "min_wall_at_groove_edge_mm": round(p["base_thickness_mm"] - p["comfort_fit_mm"], 3),
+        "min_wall_at_groove_edge_mm": round(p["base_thickness_mm"] - p["comfort_fit_mm"] - p["edge_chamfer_mm"], 3),
         "volume_mm3": round(vol, 1),
         "est_weight_g": {k: round(vol / 1000 * d, 2) for k, d in DENSITY.items()},
         "note": "Geometry check only. Min wall, shrinkage and sprue must be confirmed by the caster.",

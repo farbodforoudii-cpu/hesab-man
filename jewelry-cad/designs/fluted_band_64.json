@@ -7,7 +7,8 @@
   "rib_height_mm": 0.5,
   "rib_count": 60,
   "rib_sharpness": 0.6,
-  "edge_chamfer_mm": 0.3,
+  "edge_chamfer_mm": 0.2,
   "comfort_fit_mm": 0.15,
-  "material": "silver_925"
+  "material": "silver_925",
+  "rib_end_round_mm": 0.6
 }
