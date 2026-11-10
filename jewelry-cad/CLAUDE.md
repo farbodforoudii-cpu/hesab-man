@@ -11,6 +11,9 @@ Files are MESH (not NURBS). Owner should not rescale for sizing; regenerate inst
 
 ## Business facts
 - Stock: 300 g fine silver 999.9 → alloy to 925 (~324 g) at the caster; ask caster for melt loss.
+- Caster deal (how owner has worked so far): owner supplies silver equal to the piece weight, casting labour paid in rial.
+  For 925 pieces: fine silver to give = cast weight × 0.925 / 0.9999 (≈ 0.925 × weight); caster adds the 7.5 % alloy.
+  Settle on the actual raw-cast weight, not the CAD estimate; melt-loss terms still to be agreed.
 - Owner's largest finger (middle) = ISO 64. Estimates: index 62, ring 61 (62 for wide rings), little 56. To be confirmed with a sizer.
 - Min wall / shrinkage / stone seat tolerances: NOT confirmed by caster yet. Never call a model "production ready" before that.
 
