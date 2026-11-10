@@ -9,14 +9,14 @@
   25.47,
   12.37
  ],
- "min_radial_wall_mm": 1.4,
- "median_radial_wall_mm": 2.06,
- "volume_mm3": 979.3,
+ "min_radial_wall_mm": 1.41,
+ "median_radial_wall_mm": 2.07,
+ "volume_mm3": 978.8,
  "est_weight_g": {
-  "silver_925": 10.15,
+  "silver_925": 10.14,
   "fine_silver_999": 10.27,
-  "gold_18k_yellow": 15.28,
-  "gold_14k_yellow": 12.83
+  "gold_18k_yellow": 15.27,
+  "gold_14k_yellow": 12.82
  },
  "note": "Geometry check only. Minimum wall, shrinkage, sprue and stone seat must be confirmed by the caster."
 }

@@ -36,6 +36,7 @@ crisp flat face, teardrop outline seen along the finger. v1 signets (hull head o
 `engine.py` geometry helpers · `designs_lib.py` builders · `designs/*.json` one file per design (source of truth) ·
 `jewelry.py` build+validate+export · `catalog.py` · `render.py` ·
 `sdf.py` implicit modelling (smooth blend + marching cubes) for organic forms such as signets.
+Signet face: outside the face ellipse metal drops 0.3 mm at once then slopes 45° (owner asked for a clean, even face-to-shank separation).
 Redesign of an unproduced model keeps its code and gets `version` +1. Prefer structured grid meshes (no booleans) —
 booleans with coplanar faces gave zero-area slivers that break STL watertightness on re-import.
 Validation = watertight, single body, inner diameter vs ISO, radial wall-thickness rays, volume, weight per metal.

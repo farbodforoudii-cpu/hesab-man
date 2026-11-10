@@ -9,11 +9,11 @@
   25.87,
   12.34
  ],
- "min_radial_wall_mm": 1.41,
- "median_radial_wall_mm": 2.01,
- "volume_mm3": 877.0,
+ "min_radial_wall_mm": 1.4,
+ "median_radial_wall_mm": 2.02,
+ "volume_mm3": 876.8,
  "est_weight_g": {
-  "silver_925": 9.09,
+  "silver_925": 9.08,
   "fine_silver_999": 9.2,
   "gold_18k_yellow": 13.68,
   "gold_14k_yellow": 11.49

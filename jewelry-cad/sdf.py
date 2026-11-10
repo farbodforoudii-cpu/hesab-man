@@ -49,6 +49,11 @@ def build(p, top_height_fn=None, extra_cut_fn=None, step=0.06):
     d = smin(shank, head, p["blend_mm"])
     # --- flat (or textured) face
     top = H - (top_height_fn(X, Z) if top_height_fn else 0.0)
+    # face edge: outside the face ellipse the metal must fall away at once (small crisp drop)
+    # and keep sloping down, so the face reads as one clean plate, evenly separated from the shank
+    eo = np.maximum(ellipse2(X, Z, a, b), 0)
+    drop, slope = p.get("face_edge_drop_mm", 0.3), p.get("face_edge_slope", 1.0)
+    top = np.minimum(top, H - np.minimum(drop, eo * 10) - slope * eo)
     d = np.maximum(d, Y - top)
     # --- finger hole (comfort fit)
     rin = r0 + p["comfort_fit_mm"] * np.clip(Z / 4.0, -1, 1) ** 2
