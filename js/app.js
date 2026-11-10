@@ -78,6 +78,7 @@ async function boot() {
   await fixNoBox();
   await fixBlu0816();
   await fixBlu0816b();
+  await fixBlu0819();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -316,6 +317,20 @@ async function fixBlu0816b() {
     await putTx({ id: 'blu0816-work', ts: fromJalali(1405, 8, 16, 14, 5).toISOString(), dir: 'in', amount: 8e6, desc: 'شهریهٔ مراجع (قسمتی)', cp: '', type: 'income_work', ctx: 'coaching', src: 'manual', created: now, updated: now, status: 'ok' });
   }
   S.settings.fixBlu0816b = true;
+  await saveSettings();
+  render();
+}
+
+// One-off (1405/08/19): Blu's statement to 19 Aban. The tuition receipt from «زندگی من» (32,000,000 on
+// 16 Aban) already holds the 8,000,000 recorded by fixBlu0816b (8 + 10 + 11.5 + 2.5 million from four
+// accounts), so that record goes; three card-to-card fees were missing.
+async function fixBlu0819() {
+  if (S.settings.fixBlu0819 || !S.tx.some(t => t.id === 'mwak6mvq6z3uhm')) return;
+  const now = new Date().toISOString(), fee = (id, d, h, m, amount) => ({ id, ts: fromJalali(1405, 8, d, h, m).toISOString(), dir: 'out', amount, desc: 'کارمزد کارت‌به‌کارت', cp: '', type: 'expense', cat: 'fees', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  const add = [fee('blu0819-fee1', 17, 20, 10, 1100), fee('blu0819-fee2', 19, 13, 49, 1450), fee('blu0819-fee3', 19, 14, 9, 1100)].filter(f => !S.tx.some(t => t.id === f.id));
+  if (add.length) await putTx(add);
+  if (S.tx.some(t => t.id === 'blu0816-work')) await delTx('blu0816-work');
+  S.settings.fixBlu0819 = true;
   await saveSettings();
   render();
 }
