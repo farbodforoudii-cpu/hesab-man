@@ -183,13 +183,13 @@
     "stone": null,
     "inner_diameter_mm": 20.37,
     "overall_size_mm": [
-      24.16,
-      25.47,
-      12.0
+      23.54,
+      24.42,
+      11.0
     ],
-    "min_radial_wall_mm": 1.43,
-    "volume_mm3": 999.5,
-    "est_weight_g": 10.35,
+    "min_radial_wall_mm": 1.22,
+    "volume_mm3": 652.0,
+    "est_weight_g": 6.75,
     "watertight": true,
     "design_file": "designs/SG003-S64.json",
     "stl_file": "output/SG003-S64/SG003-S64.stl",

@@ -27,7 +27,7 @@ business fields status/qty/costs/price are preserved). Status flow: design → a
 | RG003 | Diagonal Flute Dome | tapered, 35° flutes |
 | SG001 | Onyx Signet | v3 hull body; 10 mm flat onyx, glued; seat 1.8 mm deep |
 | SG002 | Sunburst Oval Signet | v3 hull body; 13x8.5 oval across finger, 36 swirling V facets, centre dome |
-| SG003 | Classic Round Signet | v2 hull body; 12 mm plain flat face (engraving-ready), Miansai-style reference |
+| SG003 | Classic Round Signet | v3 slim hull body (owner: thinner); 11 mm face, head 2.6, ~6.8 g; plain flat face (engraving-ready), Miansai-style reference |
 
 Signet references owner approved as the target look: shank widens + thickens smoothly into the head,
 crisp flat face, teardrop outline seen along the finger. v1 signets (hull head on band) were judged wrong.
