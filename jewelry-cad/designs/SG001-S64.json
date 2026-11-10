@@ -9,7 +9,7 @@
   "finger": "middle",
   "face_length_mm": 12.0,
   "face_width_mm": 12.0,
-  "head_height_mm": 3.8,
+  "head_height_mm": 2.8,
   "shank_top_width_mm": 7.0,
   "shank_bottom_width_mm": 3.6,
   "shank_top_thickness_mm": 2.2,
@@ -18,11 +18,11 @@
   "material": "silver_925",
   "taper_power": 1.4,
   "comfort_fit_mm": 0.1,
-  "version": 3,
-  "stone": "flat round black onyx 10 mm, glued",
+  "version": 4,
+  "stone": "flat round black onyx 10 mm, max 1.5 mm thick, glued",
   "stone_diameter_mm": 10.0,
   "stone_clearance_mm": 0.05,
-  "stone_seat_depth_mm": 1.8,
+  "stone_seat_depth_mm": 1.5,
   "hull_span_deg": 95,
   "face_rim_mm": 0.3
 }

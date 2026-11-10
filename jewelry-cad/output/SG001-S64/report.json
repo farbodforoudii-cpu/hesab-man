@@ -6,17 +6,17 @@
  "target_inner_diameter_mm": 20.37,
  "overall_size_mm": [
   24.16,
-  25.87,
+  24.87,
   12.0
  ],
- "min_radial_wall_mm": 1.43,
- "median_radial_wall_mm": 1.93,
- "volume_mm3": 913.8,
+ "min_radial_wall_mm": 1.2,
+ "median_radial_wall_mm": 1.75,
+ "volume_mm3": 791.8,
  "est_weight_g": {
-  "silver_925": 9.47,
-  "fine_silver_999": 9.59,
-  "gold_18k_yellow": 14.25,
-  "gold_14k_yellow": 11.97
+  "silver_925": 8.2,
+  "fine_silver_999": 8.31,
+  "gold_18k_yellow": 12.35,
+  "gold_14k_yellow": 10.37
  },
  "note": "Geometry check only. Minimum wall, shrinkage, sprue and stone seat must be confirmed by the caster."
 }

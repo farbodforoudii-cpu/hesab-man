@@ -25,10 +25,11 @@ business fields status/qty/costs/price are preserved). Status flow: design → a
 | RG001 | Fluted Band | v2: rounded rib ends |
 | RG002 | Bar Band | flat top panel + grooves each side |
 | RG003 | Diagonal Flute Dome | tapered, 35° flutes |
-| SG001 | Onyx Signet | v3 hull body; 10 mm flat onyx, glued; seat 1.8 mm deep |
-| SG002 | Sunburst Oval Signet | v3 hull body; 13x8.5 oval across finger, 36 swirling V facets, centre dome |
-| SG003 | Classic Round Signet | v3 slim hull body (owner: thinner); 11 mm face, head 2.6, ~6.8 g; plain flat face (engraving-ready), Miansai-style reference |
+| SG001 | Onyx Signet | v4 hull body, head 2.8; 10 mm flat onyx ≤1.5 mm thick, glued; seat 1.5 mm deep |
+| SG002 | Sunburst Oval Signet | v4 hull body, head 2.4; 13x8.5 oval across finger, 36 swirling V facets, centre dome |
+| SG003 | Classic Round Signet | v4 slim hull body; 11 mm face, head 2.2, ~6.2 g; plain flat face (engraving-ready), Miansai-style reference |
 
+Owner prefers LOW faces: head height only ~0.4 mm above the shank top thickness (keeps face-to-shank transition gentle).
 Signet references owner approved as the target look: shank widens + thickens smoothly into the head,
 crisp flat face, teardrop outline seen along the finger. v1 signets (hull head on band) were judged wrong.
 

@@ -9,7 +9,7 @@
   "finger": "little",
   "face_length_mm": 13.0,
   "face_width_mm": 8.5,
-  "head_height_mm": 3.0,
+  "head_height_mm": 2.4,
   "shank_top_width_mm": 6.0,
   "shank_bottom_width_mm": 3.2,
   "shank_top_thickness_mm": 2.0,
@@ -23,7 +23,7 @@
   "material": "silver_925",
   "taper_power": 1.4,
   "comfort_fit_mm": 0.1,
-  "version": 3,
+  "version": 4,
   "hull_span_deg": 95,
   "face_rim_mm": 0.3
 }
