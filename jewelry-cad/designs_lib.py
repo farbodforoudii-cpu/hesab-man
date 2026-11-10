@@ -73,39 +73,40 @@ def diagonal_dome(p):
     return grid_mesh(polar(R, TH, Z), polar(Ri, TH, Z))
 
 
-import sdf
+import hull_signet as hs
 
 
 def classic_signet(p):
-    """Classic signet: shank flares smoothly into a flat round/oval face (implicit model)."""
-    return sdf.build(p)
+    """Plain flat face (engraving-ready)."""
+    m, H, a, b = hs.body(p)
+    return hs.to_tm(m)
 
 
 def onyx_signet(p):
-    """Classic signet with a flat seat for a glued flat stone (stone is NOT part of the casting)."""
+    """Flat seat for a glued flat stone, leaving an even metal rim (stone is NOT cast)."""
+    m, H, a, b = hs.body(p)
     rs = p["stone_diameter_mm"] / 2 + p["stone_clearance_mm"]
-    def seat(X, Y, Z, H):           # positive inside the pocket
-        return np.minimum(rs - np.sqrt(X ** 2 + Z ** 2), Y - (H - p["stone_seat_depth_mm"]))
-    return sdf.build(p, extra_cut_fn=seat)
+    d = p["stone_seat_depth_mm"]
+    seat = Manifold.cylinder(d + 1.0, rs, rs, 256).rotate((-90, 0, 0)).translate((0, H - d, 0))
+    return hs.to_tm(m - seat)
 
 
 def sunburst_oval_signet(p):
-    """Oval signet whose face is cut into swirling V facets (sunburst) around a small centre dome."""
+    """Face cut into swirling V facets that run out to a scalloped edge, small dome in the centre."""
     a, b = p["face_length_mm"] / 2, p["face_width_mm"] / 2
     n, depth, swirl = p["ray_count"], p["ray_depth_mm"], math.radians(p["ray_swirl_deg"])
     rd, hd = p["center_dot_radius_mm"], p["center_dot_height_mm"]
-    def top(X, Z):                 # how far below the face plane the surface sits (negative = raised)
-        r = np.sqrt((X / a) ** 2 + (Z / b) ** 2)           # 0 centre .. 1 rim
+    m, H, a, b = hs.body(p, face_lift=hd + 0.2)
+    def g(X, Z):
+        r = np.sqrt((X / a) ** 2 + (Z / b) ** 2)
         ang = np.arctan2(Z / b, X / a)
-        ph = (ang * n / (2 * math.pi) - swirl * r * n / (2 * math.pi)) % 1.0
-        v = 1 - np.abs(2 * ph - 1)                          # triangle wave: 0 ridge, 1 valley
-        r0 = (rd + 0.3) / min(a, b)
-        ramp = np.clip((r - r0) / 0.15, 0, 1)
-        g = depth * v * ramp
+        ph = (ang * n / (2 * math.pi) - swirl * np.minimum(r, 1.2) * n / (2 * math.pi)) % 1.0
+        v = 1 - np.abs(2 * ph - 1)                              # 0 ridge .. 1 valley
+        ramp = np.clip((r - (rd + 0.3) / min(a, b)) / 0.15, 0, 1)
         rm = np.sqrt(X ** 2 + Z ** 2)
         dot = hd * np.sqrt(np.clip(1 - (rm / rd) ** 2, 0, 1))
-        return g - dot
-    return sdf.build(p, top_height_fn=top, step=0.05)
+        return depth * v * ramp - dot
+    return hs.to_tm(m - hs.heightfield_cutter(a, b, H, g))
 
 
 BUILDERS = {f.__name__: f for f in [fluted_band, bar_band, diagonal_dome, classic_signet, onyx_signet, sunburst_oval_signet]}

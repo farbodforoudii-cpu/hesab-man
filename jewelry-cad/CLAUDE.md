@@ -25,9 +25,9 @@ business fields status/qty/costs/price are preserved). Status flow: design → a
 | RG001 | Fluted Band | v2: rounded rib ends |
 | RG002 | Bar Band | flat top panel + grooves each side |
 | RG003 | Diagonal Flute Dome | tapered, 35° flutes |
-| SG001 | Onyx Signet | v2 (SDF classic body); 10 mm flat onyx, glued; seat 1.8 mm deep |
-| SG002 | Sunburst Oval Signet | v2 (SDF); 13x8.5 oval across finger, 36 swirling V facets, centre dome |
-| SG003 | Classic Round Signet | 12 mm plain flat face (engraving-ready), Miansai-style reference |
+| SG001 | Onyx Signet | v3 hull body; 10 mm flat onyx, glued; seat 1.8 mm deep |
+| SG002 | Sunburst Oval Signet | v3 hull body; 13x8.5 oval across finger, 36 swirling V facets, centre dome |
+| SG003 | Classic Round Signet | v2 hull body; 12 mm plain flat face (engraving-ready), Miansai-style reference |
 
 Signet references owner approved as the target look: shank widens + thickens smoothly into the head,
 crisp flat face, teardrop outline seen along the finger. v1 signets (hull head on band) were judged wrong.
@@ -36,7 +36,9 @@ crisp flat face, teardrop outline seen along the finger. v1 signets (hull head o
 `engine.py` geometry helpers · `designs_lib.py` builders · `designs/*.json` one file per design (source of truth) ·
 `jewelry.py` build+validate+export · `catalog.py` · `render.py` ·
 `sdf.py` implicit modelling (smooth blend + marching cubes) for organic forms such as signets.
-Signet face: outside the face ellipse metal drops 0.3 mm at once then slopes 45° (owner asked for a clean, even face-to-shank separation).
+Signets v3 (`hull_signet.py`): head = convex hull of face outline + upper shank (±95°), so sides run straight and even from the
+face edge into the shank (cone from the side, teardrop along the finger) — owner rejected both the SDF blend (shank flush with face)
+and the 0.3 mm drop (drum under face). Textured faces are carved with a height-field cutter.
 Redesign of an unproduced model keeps its code and gets `version` +1. Prefer structured grid meshes (no booleans) —
 booleans with coplanar faces gave zero-area slivers that break STL watertightness on re-import.
 Validation = watertight, single body, inner diameter vs ISO, radial wall-thickness rays, volume, weight per metal.

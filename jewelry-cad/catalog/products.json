@@ -115,13 +115,13 @@
     "stone": "flat round black onyx 10 mm, glued",
     "inner_diameter_mm": 20.37,
     "overall_size_mm": [
-      24.25,
+      24.16,
       25.87,
-      12.34
+      12.0
     ],
-    "min_radial_wall_mm": 1.4,
-    "volume_mm3": 876.8,
-    "est_weight_g": 9.08,
+    "min_radial_wall_mm": 1.43,
+    "volume_mm3": 913.8,
+    "est_weight_g": 9.47,
     "watertight": true,
     "design_file": "designs/SG001-S64.json",
     "stl_file": "output/SG001-S64/SG001-S64.stl",
@@ -149,13 +149,13 @@
     "stone": null,
     "inner_diameter_mm": 17.83,
     "overall_size_mm": [
-      21.43,
-      22.43,
-      9.31
+      21.33,
+      22.73,
+      8.41
     ],
-    "min_radial_wall_mm": 1.32,
-    "volume_mm3": 653.9,
-    "est_weight_g": 6.77,
+    "min_radial_wall_mm": 1.33,
+    "volume_mm3": 669.8,
+    "est_weight_g": 6.94,
     "watertight": true,
     "design_file": "designs/SG002-S56.json",
     "stl_file": "output/SG002-S56/SG002-S56.stl",
@@ -183,13 +183,13 @@
     "stone": null,
     "inner_diameter_mm": 20.37,
     "overall_size_mm": [
-      24.25,
+      24.16,
       25.47,
-      12.37
+      12.0
     ],
-    "min_radial_wall_mm": 1.41,
-    "volume_mm3": 978.8,
-    "est_weight_g": 10.14,
+    "min_radial_wall_mm": 1.43,
+    "volume_mm3": 999.5,
+    "est_weight_g": 10.35,
     "watertight": true,
     "design_file": "designs/SG003-S64.json",
     "stl_file": "output/SG003-S64/SG003-S64.stl",
