@@ -79,6 +79,7 @@ async function boot() {
   await fixBlu0816();
   await fixBlu0816b();
   await fixBlu0819();
+  await fixBlu0820();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -331,6 +332,17 @@ async function fixBlu0819() {
   if (add.length) await putTx(add);
   if (S.tx.some(t => t.id === 'blu0816-work')) await delTx('blu0816-work');
   S.settings.fixBlu0819 = true;
+  await saveSettings();
+  render();
+}
+
+// Blu statement to 20 Aban 22:09: the 20 Aban lunch was paid 7,802,000 at the shop, recorded as 7,800,000.
+async function fixBlu0820() {
+  if (S.settings.fixBlu0820) return;
+  const t = S.tx.find(x => x.id === 'mwcgpgjcprogy2');
+  if (!t) return;
+  if (t.amount === 7800000) await putTx([{ ...t, amount: 7802000, updated: new Date().toISOString() }]);
+  S.settings.fixBlu0820 = true;
   await saveSettings();
   render();
 }
