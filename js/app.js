@@ -2,7 +2,7 @@ import { db, requestPersistence } from './db.js';
 import { sync } from './sync.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
-import { buildWords, catFromWords, usualPart, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
+import { buildWords, catFromWords, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
@@ -739,9 +739,9 @@ function guessHtml() {
 }
 
 // «کی؟»: typed at night or for an earlier day, the clock time is not when the money was spent.
-// The usual part of the day for these words is picked for him; one tap changes it.
+// Nothing is picked for him: untouched, the clock time of the entry is kept; one tap sets the part of the day.
 const needPart = () => S.dayBack > 0 || new Date().getHours() >= 20;
-const curPart = () => S.part ?? usualPart(S.words || new Map(), S.what) ?? (S.dayBack ? null : 3);
+const curPart = () => S.part ?? null;
 // Card-to-card: on by itself when this kind of payment was card-to-card most times before.
 const curC2c = g => g.dir === 'out' && (S.c2c ?? usuallyC2c(S.words || new Map(), S.what));
 function whatChips() {
