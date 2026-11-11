@@ -2,6 +2,7 @@ import { db, requestPersistence } from './db.js';
 import { sync } from './sync.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
 import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
+import { buildWords, catFromWords, usualPart, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
@@ -383,7 +384,7 @@ async function fixLateMehr() {
   await saveSettings();
 }
 
-function refresh() { S.tpl = buildTemplates(S.tx.filter(t => !isRound(t))); clearTimeout(moneyTimer); moneyTimer = setTimeout(publishMoney, 2000); }
+function refresh() { const own = S.tx.filter(t => !isRound(t)); S.tpl = buildTemplates(own); S.words = buildWords(own); clearTimeout(moneyTimer); moneyTimer = setTimeout(publishMoney, 2000); }
 // This app's half of the shared monthly report with «زندگی من»: work income and living cost per month.
 let moneyTimer;
 function publishMoney() {
@@ -421,13 +422,15 @@ async function putTx(list) {
     if (i >= 0) S.tx[i] = t; else S.tx.push(t);
   }
   const { put, drop } = syncRoundUps(list, now);
+  const fee = syncFees(list, now);
+  put.push(...fee.put); drop.push(...fee.drop);
   await db.putManyTx([...list, ...put]);
   for (const id of drop) await db.deleteTx(id);
   refresh();
 }
 
 async function delTx(id) {
-  const gone = S.tx.filter(t => t.id === id || t.ru === id).map(t => t.id);
+  const gone = S.tx.filter(t => t.id === id || t.ru === id || t.feeOf === id).map(t => t.id);
   S.tx = S.tx.filter(t => !gone.includes(t.id));
   for (const x of gone) await db.deleteTx(x);
   refresh();
@@ -453,6 +456,26 @@ function syncRoundUps(list, now) {
     if (!want) { if (c) drop.push(c.id); continue; }
     const comp = { ...(c || { id: newId(), created: now }), ru: t.id, src: 'roundup', dir: 'out', type: 'asset', cat: null, ctx: 'personal',
       amount: want, desc: 'رند بلو', cp: 'باکس بلو', ts: new Date(new Date(t.ts).getTime() + 1000).toISOString(), status: 'ok', updated: now };
+    const i = S.tx.findIndex(x => x.id === comp.id);
+    if (i >= 0) S.tx[i] = comp; else S.tx.push(comp);
+    put.push(comp);
+  }
+  if (drop.length) S.tx = S.tx.filter(x => !drop.includes(x.id));
+  return { put, drop };
+}
+
+// Card-to-card: a payment marked c2c gets its Blu fee as a companion record that follows it
+// (amount changes recompute it, deleting the payment deletes it).
+function syncFees(list, now) {
+  const put = [], drop = [];
+  for (const t of list) {
+    if (isRound(t) || t.feeOf) continue;
+    const want = t.c2c && t.dir === 'out' ? c2cFee(t.amount) : 0;
+    const c = S.tx.find(x => x.feeOf === t.id);
+    if (!want) { if (c) drop.push(c.id); continue; }
+    const comp = { ...(c || { id: t.id + 'f', created: now, src: 'manual' }), feeOf: t.id, dir: 'out', type: 'expense', cat: 'fees', ctx: 'personal',
+      amount: want, desc: 'کارمزد کارت‌به‌کارت', cp: '', ts: new Date(new Date(t.ts).getTime() + 1000).toISOString(), status: 'ok', updated: now };
+    if (t.period) comp.period = t.period; else delete comp.period;
     const i = S.tx.findIndex(x => x.id === comp.id);
     if (i >= 0) S.tx[i] = comp; else S.tx.push(comp);
     put.push(comp);
@@ -656,6 +679,7 @@ function viewEntry() {
       <h2 class="ask">برای چی؟</h2>
       <div class="what-box ${S.what ? 'has' : ''}"><span class="rot" aria-hidden="true"><span id="rot-word">سوپرمارکت</span></span><input id="what" class="what-input" aria-label="برای چی؟" autocomplete="off" enterkeyhint="done" value="${esc(S.what)}"></div>
       <div id="what-guess">${guessHtml()}</div>
+      <div id="what-chips">${whatChips()}</div>
       <button class="btn-big what-save" data-act="save-what">ثبت</button>
       <div id="what-ac"></div>
     </div>`;
@@ -674,24 +698,35 @@ function viewEntry() {
   </div>`;
 }
 
-// Work out what a short description means, using learned patterns first, then keywords.
+// Work out what a short description means: his own records first (exact, then the same text with a typo),
+// then the words he has used before, then the built-in keyword list.
+const pinCat = (desc, cat) => (S.settings.catPick || {})[descKey(desc)] || cat;
+// Category from the words he has used before; the keyword list wins when some words are new to the app.
+function smartCat(text, kwCat) {
+  const w = catFromWords(S.words || new Map(), text);
+  return pinCat(text, w && (w.full || !kwCat) ? w.cat : kwCat);
+}
+function fromTpl(m) { return { dir: m.dir, type: m.type, cat: m.type === 'expense' ? pinCat(m.desc, m.cat) : m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc, sure: true }; }
 function guess(text, dirHint) {
   const t = text.trim();
   if (!t) return { dir: dirHint, type: dirHint === 'out' ? 'expense' : null, cat: null, ctx: 'personal', cp: '', desc: '', sure: false };
-  for (const dir of [dirHint, dirHint === 'out' ? 'in' : 'out']) {
+  const dirs = [dirHint, dirHint === 'out' ? 'in' : 'out'];
+  for (const dir of dirs) {
     const m = bestTemplateForText(S.tpl, t, dir);
-    if (m) return { dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc, sure: true };
+    if (m) return fromTpl(m);
+  }
+  for (const dir of dirs) {
+    const m = S.tpl.filter(x => x.dir === dir && sameText(x.desc, t)).sort((a, b) => b.count - a.count)[0];
+    if (m) return fromTpl(m);
   }
   const ac = complete(S.tpl, t, dirHint).concat(complete(S.tpl, t, dirHint === 'out' ? 'in' : 'out'));
-  if (ac.length === 1 || (ac.length && norm(ac[0].desc).startsWith(norm(t)) && t.length >= 3)) {
-    const m = ac[0];
-    return { dir: m.dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc, sure: true };
-  }
+  if (ac.length === 1 || (ac.length && norm(ac[0].desc).startsWith(norm(t)) && t.length >= 3)) return fromTpl(ac[0]);
   const rIn = inferFromText(t, 'in'), rOut = inferFromText(t, 'out');
-  if (dirHint === 'in' || (rIn.type && !(rOut.type === 'expense' && rOut.cat))) {
+  const cat = rOut.type === 'expense' ? smartCat(t, rOut.cat) : null;
+  if (dirHint === 'in' || (rIn.type && !(rOut.type === 'expense' && cat))) {
     return { dir: 'in', type: rIn.type, cat: null, ctx: rIn.ctx, cp: rIn.type ? t : '', desc: t, sure: !!rIn.type };
   }
-  return { dir: 'out', type: rOut.type || 'expense', cat: rOut.cat, ctx: rOut.ctx, cp: '', desc: t, sure: rOut.type !== 'expense' || !!rOut.cat };
+  return { dir: 'out', type: rOut.type || 'expense', cat, ctx: rOut.ctx, cp: '', desc: t, sure: rOut.type !== 'expense' || !!cat };
 }
 
 function guessHtml() {
@@ -701,6 +736,31 @@ function guessHtml() {
   return `<div class="guess ${g.sure ? '' : 'unsure'}"><i class="dot" style="background:${g.type === 'expense' && g.cat ? CATEGORIES[g.cat].color : g.dir === 'in' ? '#34c759' : '#c7c7cc'}"></i>
     <span>${g.dir === 'in' ? 'دریافت' : 'پرداخت'}، ${esc(what)}</span>
     <button class="link small" data-act="flip-dir">${g.dir === 'in' ? 'پرداخت بود؟' : 'دریافت بود؟'}</button></div>`;
+}
+
+// «کی؟»: typed at night or for an earlier day, the clock time is not when the money was spent.
+// The usual part of the day for these words is picked for him; one tap changes it.
+const needPart = () => S.dayBack > 0 || new Date().getHours() >= 20;
+const curPart = () => S.part ?? usualPart(S.words || new Map(), S.what) ?? (S.dayBack ? null : 3);
+// Card-to-card: on by itself when this kind of payment was card-to-card most times before.
+const curC2c = g => g.dir === 'out' && (S.c2c ?? usuallyC2c(S.words || new Map(), S.what));
+function whatChips() {
+  const g = guess(S.what, S.dir), p = curPart(), on = curC2c(g);
+  const part = needPart() ? `<div class="chips"><span class="chips-l">کی؟</span>${PARTS.map((l, i) =>
+    `<button class="chip${p === i ? ' on' : ''}" data-act="part" data-v="${i}">${l}</button>`).join('')}</div>` : '';
+  const c2c = g.dir === 'out' ? `<div class="chips"><button class="chip${on ? ' on' : ''}" data-act="c2c">کارت‌به‌کارت${on ? `، کارمزد ${iso(fmt(c2cFee(Number(S.amount || 0))))}` : ''}</button></div>` : '';
+  return part + c2c;
+}
+// The moment of a quick entry: the chosen part of the day, never later than now.
+function whatTime() {
+  let ts = entryDate(), set = false;
+  const p = needPart() ? curPart() : null;
+  if (p != null && !(S.dayBack === 0 && p === 3)) {
+    ts.setHours(PART_HOUR[p][0], PART_HOUR[p][1], 0, 0);
+    if (ts > new Date()) ts = new Date();
+    set = true;
+  }
+  return { ts, set };
 }
 
 // The account starts the moment the balance is entered.
@@ -723,7 +783,7 @@ function bindAmount() {
 // Called from a tap or key press, so iOS keeps the keyboard open while focus moves.
 function goWhat(dir) {
   if (!Number(S.amount)) { document.getElementById('amt')?.focus(); return; }
-  S.dir = S.linkWhat ? (S.dir || dir) : dir; S.step = 'what'; S.what = S.linkWhat || ''; S.linkWhat = null;
+  S.dir = S.linkWhat ? (S.dir || dir) : dir; S.step = 'what'; S.what = S.linkWhat || ''; S.linkWhat = null; S.part = null; S.c2c = null;
   render();
 }
 
@@ -753,18 +813,21 @@ function bindWhat() {
     input.parentElement.classList.toggle('has', !!S.what);
     document.getElementById('what-guess').innerHTML = guessHtml();
     document.getElementById('what-dir').textContent = guess(S.what, S.dir).dir === 'in' ? 'دریافت' : 'پرداخت';
+    document.getElementById('what-chips').innerHTML = whatChips();
     const ac = S.what.trim() ? complete(S.tpl, S.what, S.dir).concat(complete(S.tpl, S.what, S.dir === 'out' ? 'in' : 'out')).slice(0, 4) : [];
     document.getElementById('what-ac').innerHTML = ac.length ? `<div class="group">${ac.map(m =>
       `<button class="cell" data-act="pick-what" data-key="${esc(m.key)}"><span>${esc(m.desc)}</span><small>${esc(subtitle(m))}</small></button>`).join('')}</div>` : '';
   });
   input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveWhat(); } });
+  // Tapping a chip keeps the keyboard open.
+  document.getElementById('what-chips').addEventListener('mousedown', e => e.preventDefault());
 }
 
 async function saveWhat(m) {
   const amount = Number(S.amount || 0);
   if (!amount) return;
-  const g = m ? { dir: m.dir, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, desc: m.desc } : guess(S.what, S.dir);
-  const ts = entryDate();
+  const g = m ? fromTpl(m) : guess(S.what, S.dir);
+  const { ts, set } = whatTime(), c2c = curC2c(g);
   if (g.dir === 'in' && g.ctx === 'seenzhin') { S.step = 'amount'; S.what = ''; return seenzhinChoice(amount, ts); }
   const desc = g.desc || (g.type === 'expense' && g.cat ? CATEGORIES[g.cat].label : 'بدون توضیح');
   const tx = {
@@ -772,13 +835,15 @@ async function saveWhat(m) {
     cat: g.type === 'expense' ? g.cat : null, ctx: g.ctx || 'personal', src: 'manual', created: new Date().toISOString(),
   };
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
+  if (set) tx.timeSet = true;
+  if (c2c) tx.c2c = true;
   if (S.linkPeriod && S.linkPeriod !== monthKey(ts)) tx.period = S.linkPeriod;
   S.linkPeriod = null;
-  S.step = 'amount'; S.what = ''; S.amount = '';
+  S.step = 'amount'; S.what = ''; S.amount = ''; S.part = null; S.c2c = null;
   S.lastId = tx.id;
   render();
   await putTx(tx);
-  toast(`ثبت شد، ${tx.desc}`, async () => { await delTx(tx.id); });
+  toast(`ثبت شد، ${tx.desc}${c2c ? ` و کارمزد ${fmt(c2cFee(amount))}` : ''}`, async () => { await delTx(tx.id); });
 }
 
 async function commitNew(tx) {
@@ -824,6 +889,7 @@ function openTxSheet(init) {
     date: `${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`,
     time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
     touched: !!init.id, bank: init.bank || null, more: false, period: init.period || '',
+    c2c: !!init.c2c, c2cSet: !!init.id,
   };
   F.initTs = init.ts || null; F.initDate = F.date; F.initTime = F.time;
   // Quietly prefill from the best matching pattern instead of showing suggestions.
@@ -845,6 +911,7 @@ function txSheetHtml() {
     <div id="f-ac"></div>
     <div id="f-type">${typeSeg()}</div>
     <div id="f-catbox">${catGrid()}</div>
+    <div id="f-c2c">${c2cCell()}</div>
     <div class="group">
       <div class="cell"><span>تاریخ</span><input class="bare end" id="f-date" value="${faDigits(F.date)}" inputmode="numeric"></div>
       <div class="cell"><span>ساعت</span><input class="bare end" id="f-time" value="${faDigits(F.time)}" inputmode="numeric"></div>
@@ -853,6 +920,8 @@ function txSheetHtml() {
     <p class="foot" style="margin-bottom:14px">پول دیررسیده را به ماه واقعی‌اش بده.</p>
     ${edit ? '<div class="group"><button class="cell danger" data-f="delete">حذف تراکنش</button></div>' : ''}`;
 }
+
+const c2cCell = () => F.dir === 'out' ? `<div class="group"><button class="cell" data-f="c2c"><span>کارت‌به‌کارت${F.c2c && F.amount ? `<small class="c2c-fee">کارمزد ${iso(fmt(c2cFee(F.amount)))} خودش ثبت می‌شود</small>` : ''}</span><i class="switch ${F.c2c ? 'on' : ''}"></i></button></div>` : '';
 
 function periodOptions() {
   const now = monthKey(new Date()), opts = [['', 'همان ماهِ تاریخ']];
@@ -879,6 +948,7 @@ function bindTxSheet(root) {
     amt.value = F.amount ? fmt(F.amount) : '';
     amt.setSelectionRange(amt.value.length, amt.value.length);
     root.querySelector('#f-words').textContent = tomanWords(F.amount);
+    if (F.c2c) root.querySelector('#f-c2c').innerHTML = c2cCell();
   });
   amt.addEventListener('blur', () => { if (F.amount) amt.value = fmt(F.amount); });
   root.querySelector('#f-period').addEventListener('change', e => { F.period = e.target.value; });
@@ -889,13 +959,15 @@ function bindTxSheet(root) {
     root.querySelector('#f-ac').innerHTML = ac.length && !(ac.length === 1 && norm(ac[0].desc) === norm(F.desc))
       ? `<div class="group">${ac.map(m => `<button class="cell" data-f="ac" data-key="${esc(m.key)}"><span>${esc(m.desc)}</span><small>${esc(subtitle(m))}</small></button>`).join('')}</div>` : '';
     if (!F.touched) {
-      const best = bestTemplateForText(S.tpl, F.desc, F.dir);
-      if (best) Object.assign(F, { type: best.type, cat: best.cat, ctx: best.ctx, cp: best.cp });
+      const best = bestTemplateForText(S.tpl, F.desc, F.dir)
+        || S.tpl.filter(x => x.dir === F.dir && sameText(x.desc, F.desc)).sort((a, b) => b.count - a.count)[0];
+      if (best) { const g = fromTpl(best); Object.assign(F, { type: g.type, cat: g.cat, ctx: g.ctx, cp: g.cp }); }
       else {
-        const r = inferFromText(F.desc, F.dir);
-        Object.assign(F, { type: r.type || F.type, cat: r.cat, ctx: r.ctx, cp: '' });
+        const r = inferFromText(F.desc, F.dir), type = r.type || F.type;
+        Object.assign(F, { type, cat: type === 'expense' ? smartCat(F.desc, r.cat) : null, ctx: r.ctx, cp: '' });
       }
       F.more = !MAIN_TYPES[F.dir].includes(F.type);
+      if (!F.c2cSet) F.c2c = F.dir === 'out' && usuallyC2c(S.words || new Map(), F.desc);
       redraw(root);
     }
   });
@@ -908,6 +980,7 @@ function bindTxSheet(root) {
     if (f === 'type') { F.type = v; F.touched = true; F.more = !MAIN_TYPES[F.dir].includes(v); if (v !== 'expense') F.cat = null; redraw(root); }
     else if (f === 'more') { F.more = !F.more; if (!F.more && !MAIN_TYPES[F.dir].includes(F.type)) F.type = MAIN_TYPES[F.dir][0]; redraw(root); }
     else if (f === 'cat') { F.cat = v; F.touched = true; redraw(root); }
+    else if (f === 'c2c') { F.c2c = !F.c2c; F.c2cSet = true; redraw(root); }
     else if (f === 'ac') {
       const m = S.tpl.find(t => t.key === b.dataset.key);
       Object.assign(F, { desc: m.desc, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, touched: true });
@@ -933,6 +1006,7 @@ function bindTxSheet(root) {
 function redraw(root) {
   root.querySelector('#f-type').innerHTML = typeSeg();
   root.querySelector('#f-catbox').innerHTML = catGrid();
+  root.querySelector('#f-c2c').innerHTML = c2cCell();
 }
 
 async function saveSheet() {
@@ -950,6 +1024,8 @@ async function saveSheet() {
     ...base, ts: ts.toISOString(), dir: F.dir, amount: F.amount, desc, cp: F.cp || (F.type !== 'expense' ? desc : ''),
     type: F.type, cat: F.type === 'expense' ? F.cat : null, ctx: F.ctx,
   };
+  if (F.dir === 'out' && F.c2c) tx.c2c = true; else delete tx.c2c;
+  if (F.date !== F.initDate || F.time !== F.initTime) tx.timeSet = true;
   if (F.period && F.period !== monthKey(ts)) tx.period = F.period; else delete tx.period;
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
   closeSheet();
@@ -1008,6 +1084,29 @@ function lifeInbox() {
       <span class="li-txt"><b>${esc(b.name)}</b><small>${b.paid ? 'در «زندگی من» پرداخت شده؛ این‌جا ثبت نشده' : `${esc(b.period)}، ${faDigits(b.count)} جلسه`}${b.missing ? `، ${faDigits(b.missing)} بدون قیمت` : ''}</small></span>
       <span class="li-end"><b class="li-amt">${fmtShort(b.total)}</b><span class="row li-acts"><button class="li-more" data-act="bill-more" data-v="${esc(b.seriesId)}" aria-label="گزینه‌ها">•••</button><button class="li-pay" data-act="bill-pay" data-v="${esc(b.seriesId)}">${ICON.ok}<span>رسید</span></button></span></span></div>`).join('')}</div>
     ${open.length ? `<p class="foot">طلب باز ${fmtShort(sum)}، ${faDigits(open.length)} دوره.</p>` : ''}`;
+}
+
+// ----- «یکدست کردن»: one description filed under several categories -----
+// Asked once per description; the pick is applied to every past record and remembered for new ones.
+function mixInbox() {
+  const L = mixedDescs(S.tx.filter(t => !isRound(t)), S.settings.catDone || {}).slice(0, 2);
+  if (!L.length) return '';
+  return `<div class="section-title">یکدست کردن دسته‌ها</div>
+    <div class="group">${L.map(g => `<div class="cell col catmix">
+      <span class="li-txt"><b>«${esc(g.desc)}»</b><small>${g.order.map(([c, n]) => `${faDigits(n)} بار ${CATEGORIES[c].label}`).join('، ')}. از این به بعد همیشه:</small></span>
+      <span class="chips">${g.order.map(([c]) => `<button class="chip" data-act="mix-pick" data-v="${esc(g.key)}" data-c="${c}"><i style="background:${CATEGORIES[c].color}"></i>${CATEGORIES[c].label}</button>`).join('')}<button class="chip ghost" data-act="mix-keep" data-v="${esc(g.key)}">هر بار فرق دارد</button></span>
+    </div>`).join('')}</div>`;
+}
+async function settleMix(key, cat) {
+  S.settings.catDone = { ...(S.settings.catDone || {}), [key]: 1 };
+  if (cat) {
+    S.settings.catPick = { ...(S.settings.catPick || {}), [key]: cat };
+    const list = S.tx.filter(t => t.dir === 'out' && t.type === 'expense' && t.cat && t.cat !== cat && descKey(t.desc) === key).map(t => ({ ...t, cat }));
+    if (list.length) await putTx(list);
+  }
+  await saveSettings();
+  render();
+  toast(cat ? `همه «${CATEGORIES[cat].label}» شد` : 'همین‌طور می‌ماند');
 }
 
 // ----- «فربد کوچینگ»: approved online sales waiting to be received -----
@@ -1999,7 +2098,7 @@ function viewDash() {
         <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
     </section>
-    ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() : ''}
+    ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() + mixInbox() : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${liveStory(T, key)}
@@ -2697,7 +2796,7 @@ document.addEventListener('click', async e => {
       render();
     }
     else if (a === 'clear') { if (S.amount) { S.amount = ''; render(); } }
-    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx', 'bill-pay', 'bill-more', 'sale-pay', 'sale-more'].includes(a)) readOnlyToast();
+    else if (!canEdit() && ['go-entry', 'edit', 'as-add', 'as-edit', 'as-prices', 'goals', 'pick-xlsx', 'bill-pay', 'bill-more', 'sale-pay', 'sale-more', 'mix-pick', 'mix-keep'].includes(a)) readOnlyToast();
     else if (a === 'bill-pay') { b.disabled = true; await receiveBill(b.dataset.v); }
     else if (a === 'bill-more') billOptions(b.dataset.v);
     else if (a === 'sale-pay') { b.disabled = true; await receiveSale(b.dataset.v); }
@@ -2715,6 +2814,10 @@ document.addEventListener('click', async e => {
     else if (a === 'back') { S.step = 'amount'; render(); }
     else if (a === 'flip-dir') { S.dir = guess(S.what, S.dir).dir === 'in' ? 'out' : 'in'; render(); }
     else if (a === 'save-what') await saveWhat();
+    else if (a === 'part') { S.part = Number(b.dataset.v); document.getElementById('what-chips').innerHTML = whatChips(); }
+    else if (a === 'c2c') { S.c2c = !curC2c(guess(S.what, S.dir)); document.getElementById('what-chips').innerHTML = whatChips(); }
+    else if (a === 'mix-pick') await settleMix(b.dataset.v, b.dataset.c);
+    else if (a === 'mix-keep') await settleMix(b.dataset.v, null);
     else if (a === 'pick-what') { const m = S.tpl.find(t => t.key === b.dataset.key); if (m) await saveWhat(m); }
     else if (a === 'day') { S.dayBack = (S.dayBack + 1) % 7; render(); }
     else if (a === 'use') await useTemplate(b.dataset.key, Number(S.amount), entryDate());

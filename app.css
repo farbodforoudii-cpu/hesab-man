@@ -1129,3 +1129,17 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .fl-tag.out { left: 0; text-align: left; align-items: flex-end; }
 .fl-tag small { font-size: 11px; color: var(--sec); white-space: nowrap; }
 .fl-tag b { font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+
+/* Learned choices on the quick entry: «کی؟» and card-to-card */
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 6px 0; }
+.chips-l { color: var(--sec); font-size: 14px; margin-inline-end: 2px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+  padding: 7px 14px; font: inherit; font-size: 14px; color: var(--label); transition: transform .15s, background .15s; }
+.chip:active { transform: scale(.95); }
+.chip.on { background: var(--tint); border-color: var(--tint); color: #fff; }
+.chip i { width: 8px; height: 8px; border-radius: 50%; }
+.chip.ghost { color: var(--sec); }
+.catmix .chips { padding: 8px 0 2px; }
+.c2c-fee { display: block; color: var(--sec); font-size: 13px; margin-top: 2px; }
+.cell.catmix { flex-direction: column; align-items: stretch; gap: 2px; }
+.catmix .li-txt b { font-weight: 600; }

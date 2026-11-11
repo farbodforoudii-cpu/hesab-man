@@ -95,3 +95,41 @@ test('market: a signal always gives a trend word and a buying word', () => {
   assert.ok(['مناسب', 'معمولی', 'گران'].includes(sg.buyW));
   assert.ok(sg.checks.length >= 6);
 });
+
+// ----- learning from his own records -----
+import { words, sameText, buildWords, catFromWords, usualPart, usuallyC2c, c2cFee, mixedDescs } from '../js/learn.js';
+const at = (d, h) => fromJalali(1405, 8, d, h, 0).toISOString();
+const ex = (desc, cat, d, h, more = {}) => ({ id: desc + d + h, ts: at(d, h), dir: 'out', type: 'expense', cat, desc, amount: 100000, status: 'ok', src: 'manual', ...more });
+
+test('learn: Blu card-to-card fee matches every transfer on the statements', () => {
+  for (const [a, f] of [[60000, 1100], [1000000, 1100], [1049500, 1450], [2000000, 1450], [2900000, 1800], [4000000, 2150], [5000000, 2500], [6740000, 3200], [7666000, 3550], [10430650, 4600], [11116000, 4950]])
+    assert.equal(c2cFee(a), f, `fee for ${a}`);
+});
+
+test('learn: words and typo-tolerant descriptions', () => {
+  assert.deepEqual(words('قهوه(پودر قهوه)'), ['قهوه', 'پودر']);
+  assert.ok(sameText('اسنب بایک', 'اسنپ بایک'));
+  assert.ok(sameText('سوپرمارکت', 'سوپر مارکت'));
+  assert.ok(!sameText('شام', 'شارژ'));
+});
+
+test('learn: category, part of day and card-to-card from his records', () => {
+  const tx = [ex('اسنپ موتور', 'car', 3, 10), ex('اسنپ موتور', 'car', 4, 15), ex('اسنپ بایک', 'car', 5, 18),
+    ex('صبحانه', 'food', 3, 9), ex('صبحانه', 'food', 4, 8), ex('صبحانه', 'food', 5, 22),
+    ex('قرض به علی', 'other', 6, 12, { c2c: true }), ex('قرض به علی', 'other', 7, 12, { c2c: true })];
+  const W = buildWords(tx);
+  assert.equal(catFromWords(W, 'اسنپ تاکسی').cat, 'car');
+  assert.equal(catFromWords(W, 'اسنب').cat, 'car');
+  assert.equal(catFromWords(W, 'اسنپ تاکسی').full, false);
+  assert.equal(usualPart(W, 'صبحانه'), 0, 'the 22:00 record is a night batch and does not count');
+  assert.ok(usuallyC2c(W, 'قرض به علی'));
+  assert.ok(!usuallyC2c(W, 'صبحانه'));
+});
+
+test('learn: descriptions filed under several categories', () => {
+  const tx = [ex('سوپر مارکت', 'food', 3, 10), ex('سوپر مارکت', 'food', 4, 10), ex('سوپرمارکت', 'home', 5, 10), ex('شام', 'food', 5, 21)];
+  const m = mixedDescs(tx);
+  assert.equal(m.length, 1);
+  assert.deepEqual(m[0].order, [['food', 2], ['home', 1]]);
+  assert.equal(mixedDescs(tx, { [m[0].key]: 1 }).length, 0);
+});
