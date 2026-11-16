@@ -84,6 +84,7 @@ async function boot() {
   await fixBlu0825();
   await fixBlu0825b();
   await fixCourier0814();
+  await fixLunch0825();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -405,6 +406,16 @@ async function fixCourier0814() {
   S.settings.fixCourier0814 = true;
   await saveSettings();
   render();
+}
+
+// Blu SMS of 25 Aban 16:34 says 4,312,500 rial (431,250 toman); the lunch was typed as 431,500.
+async function fixLunch0825() {
+  if (S.settings.fixLunch0825) return;
+  const t = S.tx.find(x => x.id === 'mwjm6m08o49273');
+  if (!t) return;
+  if (t.amount === 431500) await putTx({ ...t, amount: 431250 });
+  S.settings.fixLunch0825 = true;
+  await saveSettings();
 }
 
 // ----- Blu SMS -----
