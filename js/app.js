@@ -81,6 +81,7 @@ async function boot() {
   await fixBlu0816b();
   await fixBlu0819();
   await fixBlu0820();
+  await fixBlu0825();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -344,6 +345,19 @@ async function fixBlu0820() {
   if (!t) return;
   if (t.amount === 7800000) await putTx([{ ...t, amount: 7802000, updated: new Date().toISOString() }]);
   S.settings.fixBlu0820 = true;
+  await saveSettings();
+  render();
+}
+
+// Blu statement to 25 Aban 16:20: two card-to-card payments had no fee (tip 500,000 → 1,100; supermarket
+// 2,385,000 → 1,800), and two payments marked card-to-card went Blu-to-Blu, which has no fee.
+async function fixBlu0825() {
+  if (S.settings.fixBlu0825 || !S.tx.some(t => t.id === 'mwg61s7lq2v1i1')) return;
+  const set = (id, c2c) => { const t = S.tx.find(x => x.id === id); return t && !!t.c2c !== c2c ? [{ ...t, c2c: c2c || undefined }] : []; };
+  const list = [...set('mwf5fkh8cdadtz', true), ...set('mwf5m8pzmni18z', true), ...set('mwg61s7lq2v1i1', false), ...set('mwg62gtt3ewg4z', false)];
+  for (const t of list) if (!t.c2c) delete t.c2c;
+  if (list.length) await putTx(list);
+  S.settings.fixBlu0825 = true;
   await saveSettings();
   render();
 }
