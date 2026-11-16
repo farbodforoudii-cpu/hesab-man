@@ -82,6 +82,7 @@ async function boot() {
   await fixBlu0819();
   await fixBlu0820();
   await fixBlu0825();
+  await fixBlu0825b();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -358,6 +359,31 @@ async function fixBlu0825() {
   for (const t of list) if (!t.c2c) delete t.c2c;
   if (list.length) await putTx(list);
   S.settings.fixBlu0825 = true;
+  await saveSettings();
+  render();
+}
+
+// Farbod's answers for 25 Aban: the 85,000,000 and 20,000,000 moved his own money elsewhere (out, not in);
+// the vape was 23,300,000 for three (his share 6,300,000; 17,000,000 for two friends, paid back);
+// a 190,000 shop purchase was missing.
+async function fixBlu0825b() {
+  if (S.settings.fixBlu0825b || !S.tx.some(t => t.id === 'mwj3dxksp008ic')) return;
+  const now = new Date().toISOString(), at = (h, m) => fromJalali(1405, 8, 25, h, m).toISOString();
+  const base = { cp: '', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' };
+  const list = [];
+  const mv = S.tx.find(t => t.id === 'mwj3dxksp008ic');
+  if (mv.dir === 'in') list.push({ ...mv, dir: 'out', type: 'transfer_out', cat: null, desc: 'جابه‌جایی', ts: at(12, 59) });
+  const vape = S.tx.find(t => t.id === 'mwg61s7lq2v1i1');
+  if (vape && vape.amount === 22300000) {
+    list.push({ ...vape, amount: 6300000, desc: 'ویپ، سهم من' });
+    list.push({ ...base, id: 'blu0825-vape2', ts: vape.ts, dir: 'out', amount: 17000000, desc: 'ویپ، سهم دوستان', type: 'on_behalf', cat: null });
+  }
+  for (const x of [
+    { ...base, id: 'blu0825-move20', ts: at(10, 57), dir: 'out', amount: 20000000, desc: 'جابه‌جایی', type: 'transfer_out', cat: null },
+    { ...base, id: 'blu0825-shop', ts: at(13, 13), dir: 'out', amount: 190000, desc: 'خرید فروشگاه', type: 'expense', cat: 'home' },
+  ]) if (!S.tx.some(t => t.id === x.id)) list.push(x);
+  if (list.length) await putTx(list);
+  S.settings.fixBlu0825b = true;
   await saveSettings();
   render();
 }
