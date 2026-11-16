@@ -2254,7 +2254,7 @@ function viewDash() {
         <p class="b-note ticker" data-ticker>${liveLines(T, chk).map((m, i) => `<span class="${i ? '' : 'on'}">${m}</span>`).join('')}</p>
       </div>
     </section>
-    ${key === monthKey(new Date()) ? smsGapCard() + coachInbox() + lifeInbox() + mixInbox() : ''}
+    ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() + mixInbox() : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${liveStory(T, key)}
@@ -2792,13 +2792,13 @@ function syncSection() {
 // ----- Blu SMS: the Shortcut's key and the step-by-step guide -----
 const SMS_URL = 'https://paclucymaqgellnlctbv.supabase.co/functions/v1/sms-in';
 const dropKey = () => LS('dropKey');
-function smsGapCard() {
+// Shown only in Settings: the app's balance against the balance in the latest Blu SMS.
+function smsGapCell() {
   const g = S.settings.smsGap;
-  if (!g || !canEdit()) return '';
+  if (!g) return '<div class="cell"><span>موجودی با بلو</span><span class="sec">یکی است</span></div>';
   const [d, t] = g.at.split(' ');
-  return `<div class="section-title">پیامک بلو</div>
-    <div class="group"><div class="cell col"><span class="li-txt"><b>موجودی اپ با بلو ${iso(fmt(Math.abs(g.gap)))} تومان فرق دارد</b>
-      <small>آخرین پیامک (${faDigits(d.replace(/-/g, '/'))}، ساعت ${faDigits(t)}): بلو ${iso(fmt(g.bal))}، اپ ${iso(fmt(g.bal + g.gap))}. ${g.gap > 0 ? 'اپ بیشتر است؛ احتمالاً یک برداشت ثبت نشده.' : 'اپ کمتر است؛ احتمالاً یک واریز ثبت نشده یا چیزی دو بار ثبت شده.'}</small></span></div></div>`;
+  return `<div class="cell col"><span class="li-txt"><b>موجودی اپ با بلو ${iso(fmt(Math.abs(g.gap)))} تومان فرق دارد</b>
+      <small>پیامک ${faDigits(d.slice(5).replace('-', '/'))}، ساعت ${faDigits(t)}: بلو ${iso(fmt(g.bal))}، اپ ${iso(fmt(g.bal + g.gap))}. ${g.gap > 0 ? 'اپ بیشتر است؛ احتمالاً یک برداشت ثبت نشده.' : 'اپ کمتر است؛ احتمالاً یک واریز ثبت نشده یا چیزی دو بار ثبت شده.'}</small></span></div>`;
 }
 function smsSection() {
   if (!canEdit()) return '';
@@ -2806,6 +2806,7 @@ function smsSection() {
   const body = !sync.state.key ? '<div class="cell"><span class="sec">اول همگام‌سازی را روشن کن.</span></div>'
     : !k ? '<button class="cell" data-act="sms-key"><span class="tint">ساختن کلید پیامک</span></button>'
     : `<div class="cell"><span>آخرین پیامک</span><span class="sec">${last ? `${faDigits(last.date.slice(5).replace('-', '/'))}، ${faDigits(last.time)}، ${fmtShort(last.amount)}` : 'هنوز نرسیده'}</span></div>
+      ${last ? smsGapCell() : ''}
       <button class="cell" data-act="sms-guide"><span class="tint">راهنمای ساختن میانبر</span></button>
       <button class="cell" data-act="sms-copy" data-v="url"><span class="tint">کپی نشانی</span><span class="sec" dir="ltr">…/sms-in</span></button>
       <button class="cell" data-act="sms-copy" data-v="key"><span class="tint">کپی کلید</span><span class="sec" dir="ltr">${esc(k.slice(0, 4))}•••</span></button>
