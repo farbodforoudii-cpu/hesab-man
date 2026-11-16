@@ -83,6 +83,7 @@ async function boot() {
   await fixBlu0820();
   await fixBlu0825();
   await fixBlu0825b();
+  await fixCourier0814();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -384,6 +385,22 @@ async function fixBlu0825b() {
   ]) if (!S.tx.some(t => t.id === x.id)) list.push(x);
   if (list.length) await putTx(list);
   S.settings.fixBlu0825b = true;
+  await saveSettings();
+  render();
+}
+
+// The 200,000 courier on 14 Aban was paid with money outside Blu. The expense stays; a matching move in
+// from outside Blu is added, so the app balance equals Blu's exactly (no known difference left).
+async function fixCourier0814() {
+  if (S.settings.fixCourier0814) return;
+  const c = S.tx.find(t => t.id === 'mw3l1hosfqqjun');
+  if (!c) return;
+  if (!S.tx.some(t => t.id === 'courier0814-in')) {
+    const now = new Date().toISOString();
+    await putTx({ id: 'courier0814-in', ts: new Date(new Date(c.ts).getTime() + 1000).toISOString(), dir: 'in', amount: 200000,
+      desc: 'پول بیرون از بلو برای پیک', cp: '', type: 'transfer_in', cat: null, ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' });
+  }
+  S.settings.fixCourier0814 = true;
   await saveSettings();
   render();
 }
