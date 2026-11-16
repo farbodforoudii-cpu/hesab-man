@@ -1,8 +1,8 @@
 import { db, requestPersistence } from './db.js';
 import { sync } from './sync.js';
 import { TYPES, MAIN_TYPES, typesFor, CATEGORIES, PICKABLE_CATS, inferFromText, newId } from './model.js';
-import { buildTemplates, suggest, complete, bestTemplateForText } from './suggest.js';
-import { buildWords, catFromWords, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
+import { buildTemplates, suggest, complete, bestTemplateForText, templateKey } from './suggest.js';
+import { blockAt, blockKey, blockLabel, buildBlocks, blockShare, buildWords, catFromWords, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
 import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
@@ -84,6 +84,7 @@ async function boot() {
   await fixBlu0825();
   await fixBlu0825b();
   await fixCourier0814();
+  await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
   if (sync.state.key) render();
@@ -161,6 +162,7 @@ async function reload() {
   S.history = history || null;
   refresh();
   render();
+  await absorbSms();
 }
 
 // Links from other apps (e.g. Life OS after a coaching session):
@@ -405,6 +407,86 @@ async function fixCourier0814() {
   render();
 }
 
+// ----- Blu SMS -----
+// The iPhone Shortcut sends every Blu SMS to the server (amount, direction, balance, date, time).
+// Each one either joins a record already typed (same direction and amount within 36 hours) or becomes a
+// record of its own: named from his habits and his «زندگی من» calendar when sure, otherwise left for review.
+// After that, the app's balance at the SMS moment is compared with the balance Blu printed in it.
+const hhmm = d => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function smsTs(s) {
+  const [y, m, d] = s.date.split('-').map(Number), [h, mi] = s.time.split(':').map(Number);
+  return fromJalali(y, m, d, h, mi);
+}
+const smsTwin = (dir, amount, ts) => S.tx.filter(t => t.smsAuto && t.dir === dir && Math.abs(t.amount - amount) < 1 && Math.abs(new Date(t.ts) - ts) < 36 * 36e5)
+  .sort((a, b) => Math.abs(new Date(a.ts) - ts) - Math.abs(new Date(b.ts) - ts))[0];
+
+function smsGuess(s, ts) {
+  const e = blockAt(S.lifeDays, ts), bk = blockKey(e), where = blockLabel(e);
+  const res = suggest(S.tpl, s.amount, ts, { dir: s.dir, limit: 6 });
+  for (const r of res) r.score += 3 * blockShare(S.blocks, bk, r.t.key);
+  // A pattern that is the usual thing in this block, even when the amount alone did not point to it.
+  const B = bk && S.blocks[bk];
+  if (B && B.n >= 2) for (const [k, n] of Object.entries(B.by)) {
+    if (n < 2 || n / B.n < 0.5) continue;
+    const m = S.tpl.find(t => t.key === k && t.dir === s.dir);
+    if (!m || s.amount < m.min * 0.5 || s.amount > m.max * 2) continue;
+    const r = res.find(x => x.t.key === k), sc = 3 + 3 * n / B.n;
+    if (r) r.score = Math.max(r.score, sc); else res.push({ t: m, score: sc });
+  }
+  res.sort((a, b) => b.score - a.score);
+  if (res[0] && res[0].score >= 6) return { ...fromTpl(res[0].t), status: 'ok', where };
+  return { dir: s.dir, desc: s.dir === 'out' ? 'برداشت بلو' : 'واریز بلو', type: s.dir === 'out' ? 'expense' : null, cat: null, ctx: 'personal', cp: '', status: 'pending', where };
+}
+
+async function absorbSms() {
+  if (!canEdit() || !S.settings.startDate) return;
+  refresh(); // the «زندگی من» calendar is ready only after sync has started
+  const done = { ...(S.settings.smsDone || {}) }, now = new Date().toISOString();
+  const L = sync.smsList().filter(s => !done[s.id] && s.date && s.time && s.amount > 0);
+  const put = [];
+  for (const s of L) {
+    const ts = smsTs(s);
+    if (ts.toISOString() < S.settings.startDate) { done[s.id] = 'old'; continue; }
+    const pool = S.tx.filter(t => !put.some(p => p.id === t.id));
+    // A separate SMS for a card-to-card fee: mark the payment it belongs to instead.
+    if (s.dir === 'out') {
+      const pay = pool.find(t => t.dir === 'out' && !t.feeOf && c2cFee(t.amount) === s.amount && Math.abs(new Date(t.ts) - ts) < 5 * 6e4 && t.amount !== s.amount);
+      if (pay) { if (!pay.c2c) put.push({ ...pay, c2c: true }); done[s.id] = pay.id + 'f'; continue; }
+    }
+    const same = pool.filter(t => t.dir === s.dir && !t.sms && !t.feeOf && !isRound(t) && Math.abs(t.amount - s.amount) < 1 && Math.abs(new Date(t.ts) - ts) < 36 * 36e5)
+      .sort((a, b) => Math.abs(new Date(a.ts) - ts) - Math.abs(new Date(b.ts) - ts))[0];
+    if (same) { put.push({ ...same, sms: s.id, ts: ts.toISOString(), timeSet: true }); done[s.id] = same.id; continue; }
+    const g = smsGuess(s, ts);
+    const tx = { id: 'sms-' + s.id, ts: ts.toISOString(), amount: s.amount, ...g, dir: s.dir, src: 'sms', sms: s.id, smsAuto: true, created: now };
+    if (tx.type !== 'expense') tx.cat = null;
+    if (!tx.where) delete tx.where;
+    put.push(tx); done[s.id] = tx.id;
+  }
+  if (put.length) await putTx(put);
+  const gap = await checkSmsBalance();
+  if (L.length || JSON.stringify(gap) !== JSON.stringify(S.settings.smsGap ?? null)) {
+    S.settings.smsDone = done; S.settings.smsGap = gap;
+    await saveSettings();
+    render();
+  }
+}
+
+// App balance at the moment of the latest SMS minus the balance Blu printed. A gap equal to a
+// card-to-card fee of one payment since the SMS before is fixed on the spot (that payment was card-to-card).
+async function checkSmsBalance() {
+  const L = sync.smsList().filter(s => s.bal != null && s.date && s.time);
+  if (!L.length) return null;
+  const last = L[L.length - 1], at = new Date(smsTs(last).getTime() + 59e3);
+  if (S.settings.startDate && at.toISOString() < S.settings.startDate) return null;
+  let gap = Math.round((balanceAt(S.tx, S.settings, at) - last.bal) * 10) / 10;
+  if (gap > 0) {
+    const prev = L.length > 1 ? smsTs(L[L.length - 2]) : new Date(at - 864e5);
+    const pay = S.tx.find(t => t.dir === 'out' && !t.c2c && !t.feeOf && c2cFee(t.amount) === gap && new Date(t.ts) > prev && new Date(t.ts) <= at);
+    if (pay) { await putTx({ ...pay, c2c: true }); gap = 0; }
+  }
+  return gap ? { gap, at: `${last.date} ${last.time}`, bal: last.bal } : null;
+}
+
 // One-off (1405/08/13): Blu's statement to 12 Aban matches every record; only the fee of the
 // card-to-card payment of 9 Aban (2,500) was missing.
 async function fixBlu0813() {
@@ -441,7 +523,7 @@ async function fixLateMehr() {
   await saveSettings();
 }
 
-function refresh() { const own = S.tx.filter(t => !isRound(t)); S.tpl = buildTemplates(own); S.words = buildWords(own); clearTimeout(moneyTimer); moneyTimer = setTimeout(publishMoney, 2000); }
+function refresh() { const own = S.tx.filter(t => !isRound(t)); S.tpl = buildTemplates(own); S.words = buildWords(own); S.lifeDays = sync.lifeDays(); S.blocks = buildBlocks(own, S.lifeDays, templateKey); clearTimeout(moneyTimer); moneyTimer = setTimeout(publishMoney, 2000); }
 // This app's half of the shared monthly report with «زندگی من»: work income and living cost per month.
 let moneyTimer;
 function publishMoney() {
@@ -897,6 +979,16 @@ async function saveWhat(m) {
   if (S.linkPeriod && S.linkPeriod !== monthKey(ts)) tx.period = S.linkPeriod;
   S.linkPeriod = null;
   S.step = 'amount'; S.what = ''; S.amount = ''; S.part = null; S.c2c = null;
+  // Already here from a Blu SMS? Give that record its name instead of counting the money twice.
+  const twin = smsTwin(tx.dir, amount, ts);
+  if (twin) {
+    const { id, ts: _t, src, created, timeSet, ...what } = tx;
+    const done = { ...twin, ...what, smsAuto: false };
+    S.lastId = twin.id;
+    render();
+    await putTx(done);
+    return toast(`ثبت شد، ${tx.desc}؛ همان پیامک ساعت ${faDigits(hhmm(new Date(twin.ts)))}`, async () => { await putTx(twin); });
+  }
   S.lastId = tx.id;
   render();
   await putTx(tx);
@@ -1082,6 +1174,11 @@ async function saveSheet() {
     type: F.type, cat: F.type === 'expense' ? F.cat : null, ctx: F.ctx,
   };
   if (F.dir === 'out' && F.c2c) tx.c2c = true; else delete tx.c2c;
+  delete tx.smsAuto;
+  if (!F.id) {
+    const twin = smsTwin(tx.dir, tx.amount, ts);
+    if (twin) Object.assign(tx, { id: twin.id, ts: twin.ts, src: twin.src, sms: twin.sms, created: twin.created, where: twin.where });
+  }
   if (F.date !== F.initDate || F.time !== F.initTime) tx.timeSet = true;
   if (F.period && F.period !== monthKey(ts)) tx.period = F.period; else delete tx.period;
   tx.status = !tx.type || (tx.type === 'expense' && !tx.cat) ? 'pending' : 'ok';
@@ -1091,6 +1188,8 @@ async function saveSheet() {
     await putTx([tx, ...extra]);
     render();
     toast('ذخیره شد');
+  } else if (tx.sms) {
+    await putTx(tx); render(); toast('ثبت شد؛ به پیامک بلو وصل شد');
   } else {
     await commitNew(tx);
   }
@@ -1331,7 +1430,7 @@ function itemHtml(t, withDay = false) {
   const time = (withDay ? dayLabel(d).replace(/^(امروز|دیروز)، /, '$1 ') + '، ' : '') + faDigits(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
   return `<button class="cell tx ${t.id === S.lastId ? 'new' : ''}" data-act="edit" data-id="${t.id}">
     <i class="dot" style="background:${dotColor(t)}"></i>
-    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))}، ${time}${roundNote(t)}</span></span>
+    <span class="tx-main"><span class="t1">${esc(t.desc)}</span><span class="t2">${t.status === 'pending' ? '<b class="warn">نیاز به بررسی</b>' : esc(subtitle(t))}، ${time}${t.where ? `، ${esc(t.where)}` : ''}${t.smsAuto && t.status !== 'pending' ? '، حدس از پیامک' : ''}${roundNote(t)}</span></span>
     ${amountHtml(t)}</button>`;
 }
 
@@ -2690,6 +2789,57 @@ function syncSection() {
     <p class="foot">${err}کد را مثل رمز نگه دار.</p>`;
 }
 
+// ----- Blu SMS: the Shortcut's key and the step-by-step guide -----
+const SMS_URL = 'https://paclucymaqgellnlctbv.supabase.co/functions/v1/sms-in';
+const dropKey = () => LS('dropKey');
+// Shown only in Settings: the app's balance against the balance in the latest Blu SMS.
+function smsGapCell() {
+  const g = S.settings.smsGap;
+  if (!g) return '<div class="cell"><span>موجودی با بلو</span><span class="sec">یکی است</span></div>';
+  const [d, t] = g.at.split(' ');
+  return `<div class="cell col"><span class="li-txt"><b>موجودی اپ با بلو ${iso(fmt(Math.abs(g.gap)))} تومان فرق دارد</b>
+      <small>پیامک ${faDigits(d.slice(5).replace('-', '/'))}، ساعت ${faDigits(t)}: بلو ${iso(fmt(g.bal))}، اپ ${iso(fmt(g.bal + g.gap))}. ${g.gap > 0 ? 'اپ بیشتر است؛ احتمالاً یک برداشت ثبت نشده.' : 'اپ کمتر است؛ احتمالاً یک واریز ثبت نشده یا چیزی دو بار ثبت شده.'}</small></span></div>`;
+}
+function smsSection() {
+  if (!canEdit()) return '';
+  const k = dropKey(), L = sync.smsList(), last = L[L.length - 1];
+  const body = !sync.state.key ? '<div class="cell"><span class="sec">اول همگام‌سازی را روشن کن.</span></div>'
+    : !k ? '<button class="cell" data-act="sms-key"><span class="tint">ساختن کلید پیامک</span></button>'
+    : `<div class="cell"><span>آخرین پیامک</span><span class="sec">${last ? `${faDigits(last.date.slice(5).replace('-', '/'))}، ${faDigits(last.time)}، ${fmtShort(last.amount)}` : 'هنوز نرسیده'}</span></div>
+      ${last ? smsGapCell() : ''}
+      <button class="cell" data-act="sms-guide"><span class="tint">راهنمای ساختن میانبر</span></button>
+      <button class="cell" data-act="sms-copy" data-v="url"><span class="tint">کپی نشانی</span><span class="sec" dir="ltr">…/sms-in</span></button>
+      <button class="cell" data-act="sms-copy" data-v="key"><span class="tint">کپی کلید</span><span class="sec" dir="ltr">${esc(k.slice(0, 4))}•••</span></button>
+      <button class="cell" data-act="sms-key"><span>کلید تازه</span><span class="sec">کلید قبلی از کار می‌افتد</span></button>`;
+  return `<div class="section-title">پیامک بلو</div>
+    <div class="group">${body}</div>
+    <p class="foot">هر پیامک بلو خودش ثبت می‌شود و موجودی با بلو چک می‌شود. از پیامک فقط مبلغ، نوع، موجودی و زمان نگه داشته می‌شود.</p>`;
+}
+async function newDropKey() {
+  if (dropKey() && !confirm('کلید تازه ساخته شود؟ میانبر باید کلید تازه را بگیرد.')) return;
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', k = [...crypto.getRandomValues(new Uint8Array(32))].map(b => A[b % 32]).join('');
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(k)))].map(b => b.toString(16).padStart(2, '0')).join('');
+  try { await sync.setDropKey(hash); } catch (e) { return toast(e.message); }
+  try { localStorage.setItem('dropKey', k); } catch {}
+  render();
+  smsGuide();
+}
+function smsGuide() {
+  const step = (n, html) => `<div class="cell col guide-step"><b class="g-n">${faDigits(n)}</b><span>${html}</span></div>`;
+  openSheet(`<div class="sheet-nav"><span></span><b>میانبر پیامک بلو</b><button class="link" data-close>بستن</button></div>
+    <p class="foot">یک بار، حدود دو دقیقه. نام دکمه‌ها مثل آیفون تو انگلیسی است.</p>
+    <div class="group">
+      ${step(1, 'برنامهٔ <b>Shortcuts</b> را باز کن، پایین صفحه <b>Automation</b>، بعد <b>+</b> و <b>Message</b>.')}
+      ${step(2, '<b>Sender</b>: <b>Blue Bank</b> را انتخاب کن. <b>Message Contains</b>: بنویس <b>بلو</b>. پایین <b>Run Immediately</b> را بزن، بعد <b>Next</b>.')}
+      ${step(3, '<b>New Blank Automation</b>، بعد <b>Add Action</b> و جستجو کن <b>Get Contents of URL</b>.')}
+      ${step(4, 'جای <b>URL</b> نشانی را بچسبان. <button class="chip" data-act="sms-copy" data-v="url">کپی نشانی</button>')}
+      ${step(5, 'روی فلش کنار آن بزن: <b>Method</b> را <b>POST</b> کن و <b>Request Body</b> را <b>JSON</b>.')}
+      ${step(6, '<b>Add new field</b>، <b>Text</b>: کلید <b dir="ltr">k</b> و مقدار را بچسبان. <button class="chip" data-act="sms-copy" data-v="key">کپی کلید</button>')}
+      ${step(7, 'دوباره <b>Add new field</b>، <b>Text</b>: کلید <b dir="ltr">t</b>. برای مقدار، از بالای کیبورد <b>Shortcut Input</b> را بزن. اگر پرسید، <b>Content</b> را انتخاب کن.')}
+      ${step(8, '<b>Done</b>. از پیامک بعدی بلو، ثبت خودکار شروع می‌شود و این‌جا «آخرین پیامک» پر می‌شود.')}
+    </div>`, {});
+}
+
 function viewSettings() {
   const st = S.settings;
   const last = st.lastBackup ? formatJalali(new Date(st.lastBackup)) : 'هرگز';
@@ -2698,6 +2848,7 @@ function viewSettings() {
   return `<div class="view">
     ${pageHead('تنظیمات')}
     ${syncSection()}
+    ${smsSection()}
     <div class="section-title">پشتیبان</div>
     <div class="group">
 ${canEdit() ? `      <button class="cell" data-act="export"><span class="tint">ذخیرهٔ پشتیبان</span><span class="sec ${stale ? 'red' : ''}">${esc(last)}</span></button>` : ''}
@@ -2947,6 +3098,9 @@ document.addEventListener('click', async e => {
     else if (a === 'sync-copy') { await copyText(sync.state.key); toast('کد کپی شد'); }
     else if (a === 'sync-now') { await sync.run(); render(); }
     else if (a === 'refresh') refreshAll(b);
+    else if (a === 'sms-key') await newDropKey();
+    else if (a === 'sms-guide') smsGuide();
+    else if (a === 'sms-copy') { const v = b.dataset.v === 'url' ? SMS_URL : dropKey(); if (v) { await copyText(v); toast(b.dataset.v === 'url' ? 'نشانی کپی شد' : 'کلید کپی شد'); } }
     else if (a === 'sync-out') { if (!confirm('همگام‌سازی روی این دستگاه خاموش شود؟ داده‌های این دستگاه می‌مانند.')) return; await sync.signOut(); render(); }
     else if (a === 'pick-json') document.getElementById('file-json').click();
     else if (a === 'pick-xlsx') document.getElementById('file-xlsx').click();

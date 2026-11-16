@@ -134,3 +134,43 @@ export function mixedDescs(txs, done = {}) {
     .sort((a, b) => b.n - a.n);
 }
 export const descKey = compact;
+
+// ----- «زندگی من»: what was happening at the moment of a payment -----
+// A block counts from 15 minutes before it starts until an hour after it ends (breakfast after a
+// morning session, the buffet during a gym shift). Sessions with clients and university classes are
+// grouped by kind, other blocks by their title.
+const pad = n => String(n).padStart(2, '0');
+export function blockAt(days, d) {
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, min = d.getHours() * 60 + d.getMinutes();
+  let best = null, bd = Infinity;
+  for (const e of (days && days[day]) || []) {
+    if (min < e.start - 15 || min > e.end + 60) continue;
+    const dist = min < e.start ? e.start - min : min > e.end ? (min - e.end) + 1 : 0;
+    if (dist < bd) { bd = dist; best = e; }
+  }
+  return best;
+}
+export const blockKey = e => !e ? null : e.cat === 'client' ? 'cat:client' : e.cat === 'uni' ? 'cat:uni' : 't:' + norm(e.title);
+export const blockLabel = e => !e ? '' : e.cat === 'client' ? 'جلسه' : e.cat === 'uni' ? 'دانشگاه' : e.title;
+
+// Which recorded patterns (template keys) happened in which kind of block, from records whose time is trusted.
+export function buildBlocks(txs, days, keyOf) {
+  const M = {};
+  for (const t of txs) {
+    if (!usable(t)) continue;
+    const d = new Date(t.ts);
+    if (!(partOf(d) < 3 || t.timeSet || t.sms)) continue;
+    const k = blockKey(blockAt(days, d));
+    if (!k) continue;
+    const m = (M[k] ||= { n: 0, by: {} });
+    m.n++;
+    const tk = keyOf(t);
+    m.by[tk] = (m.by[tk] || 0) + 1;
+  }
+  return M;
+}
+// Share (0–1) of a pattern among the payments made in this kind of block, 0 with fewer than 2 of them.
+export function blockShare(M, key, tplKey) {
+  const m = key && M[key];
+  return m && m.n >= 2 ? (m.by[tplKey] || 0) / m.n : 0;
+}
