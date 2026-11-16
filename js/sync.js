@@ -73,11 +73,13 @@ async function pull() {
       if (meta.at[d.id] && meta.at[d.id] >= d.updatedAt) continue;
       if (d.kind === 'tx') (d.deleted ? delTx.push(d.key) : putTx.push(d.value));
       else if (d.kind === 'kv' && KV_KEYS.includes(d.key)) await raw.set(d.key, d.value);
+      else if (d.kind === 'sms' && !d.deleted && d.value) { sms[d.key] = d.value; smsNew = true; }
       meta.at[d.id] = d.updatedAt;
       delete meta.dirty[d.id];
       if (d.deleted) meta.gone[d.id] = true; else delete meta.gone[d.id];
       changed = true;
     }
+    if (smsNew) { await raw.set('smsBox', sms); smsNew = false; }
     if (putTx.length) await raw.putManyTx(putTx);
     if (delTx.length) await raw.deleteManyTx(delTx);
     if (rows.length) { state.cursor = rows[rows.length - 1].server_updated_at; await raw.set('syncCursor', state.cursor); }
@@ -87,9 +89,14 @@ async function pull() {
   return changed;
 }
 
+// Blu SMS dropped on the server by the iPhone Shortcut (direction, amount, balance, date, time only).
+let sms = {}, smsNew = false;
+
 // «زندگی من»: bills for finished packages (read here) and the answers given here (payments).
 // Kept on this device apart from transactions; only payment records are ever written to the life side.
-let life = { bills: {}, pays: {}, months: {}, money: {}, status: null, cursor: null, out: [] };
+// entries: the calendar blocks (date, start/end minutes, title, cat), kept so a payment's moment can be
+// matched with what Farbod was doing (a morning session, a gym shift, a class).
+let life = { bills: {}, pays: {}, months: {}, money: {}, entries: {}, status: null, cursor: null, out: [] };
 const saveLife = () => raw.set('lifeMirror', life);
 async function pullLife() {
   let changed = false, more = true;
@@ -101,6 +108,10 @@ async function pullLife() {
       else if (d.kind === 'monthsum') { life.months[d.month] = d; changed = true; }
       else if (d.kind === 'lifestatus') { life.status = d; changed = true; }
       else if (d.kind === 'moneysum' && (!life.money[d.month] || life.money[d.month].updatedAt <= d.updatedAt)) life.money[d.month] = d;
+      else if (d.kind === 'entry') {
+        if (d.deleted || d.status === 'cancelled' || d.status === 'moved' || d.untimed || d.start == null) delete life.entries[d.id];
+        else life.entries[d.id] = { date: d.date, start: +d.start, end: +(d.end ?? d.start), title: d.title || '', cat: d.cat || '' };
+      }
     }
     if (rows.length) life.cursor = rows[rows.length - 1].server_updated_at;
     more = rows.length === 1000;
@@ -184,7 +195,10 @@ export const sync = {
     state.lastSync = (await db.get('syncLast')) || null;
     meta = (await db.get('syncMeta')) || meta;
     life = { ...life, ...((await db.get('lifeMirror')) || {}) };
+    // Calendar blocks were not kept before; read «زندگی من» once more from the start to collect them.
+    if (!life.v2) { life.cursor = null; life.entries = {}; life.v2 = true; }
     coach = { ...coach, ...((await db.get('coachMirror')) || {}) };
+    sms = (await db.get('smsBox')) || {};
     changes.onWrite = state.key ? track : null;
     set({ status: state.key ? 'idle' : 'off' });
     addEventListener('online', () => sync.run());
@@ -224,7 +238,7 @@ export const sync = {
     await raw.set('syncKey', null);
     meta = { at: {}, dirty: {}, gone: {} };
     await saveMeta();
-    life = { bills: {}, pays: {}, months: {}, money: {}, status: null, cursor: null, out: [] };
+    life = { bills: {}, pays: {}, months: {}, money: {}, entries: {}, status: null, cursor: null, out: [], v2: true };
     await saveLife();
     coach = { sales: {}, rcv: {}, cursor: null, out: [] };
     await saveCoach();
@@ -233,6 +247,16 @@ export const sync = {
   },
 
   pending: () => Object.keys(meta.dirty).length,
+
+  // Blu SMS received so far, oldest first.
+  smsList: () => Object.values(sms).sort((a, b) => `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),
+  // The Shortcut's write-only key: only its SHA-256 goes to the server, inside this space.
+  async setDropKey(hash) {
+    if (!state.key) throw new Error('اول همگام‌سازی را روشن کن.');
+    const now = new Date().toISOString();
+    await rpc('eco_push', { p_key: state.key, p_app: APP, p_rows: [{ id: 'h:dropkey:main', kind: 'dropkey', key: 'main', app: APP, updatedAt: now, value: { hash } }] })
+      .catch(e => { throw new Error(persian(e)); });
+  },
 
   // Finished packages from «زندگی من» still waiting for an answer here, oldest first.
   lifeInbox() {
@@ -261,6 +285,12 @@ export const sync = {
   },
   // The shared monthly report: hours and sessions from «زندگی من», per month (YYYY-MM), and its open receivables.
   lifeMonth: k => life.months[k] || null,
+  // Calendar blocks by day (YYYY-MM-DD, Gregorian, local), for «what was happening at that moment».
+  lifeDays() {
+    const D = {};
+    for (const e of Object.values(life.entries || {})) (D[e.date] ||= []).push(e);
+    return D;
+  },
   lifeStatus: () => life.status,
   // This app's half of the report: work income per month, sent only when it changed.
   async publishMoney(rows) {

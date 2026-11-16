@@ -133,3 +133,15 @@ test('learn: descriptions filed under several categories', () => {
   assert.deepEqual(m[0].order, [['food', 2], ['home', 1]]);
   assert.equal(mixedDescs(tx, { [m[0].key]: 1 }).length, 0);
 });
+
+test('learn: what was on the calendar at a payment moment', async () => {
+  const { blockAt, blockKey, buildBlocks, blockShare } = await import('../js/learn.js');
+  const days = { '2026-11-16': [{ date: '2026-11-16', start: 450, end: 510, title: 'X', cat: 'client' }, { date: '2026-11-16', start: 600, end: 720, title: 'گردان', cat: 'shift' }] };
+  const at = (h, m) => new Date(2026, 10, 16, h, m);
+  assert.equal(blockKey(blockAt(days, at(8, 0))), 'cat:client', 'breakfast right after the morning session');
+  assert.equal(blockKey(blockAt(days, at(11, 0))), 't:گردان');
+  assert.equal(blockAt(days, at(15, 0)), null);
+  const tx = [1, 2, 3].map(i => ({ id: 'b' + i, ts: at(10, 30 + i).toISOString(), dir: 'out', type: 'expense', cat: 'food', desc: 'بوفه گردان', amount: 800000, status: 'ok', src: 'manual' }));
+  const M = buildBlocks(tx, days, t => t.desc);
+  assert.equal(blockShare(M, 't:گردان', 'بوفه گردان'), 1);
+});
