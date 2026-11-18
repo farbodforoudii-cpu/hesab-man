@@ -85,6 +85,7 @@ async function boot() {
   await fixBlu0825b();
   await fixCourier0814();
   await fixLunch0825();
+  await fixMove0827();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -415,6 +416,16 @@ async function fixLunch0825() {
   if (!t) return;
   if (t.amount === 431500) await putTx({ ...t, amount: 431250 });
   S.settings.fixLunch0825 = true;
+  await saveSettings();
+}
+
+// The 50,000,000 sent on 27 Aban 13:38 was not card-to-card: Blu's next SMS balance shows no fee taken.
+async function fixMove0827() {
+  if (S.settings.fixMove0827) return;
+  const t = S.tx.find(x => x.sms === 'd9ad765e701f3a5926cc');
+  if (!t) return;
+  if (t.c2c) { const u = { ...t }; delete u.c2c; await putTx(u); }
+  S.settings.fixMove0827 = true;
   await saveSettings();
 }
 
