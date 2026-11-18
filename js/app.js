@@ -87,6 +87,7 @@ async function boot() {
   await fixLunch0825();
   await fixMove0827();
   await fixBlu0827();
+  await fixUsd0827();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -445,6 +446,18 @@ async function fixBlu0827() {
   await saveSettings();
 }
 
+// 27 Aban: 300 dollars at 264,000 toman = 79,200,000. 50,000,000 paid now; the other 29,200,000 follows,
+// and its SMS is named the same way when it arrives.
+async function fixUsd0827() {
+  if (S.settings.fixUsd0827) return;
+  const t = S.tx.find(x => x.sms === 'd9ad765e701f3a5926cc');
+  if (!t) return;
+  await putTx({ ...t, desc: 'خرید ۳۰۰ دلار با نرخ ۲۶۴ هزار، پرداخت اول', type: 'asset', cat: null });
+  S.settings.expect = [...(S.settings.expect || []), { dir: 'out', amount: 29200000, desc: 'خرید ۳۰۰ دلار با نرخ ۲۶۴ هزار، بقیهٔ پول', type: 'asset', until: '2026-12-21T00:00:00.000Z' }];
+  S.settings.fixUsd0827 = true;
+  await saveSettings();
+}
+
 // ----- Blu SMS -----
 // The iPhone Shortcut sends every Blu SMS to the server (amount, direction, balance, date, time).
 // Each one either joins a record already typed (same direction and amount within 36 hours) or becomes a
@@ -458,7 +471,11 @@ function smsTs(s) {
 const smsTwin = (dir, amount, ts) => S.tx.filter(t => t.smsAuto && t.dir === dir && Math.abs(t.amount - amount) < 1 && Math.abs(new Date(t.ts) - ts) < 36 * 36e5)
   .sort((a, b) => Math.abs(new Date(a.ts) - ts) - Math.abs(new Date(b.ts) - ts))[0];
 
+// A payment Farbod said is coming (e.g. the rest of a purchase): the SMS with that exact amount takes its name.
+const expected = (s, ts) => (S.settings.expect || []).find(x => x.dir === s.dir && Math.abs(x.amount - s.amount) < 1 && (!x.until || ts.toISOString() <= x.until));
 function smsGuess(s, ts) {
+  const x = expected(s, ts);
+  if (x) return { dir: x.dir, desc: x.desc, type: x.type, cat: x.cat || null, ctx: 'personal', cp: '', status: 'ok' };
   const e = blockAt(S.lifeDays, ts), bk = blockKey(e), where = blockLabel(e);
   const res = suggest(S.tpl, s.amount, ts, { dir: s.dir, limit: 6 });
   for (const r of res) r.score += 3 * blockShare(S.blocks, bk, r.t.key);
@@ -494,7 +511,8 @@ async function absorbSms() {
     const same = pool.filter(t => t.dir === s.dir && !t.sms && !t.feeOf && !isRound(t) && Math.abs(t.amount - s.amount) < 1 && Math.abs(new Date(t.ts) - ts) < 36 * 36e5)
       .sort((a, b) => Math.abs(new Date(a.ts) - ts) - Math.abs(new Date(b.ts) - ts))[0];
     if (same) { put.push({ ...same, sms: s.id, ts: ts.toISOString(), timeSet: true }); done[s.id] = same.id; continue; }
-    const g = smsGuess(s, ts);
+    const g = smsGuess(s, ts), ex = expected(s, ts);
+    if (ex) S.settings.expect = S.settings.expect.filter(y => y !== ex);
     const tx = { id: 'sms-' + s.id, ts: ts.toISOString(), amount: s.amount, ...g, dir: s.dir, src: 'sms', sms: s.id, smsAuto: true, created: now };
     if (tx.type !== 'expense') tx.cat = null;
     if (!tx.where) delete tx.where;
