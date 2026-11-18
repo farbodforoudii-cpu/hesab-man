@@ -19,7 +19,7 @@ Files are MESH (not NURBS). Owner should not rescale for sizing; regenerate inst
 
 ## Product codes
 SKU = `<MODEL>-S<ISO size>-<METAL>`  e.g. `SG001-S64-AG925`
-MODEL: RG### band ring · SG### signet · PD### pendant · ER### earring · BR### bracelet (numbers never reused)
+MODEL: RG### band ring · SG### signet · PD### pendant · ER### earring · BR### bracelet · OB### object/figurine (numbers never reused)
 METAL: AG925 · AG999 · AU750 · AU585.  Catalog: `catalog/products.json|csv` (rebuilt by `python jewelry.py all`;
 business fields status/qty/costs/price are preserved). Status flow: design → approved → sent_to_caster → cast → finished → in_stock → sold.
 
@@ -35,6 +35,13 @@ business fields status/qty/costs/price are preserved). Status flow: design → a
 Owner prefers LOW faces: head height only ~0.4 mm above the shank top thickness (keeps face-to-shank transition gentle).
 Signet references owner approved as the target look: shank widens + thickens smoothly into the head,
 crisp flat face, teardrop outline seen along the finger. v1 signets (hull head on band) were judged wrong.
+
+## In progress: OB001 Swan (designer: Rojin)
+Open swan figurine/cup ~50 mm tall × ~50–55 mm long, hand-carved in wax by Rojin. First cast was ruined by the caster and
+the mould is broken; the damaged cast is the only reference. Plan: 3D-scan the cast (iPad Rhino Scan→Object as a free first
+try; professional structured-light scan for full feather detail) → Claude repairs/cleans the mesh (holes, casting defects,
+wall thickness, weight, shrinkage compensation) → STL/3DM. Do NOT try to model it procedurally: hand-sculpted feather detail.
+Likely heavy in silver (rough guess 60–100 g) — check weight of the existing cast.
 
 ## Code
 `engine.py` geometry helpers · `designs_lib.py` builders · `designs/*.json` one file per design (source of truth) ·
