@@ -86,6 +86,7 @@ async function boot() {
   await fixCourier0814();
   await fixLunch0825();
   await fixMove0827();
+  await fixBlu0827();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -426,6 +427,21 @@ async function fixMove0827() {
   if (!t) return;
   if (t.c2c) { const u = { ...t }; delete u.c2c; await putTx(u); }
   S.settings.fixMove0827 = true;
+  await saveSettings();
+}
+
+// Blu statement to 27 Aban 21:46: two deposits that came without an SMS — the monthly interest
+// (26 Aban 05:36) and a purchase refund (26 Aban 11:15). Every other row matches.
+async function fixBlu0827() {
+  if (S.settings.fixBlu0827 || !S.tx.some(t => t.sms === 'd9ad765e701f3a5926cc')) return;
+  const now = new Date().toISOString(), at = (h, m) => fromJalali(1405, 8, 26, h, m).toISOString();
+  const base = { dir: 'in', cp: '', cat: null, ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' };
+  const add = [
+    { ...base, id: 'blu0827-interest', ts: at(5, 36), amount: 14112.4, desc: 'سود بانکی بلو', type: 'other_in' },
+    { ...base, id: 'blu0827-refund', ts: at(11, 15), amount: 78210, desc: 'برگشت پول خرید', type: 'reimburse' },
+  ].filter(x => !S.tx.some(t => t.id === x.id));
+  if (add.length) await putTx(add);
+  S.settings.fixBlu0827 = true;
   await saveSettings();
 }
 
