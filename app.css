@@ -1151,11 +1151,53 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .guide-step .chip { margin-top: 6px; padding: 4px 12px; }
 .guide-step b { unicode-bidi: isolate; }
 
-/* Work and money, with «زندگی من» */
-.wk-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
-.wk-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.wk-tile b { font-size: 17px; font-weight: 700; direction: rtl; white-space: nowrap; }
-.wk-tile small { color: var(--sec); font-size: 12px; }
-.wk-tip { margin: 8px 0 2px; font-size: 14px; line-height: 1.7; color: var(--label); }
-.cell .wk-tip { margin: 0; }
-.row-sb { display: flex; justify-content: space-between; gap: 12px; }
+/* Work and money, with «زندگی من»: sage and mint only */
+:root { --sage: #6f9a74; --mint: #9cc7a4; --mint-2: #bcdcc2; --mint-3: rgba(124, 170, 132, .22); }
+.an-seg { margin-bottom: 14px; }
+.wk-card { background: var(--glass); border: 1px solid var(--border); border-radius: 22px; padding: 16px 18px; margin-bottom: 12px; }
+.wk-lb { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--sec); }
+.wk-big { font-size: 32px; font-weight: 800; margin: 6px 0 2px; direction: rtl; }
+.wk-big small { font-size: 15px; font-weight: 600; color: var(--sec); margin-right: 6px; }
+.wk-stack { display: flex; height: 12px; border-radius: 7px; overflow: hidden; gap: 2px; margin: 12px 0 12px; }
+.wk-stack i { display: block; height: 100%; }
+.wk-lg { display: grid; grid-template-columns: 10px 1fr auto auto; gap: 10px 10px; align-items: center; font-size: 15px; }
+.wk-lg small { display: block; font-size: 12px; color: var(--sec); }
+.wk-dt { width: 10px; height: 10px; border-radius: 3px; }
+.wk-age { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--mint-3); color: var(--sec); }
+.wk-age.old { color: var(--label); font-weight: 700; box-shadow: inset 0 0 0 1px var(--sage); }
+.wk-lg b { white-space: nowrap; }
+.wk-prog { display: flex; height: 14px; border-radius: 8px; overflow: hidden; background: var(--mint-3); margin: 14px 0 8px; }
+.wk-prog i { display: block; height: 100%; }
+.wk-stripe { background: repeating-linear-gradient(-45deg, var(--mint), var(--mint) 4px, var(--mint-2) 4px, var(--mint-2) 8px); }
+.wk-keys { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--sec); }
+.wk-keys span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-left: 5px; background: var(--c); vertical-align: -1px; }
+.wk-why { font-size: 12px; color: var(--sec); margin: 10px 0 0; line-height: 1.7; }
+.wk-rn { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: .5px solid var(--sep); font-size: 15px; }
+.wk-rn:first-of-type { border-top: 0; }
+.wk-dots { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+.wk-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
+.wk-dots i.e { background: var(--mint-3); }
+.wk-pill { font-size: 13px; padding: 5px 11px; border-radius: 99px; background: var(--mint-3); white-space: nowrap; }
+.wk-x { font-size: 20px; color: var(--sage); }
+.wk-hb { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: center; margin: 10px 0; font-size: 14px; }
+.wk-hb i { display: block; height: 18px; border-radius: 6px; }
+.wk-hb b { white-space: nowrap; }
+.wk-tips { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.wk-tip { background: var(--glass); border: 1px solid var(--border); border-radius: 18px; padding: 12px; font-size: 13px; line-height: 1.6; display: flex; flex-direction: column; }
+.wk-tip b { font-size: 14px; margin-bottom: 4px; }
+.wk-tip span { color: var(--sec); }
+.wk-mini { width: 100%; height: 46px; margin-top: auto; padding-top: 8px; }
+
+/* Headlines: the chart sits behind the words */
+.car-slide { overflow: hidden; }
+.car-bg { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 46%; pointer-events: none; }
+.car-bg rect, .wk-mini rect { stroke: none; }
+.cb-area { fill: var(--label); fill-opacity: .06; stroke: none; }
+.cb-line { fill: none; stroke: var(--label); stroke-opacity: .3; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.cb-bar { fill: var(--label); fill-opacity: .07; }
+.cb-hi { fill: var(--sage); fill-opacity: .55; }
+.cb-ref { stroke: var(--label); stroke-opacity: .4; stroke-dasharray: 4 4; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cb-dot { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 4px var(--mint-3); }
+.news-t, .car-mean, .car-ago, .car-prog { position: relative; }
+.car-chip { position: absolute; left: 0; bottom: 22px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: var(--mint-3); backdrop-filter: blur(6px); }
+.car-axis { position: absolute; left: 2px; bottom: 2px; font-size: 11px; opacity: .65; }

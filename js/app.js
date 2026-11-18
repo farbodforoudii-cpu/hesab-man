@@ -1849,8 +1849,10 @@ function viewAnalysis() {
     A.flags.assumed ? `${fmtShort(A.flags.assumed)} درآمد حدسی` : '',
     A.flags.vague ? `${fmtShort(A.flags.vague)} خرج بی‌عنوان` : '',
   ].filter(Boolean);
+  const seg = sync.lifeStatus() || sync.lifeMonth(monthKey(new Date())) ? `<div class="segmented an-seg">${[['money', 'پول'], ['work', 'کار و پول']].map(([k, l]) => `<button data-act="an-view" data-v="${k}" class="${(S.anView || 'money') === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
+  if (S.anView === 'work' && seg) return `<div class="view wide">${head}${seg}${viewWork()}</div>`;
   return `<div class="view wide">
-    ${head}${unlock}
+    ${head}${seg}${unlock}
     ${newsHero(liveItems(series))}
     <div class="section-title">ماه به ماه</div>
     <div class="tl">${series.map(card).join('')}</div>
@@ -2095,6 +2097,11 @@ function challengeSheet() {
 // ----- «زندگی من» × «حساب من»: work and money read together -----
 // Everything here comes from what «زندگی من» publishes (life_status, month_*) and from this app's own records;
 // every number carries its source. Shown only for the running month.
+// A tiny bar chart for a suggestion: sage bars, the highlighted one mint, an optional dashed average.
+function miniBars(v, hi, ref) {
+  const W = 100, H = 46, mx = Math.max(...v, ref || 0, 1e-9), bw = W / v.length;
+  return `<svg class="wk-mini" viewBox="0 0 ${W} ${H}">${v.map((x, i) => { const h = Math.max(3, x / mx * (H - 4)); return `<rect x="${(i * bw + bw * .18).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw * .64).toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${i === hi ? 'var(--sage)' : 'var(--mint-3)'}"/>`; }).join('')}${ref ? `<line x1="0" x2="${W}" y1="${(H - ref / mx * (H - 4)).toFixed(1)}" y2="${(H - ref / mx * (H - 4)).toFixed(1)}" stroke="var(--sage)" stroke-dasharray="3 3" stroke-width="1"/>` : ''}</svg>`;
+}
 const dKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 function workLink(T, key) {
   const st = sync.lifeStatus(), L = sync.lifeMonth(key);
@@ -2117,54 +2124,61 @@ function workLink(T, key) {
   const count = (a, b) => { let n = 0; for (let d = new Date(a); d < b; d.setDate(d.getDate() + 1)) n += (D[dKey(d)] || []).filter(e => e.cat === 'client').length; return n; };
   const wEnd = new Date(w0); wEnd.setDate(wEnd.getDate() + 7);
   const thisW = count(w0, wEnd), p0 = new Date(w0); p0.setDate(p0.getDate() - 28);
-  const avgW = count(p0, w0) / 4;
+  const avgW = count(p0, w0) / 4, tipCards = [];
+  const weeks = [4, 3, 2, 1].map(n => { const a = new Date(w0), b = new Date(w0); a.setDate(a.getDate() - 7 * n); b.setDate(b.getDate() - 7 * (n - 1)); return count(a, b); });
+  if (avgW >= 4 && thisW < avgW * 0.75) tipCards.push({ h: 'هفتهٔ کم‌کار', t: `${faDigits(thisW)} جلسه؛ میانگین ۴ هفته ${faDigits(Math.round(avgW))}. خرج‌های اختیاری را نگه دار.`, chart: miniBars([...weeks, thisW], 4, avgW) });
   if (avgW >= 4 && thisW < avgW * 0.75) tips.push(`این هفته ${faDigits(thisW)} جلسه داری؛ میانگین ۴ هفتهٔ قبل ${faDigits(Math.round(avgW))} بود. درآمد کمتری در راه است؛ خرج‌های اختیاری را نگه دار.`);
   // Food on gym-shift days against other days, last 30 days (daily average of each).
   const f0 = new Date(now - 30 * 864e5), food = {}, shiftDay = k => (D[k] || []).some(e => e.cat === 'shift');
   for (const t of T) if (t.type === 'expense' && t.cat === 'food' && new Date(t.ts) >= f0) { const k = dKey(new Date(t.ts)); food[k] = (food[k] || 0) + t.amount; }
   let a = 0, an = 0, b = 0, bn = 0;
   for (let d = new Date(f0); d <= now; d.setDate(d.getDate() + 1)) { const k = dKey(d), v = food[k] || 0; if (shiftDay(k)) { a += v; an++; } else { b += v; bn++; } }
+  if (an >= 4 && bn >= 4 && b > 0 && a / an >= 1.4 * (b / bn)) tipCards.push({ h: 'غذا در روز شیفت', t: `روزی ${fmtShort(a / an)}؛ روزهای دیگر ${fmtShort(b / bn)} (۳۰ روز اخیر).`, chart: miniBars([a / an, b / bn], 0) });
   if (an >= 4 && bn >= 4 && b > 0 && a / an >= 1.4 * (b / bn)) tips.push(`در روزهای شیفت، خرج غذا روزی ${(fmtShort(a / an))} است و در روزهای دیگر ${(fmtShort(b / bn))} (میانگین ۳۰ روز اخیر). همراه بردن غذا در روز شیفت بیشترین صرفه را دارد.`);
   if (perH && perH.coach && perH.shift) tips.push(`هر ساعت مربیگری ${(fmtShort(perH.coach))} و هر ساعت شیفت ${(fmtShort(perH.shift))} درآمد داشت (${esc(monthName(pk))}: درآمد ÷ ساعت)؛ یعنی ${faDigits((perH.coach / perH.shift).toFixed(1)).replace('.', '٫')} برابر.`);
   return {
     open: st ? st.open || 0 : 0, openN: st ? st.openSessions || 0 : 0, by, renew,
     renewSum: renew.reduce((s, r) => s + (r.next || 0), 0),
     fc: L ? L.fcValue || 0 : 0, fcPlanned: L ? L.fcPlanned || 0 : 0, fcSessions: L ? L.fcSessions || 0 : 0, sessions: L ? L.sessions || 0 : 0,
-    received: ms.work || 0, perH, tips,
+    received: ms.work || 0, perH, tips, tipCards,
   };
 }
-function workCard(T, key) {
-  const W = workLink(T, key);
-  if (!W) return '';
-  const tile = (label, v, sub) => `<div class="wk-tile"><span class="b-label">${label}</span><b>${(fmtShort(v))}</b><small>${sub}</small></div>`;
-  return `<button class="goals wk" data-act="work">
-    <div class="goals-head"><span class="b-label"><span class="live-dot"></span>کار و پول، با «زندگی من»</span><span class="sec">جزئیات</span></div>
-    <div class="wk-tiles">
-      ${tile('طلب از مراجع‌ها', W.open, `${faDigits(W.openN)} جلسهٔ انجام‌شده`)}
-      ${tile('درآمد پیش‌بینی ماه', Math.max(W.fc, W.received), `رسیده ${(fmtShort(W.received))}`)}
-      ${W.renew.length ? tile('وقت تمدید', W.renewSum, `${faDigits(W.renew.length)} مراجع`) : W.perH && W.perH.coach ? tile('هر ساعت مربیگری', W.perH.coach, `${esc(monthName(W.perH.month))}`) : ''}
-    </div>
-    ${W.tips.length ? `<p class="wk-tip">${W.tips[0]}</p>` : ''}
-  </button>`;
-}
-function workSheet() {
+// «کار و پول» in Analysis: each number drawn, sage and mint only, with where it comes from.
+const mm = v => fmtShort(v).replace(' میلیون', ' م').replace(' هزار', ' ه');
+function viewWork() {
   const T = scoped(), key = monthKey(new Date()), W = workLink(T, key);
-  if (!W) return;
-  const row = (l, v, why) => `<div class="cell col"><span class="row-sb"><span>${l}</span><b>${(fmtShort(v))}</b></span>${why ? `<small class="sec why">${why}</small>` : ''}</div>`;
-  openSheet(`<div class="sheet-nav"><span></span><b>کار و پول</b><button class="link" data-close>بستن</button></div>
-    ${W.tips.length ? `<div class="section-title">پیشنهادها</div><div class="group">${W.tips.map(t => `<div class="cell"><span class="wk-tip">${t}</span></div>`).join('')}</div>` : ''}
-    <div class="section-title">${esc(monthName(key))}</div>
-    <div class="group">
-      ${row('درآمد پیش‌بینی ماه', Math.max(W.fc, W.received), `ارزش همهٔ جلسه‌ها و شیفت‌های این ماه در «زندگی من»: ${faDigits(W.sessions)} جلسهٔ انجام‌شده و ${faDigits(W.fcSessions)} جلسهٔ برنامه‌ریزی‌شده (${(fmtShort(W.fcPlanned))}).`)}
-      ${row('رسیده به بلو', W.received, 'جمع دریافت‌های «درآمد» همین ماه در این اپ.')}
-      ${row('طلب از مراجع‌ها', W.open, `${faDigits(W.openN)} جلسهٔ انجام‌شده که پولش هنوز نرسیده (از «زندگی من»).`)}
-    </div>
-    ${W.by.length ? `<div class="section-title">طلب، به تفکیک مراجع</div><div class="group">${W.by.map(x => `<div class="cell"><span class="grow">${esc(x.name)}<small class="avg-line">${faDigits(x.n)} جلسه، از ${esc(dayLabel(new Date(x.since)).replace(/^(امروز|دیروز)، /, ''))}</small></span><b>${(fmtShort(x.amount))}</b></div>`).join('')}</div>` : ''}
-    ${W.renew.length ? `<div class="section-title">وقت تمدید</div><div class="group">${W.renew.map(r => `<div class="cell"><span class="grow">${esc(r.name)}<small class="avg-line">${r.left > 0 ? 'یک جلسه مانده' : 'دوره تمام شد'}، دورهٔ ${faDigits(r.size)} جلسه‌ای</small></span><b>${r.next ? (fmtShort(r.next)) : '—'}</b></div>`).join('')}</div>
-      <p class="foot">مبلغ دورهٔ بعد = تعداد جلسه‌ها × قیمت امروز برای تعداد اعضای گروه.</p>` : ''}
-    ${W.perH ? `<div class="section-title">درآمد هر ساعت، ${esc(monthName(W.perH.month))}</div><div class="group">
-      ${W.perH.coach ? row('مربیگری', W.perH.coach, 'درآمد جلسه‌ها ÷ ساعت جلسه‌ها') : ''}
-      ${W.perH.shift ? row('شیفت باشگاه', W.perH.shift, 'درآمد شیفت‌ها ÷ ساعت شیفت‌ها') : ''}</div>` : ''}`);
+  if (!W) return '<p class="empty">هنوز از «زندگی من» چیزی نرسیده؛ همگام‌سازی را در هر دو اپ روشن کن.</p>';
+  const now = new Date(), days = d => Math.max(0, Math.round((now - new Date(d)) / 864e5));
+  const shades = ['var(--sage)', 'var(--mint)', 'var(--mint-2)', 'var(--mint-3)'];
+  const by = W.by.slice(0, 4), rest = W.by.slice(4).reduce((s, x) => s + x.amount, 0);
+  const segs = [...by.map((x, i) => ({ v: x.amount, c: shades[i] })), ...(rest ? [{ v: rest, c: 'var(--mint-3)' }] : [])];
+  const fc = Math.max(W.fc, W.received), recv = Math.min(W.received, fc), owed = Math.min(W.open, fc - recv), plan = Math.max(0, fc - recv - owed);
+  const left = Math.max(0, Math.ceil((monthRange(key).end - now) / 864e5));
+  const card = (lbl, side, body) => `<section class="wk-card"><div class="wk-lb"><span>${lbl}</span><span>${side}</span></div>${body}</section>`;
+  const big = (v, unit) => `<div class="wk-big">${fmtShort(v).split(' ')[0]}<small>${unit ?? fmtShort(v).split(' ').slice(1).join(' ')}</small></div>`;
+  const out = [];
+  out.push(card('<span class="live-dot"></span> طلب از مراجع‌ها', `${faDigits(W.openN)} جلسه`, `${big(W.open)}
+    ${segs.length ? `<div class="wk-stack">${segs.map(x => `<i style="flex:${x.v};background:${x.c}"></i>`).join('')}</div>` : ''}
+    <div class="wk-lg">${by.map((x, i) => `<i class="wk-dt" style="background:${shades[i]}"></i><span>${esc(x.name)}<small>${faDigits(x.n)} جلسه</small></span><span class="wk-age${days(x.since) >= 14 ? ' old' : ''}">${faDigits(days(x.since))} روز</span><b>${mm(x.amount)}</b>`).join('')}</div>
+    <p class="wk-why">جلسه‌های انجام‌شده در «زندگی من» که پولشان هنوز نرسیده؛ «روز» از قدیمی‌ترین جلسه.</p>`));
+  out.push(card(`درآمد ${esc(monthName(key))}`, `${faDigits(left)} روز مانده`, `${big(fc, fmtShort(fc).split(' ').slice(1).join(' ') + ' پیش‌بینی')}
+    <div class="wk-prog"><i style="width:${(recv / fc * 100).toFixed(1)}%;background:var(--sage)"></i><i class="wk-stripe" style="width:${(owed / fc * 100).toFixed(1)}%"></i><i style="width:${(plan / fc * 100).toFixed(1)}%;background:var(--mint-3)"></i></div>
+    <div class="wk-keys"><span style="--c:var(--sage)">رسیده ${mm(recv)}</span><span style="--c:var(--mint)">طلب ${mm(owed)}</span><span style="--c:var(--mint-3)">جلسه‌های مانده ${mm(plan)}</span></div>
+    <p class="wk-why">پیش‌بینی = ارزش همهٔ جلسه‌ها و شیفت‌های ${esc(monthName(key))} در «زندگی من» (${faDigits(W.sessions)} انجام‌شده، ${faDigits(W.fcSessions)} مانده).</p>`));
+  if (W.renew.length) out.push(card('وقت تمدید', `${mm(W.renewSum)} در راه`, W.renew.map(r => `<div class="wk-rn"><span class="grow">${esc(r.name)}
+      <span class="wk-dots">${[...Array(r.size)].map((_, i) => `<i class="${i < r.size - Math.max(0, r.left) ? '' : 'e'}"></i>`).join('')}</span></span><b class="wk-pill">${r.next ? mm(r.next) : '—'}</b></div>`).join('')
+    + '<p class="wk-why">مبلغ دورهٔ بعد = تعداد جلسه‌ها × قیمت امروز برای تعداد اعضا.</p>'));
+  const P = W.perH;
+  if (P && P.coach) {
+    const mx = Math.max(P.coach, P.shift || 0);
+    out.push(card(`ارزش هر ساعت، ${esc(monthName(P.month))}`, P.shift ? `<b class="wk-x">${faDigits((P.coach / P.shift).toFixed(1)).replace('.', '٫')}×</b>` : '',
+      `<div class="wk-hb"><span>مربیگری</span><i style="width:${(P.coach / mx * 100).toFixed(0)}%;background:var(--sage)"></i><b>${mm(P.coach)}</b></div>
+      ${P.shift ? `<div class="wk-hb"><span>شیفت</span><i style="width:${(P.shift / mx * 100).toFixed(0)}%;background:var(--mint-2)"></i><b>${mm(P.shift)}</b></div>` : ''}
+      <p class="wk-why">درآمد ÷ ساعت، جدا برای جلسه‌ها و شیفت‌ها.</p>`));
+  }
+  const tips = W.tipCards || [];
+  if (tips.length) out.push(`<div class="section-title">پیشنهادها</div><div class="wk-tips">${tips.map(t => `<div class="wk-tip"><b>${t.h}</b><span>${t.t}</span>${t.chart || ''}</div>`).join('')}</div>`);
+  return out.join('');
 }
 
 function goalsCard(T, key) {
@@ -2226,6 +2240,24 @@ function glassBars(pts, pct) {
 // Headlines like stories: segments fill while a slide is shown, the kicker pill reshapes to the next
 // word, the headline arrives word by word. Tap or swipe for next, hold to pause.
 const words = t => esc(t).split(' ').map((w, i) => `<span class="w" style="--i:${i}">${w}</span>`).join(' ');
+// The chart behind a headline: a price line (x.line) or bars (x.c, the last or running one in mint),
+// with an optional dashed reference (x.ref). Quiet white on the card; only the point that matters is mint.
+function bgChart(x) {
+  const W = 300, H = 150;
+  if (x.line && x.line.length > 2) {
+    const v = x.line, mn = Math.min(...v), mx = Math.max(...v), r = mx - mn || 1;
+    const P = v.map((y, i) => [i / (v.length - 1) * W, 12 + (1 - (y - mn) / r) * (H - 24)]);
+    const d = P.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' '), last = P[P.length - 1];
+    return `<svg class="car-bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d} L${W} ${H} L0 ${H}Z" class="cb-area"/><path d="${d}" class="cb-line"/></svg><i class="cb-dot" style="left:calc(${(last[0] / W * 100).toFixed(1)}% - 10px);bottom:calc(${((1 - last[1] / H) * 46).toFixed(1)}% - 5px)"></i>`;
+  }
+  if (x.c && x.c.length) {
+    const v = x.c.map(p => p.v), mx = Math.max(...v, x.ref || 0, 1e-9), bw = W / v.length, hi = x.c.findIndex(p => p.running) >= 0 ? x.c.findIndex(p => p.running) : v.length - 1;
+    const yR = x.ref ? H - x.ref / mx * (H - 8) : null;
+    return `<svg class="car-bg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${v.map((y, i) => { const h = Math.max(4, y / mx * (H - 8));
+      return `<rect x="${(i * bw + bw * .14).toFixed(1)}" y="${(H - h).toFixed(1)}" width="${(bw * .72).toFixed(1)}" height="${h.toFixed(1)}" rx="6" class="${i === hi ? 'cb-hi' : 'cb-bar'}"/>`; }).join('')}${yR != null ? `<line x1="0" x2="${W}" y1="${yR.toFixed(1)}" y2="${yR.toFixed(1)}" class="cb-ref"/>` : ''}</svg>`;
+  }
+  return '';
+}
 function newsHero(N) {
   const top = N.slice(0, 9);
   if (!top.length) return '';
@@ -2233,7 +2265,7 @@ function newsHero(N) {
     <div class="car-segs">${top.map((_, i) => `<i class="${i ? '' : 'on'}"><b></b></i>`).join('')}</div>
     <div class="car-head"><span><span class="live-dot"></span>زنده، <span data-clock>${clock()}</span></span><span class="car-kick"><span>${esc(top[0].k)}</span></span></div>
     <div class="car-stage">${top.map((x, i) => `<div class="car-slide${i ? '' : ' on'}" data-k="${esc(x.k)}">
-      ${x.ago ? `<span class="car-ago" data-ago="${x.ago}">${ago(x.ago)}</span>` : ''}<h3 class="news-t">${words(x.t)}</h3><p class="car-mean">${esc(x.d)}</p>${x.bar != null ? `<i class="car-prog"><em style="width:${(x.bar * 100).toFixed(0)}%"></em></i>` : ''}${x.c ? glassBars(x.c, x.pct) : ''}</div>`).join('')}</div></section>`;
+      ${x.ago ? `<span class="car-ago" data-ago="${x.ago}">${ago(x.ago)}</span>` : ''}${bgChart(x)}<h3 class="news-t">${words(x.t)}</h3><p class="car-mean">${esc(x.d)}</p>${x.bar != null ? `<i class="car-prog"><em style="width:${(x.bar * 100).toFixed(0)}%"></em></i>` : ''}${x.chip ? `<span class="car-chip">${esc(x.chip)}</span>` : ''}${x.axis ? `<span class="car-axis">${esc(x.axis)}</span>` : ''}</div>`).join('')}</div></section>`;
 }
 
 // Headlines, live: one card per item, rotating like stories. What is happening now (today, this month's
@@ -2250,15 +2282,24 @@ function liveItems(series) {
   const today = sum(T.filter(t => t.type === 'expense' && new Date(t.ts).toDateString() === day));
   const days = [...Array(7)].map((_, i) => { const d = new Date(now - (6 - i) * 864e5), ds = d.toDateString();
     return { key: '', l: i === 6 ? 'امروز' : WEEKDAY_SHORT[d.getDay()], running: false, v: sum(T.filter(t => t.type === 'expense' && new Date(t.ts).toDateString() === ds)) }; });
-  NOW.push({ c: days, k: 'امروز', t: today ? `امروز ${fmtShort(today)} خرج شده` : 'امروز هنوز خرجی نشده', d: dayAvg ? `روز معمول ${fmtShort(dayAvg)}؛ میانگین خرج ۳ ماه ÷ ۳۰.` : '', tone: !today || today <= dayAvg ? 'g' : today > dayAvg * 1.5 ? 'r' : 'o' });
+  NOW.push({ c: days, ref: dayAvg || null, axis: '۷ روز اخیر', k: 'امروز', t: today ? `امروز ${fmtShort(today)} خرج شده` : 'امروز هنوز خرجی نشده', d: dayAvg ? `روز معمول ${fmtShort(dayAvg)}؛ میانگین خرج ۳ ماه ÷ ۳۰.` : '', tone: !today || today <= dayAvg ? 'g' : today > dayAvg * 1.5 ? 'r' : 'o' });
   const proj = avgExp ? projectMonth(key, ms.expense || 0, avgExp, now) : null;
-  if (proj) NOW.push({ k: 'پیش‌بینی', t: `با این روند، خرج ${mName} ${fmtShort(proj)} می‌شود`, d: `${fmtShort(ms.expense || 0)} تا امروز، به‌اضافهٔ میانگین ۳ ماه برای ${faDigits(left)} روز مانده. میانگین: ${fmtShort(avgExp)}.`, c: series.map(m => ({ key: m.key, running: m.running, v: m.running ? proj : m.expense || 0 })).slice(-7) });
+  if (proj) NOW.push({ k: 'پیش‌بینی', t: `با این روند، خرج ${mName} ${fmtShort(proj)} می‌شود`, d: `${fmtShort(ms.expense || 0)} تا امروز، به‌اضافهٔ میانگین ۳ ماه برای ${faDigits(left)} روز مانده. میانگین: ${fmtShort(avgExp)}.`, c: series.map(m => ({ key: m.key, running: m.running, v: m.running ? proj : m.expense || 0 })).slice(-7), axis: 'خرج ماه‌ها؛ این ماه با پیش‌بینی' });
   if (c) { const w = ms.work || 0, gap = c.income - w;
     NOW.push({ k: 'چالش', t: gap > 0 ? `${pct(w / c.income)} هدف درآمد ${mName}` : `هدف درآمد ${mName} زده شد`, d: gap > 0 ? `${fmtShort(w)} از ${fmtShort(c.income)}؛ روزی ${fmtShort(gap / left)} تا آخر ماه.` : `${fmtShort(w)} از ${fmtShort(c.income)}.`, bar: Math.min(1, w / c.income) }); }
   const st = S.market ? MARKET_KINDS.map(k => mstats(S.market, k)).filter(x => x && x.day != null) : [];
   const mv = st.sort((a, b) => Math.abs(b.day) - Math.abs(a.day))[0];
-  if (mv) NOW.push({ k: 'بازار', t: `${MK[mv.k].label} امروز ${pctS(mv.day)}`, d: `${MK[mv.k].per} ${fmt(mv.last)} تومان؛ ${sigOf(mv).tag ? `سیگنال: ${sigOf(mv).tag}.` : ''}`, ago: S.market.at });
+  const mh = mv ? liveHist(S.market, mv.k).slice(-30).map(r => r[1]) : [];
+  const m30 = mh.length > 1 ? mh[mh.length - 1] / mh[0] - 1 : null;
+  if (mv) NOW.push({ line: mh, axis: '۳۰ روز اخیر', chip: m30 != null ? `${m30 < 0 ? '▼' : '▲'} ${faDigits(Math.abs(Math.round(m30 * 100)))}٪ در ۳۰ روز` : '', k: 'بازار', t: `${MK[mv.k].label} امروز ${pctS(mv.day)}`, d: `${MK[mv.k].per} ${fmt(mv.last)} تومان؛ ${sigOf(mv).tag ? `سیگنال: ${sigOf(mv).tag}.` : ''}`, ago: S.market.at });
 
+  // Work and money, from «زندگی من»: the month's income forecast against the months before.
+  const WL = workLink(T, key);
+  if (WL && WL.fc) {
+    const past = series.filter(m => !m.running).slice(-5).map(m => ({ key: m.key, running: false, v: (sync.lifeMonth(m.key) || {}).earned || m.work || 0 }));
+    NOW.push({ k: 'کار و پول', t: `درآمد ${mName} به ${fmtShort(Math.max(WL.fc, WL.received))} می‌رسد`, d: `${fmtShort(WL.received)} رسیده، ${fmtShort(WL.open)} طلب، ${fmtShort(WL.fcPlanned)} جلسه‌های مانده؛ از برنامهٔ «زندگی من».`,
+      c: [...past, { key, running: true, v: Math.max(WL.fc, WL.received) }], axis: '۶ ماه؛ این ماه با پیش‌بینی' });
+  }
   // Each record, read in one line against the month, the challenge or the category's usual size.
   const since = now - 7 * 864e5, month = T.filter(t => monthKey(new Date(t.ts)) === key), monthOut = month.filter(t => t.type === 'expense');
   const bigOut = Math.max(0, ...monthOut.map(t => t.amount));
@@ -2403,7 +2444,6 @@ function viewDash() {
       </div>
     </section>
     ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() + mixInbox() : ''}
-    ${key === monthKey(new Date()) ? workCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${liveStory(T, key)}
@@ -3199,7 +3239,7 @@ document.addEventListener('click', async e => {
     else if (a === 'month-pick') openMonthPicker();
     else if (a === 'story-more' && S.storyArgs) storyMore();
     else if (a === 'goals') goalsSheet();
-    else if (a === 'work') workSheet();
+    else if (a === 'an-view') { S.anView = b.dataset.v; render(); }
     else if (a === 'go-assets') { S.view = 'assets'; render(); window.scrollTo(0, 0); }
     else if (a === 'as-add') assetSheet(null);
     else if (a === 'as-edit') assetSheet(b.dataset.v);
