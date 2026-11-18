@@ -88,6 +88,7 @@ async function boot() {
   await fixMove0827();
   await fixBlu0827();
   await fixUsd0827();
+  await fixUsd2000();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -458,6 +459,16 @@ async function fixUsd0827() {
   await saveSettings();
 }
 
+// Farbod: the 1,700 dollars held before plus the 300 bought on 27 Aban.
+async function fixUsd2000() {
+  if (S.settings.fixUsd2000) return;
+  const it = (S.settings.assets?.items || []).find(x => x.kind === 'usd');
+  if (!it) return;
+  if (it.qty === 1700) it.qty = 2000;
+  S.settings.fixUsd2000 = true;
+  await saveSettings();
+}
+
 // ----- Blu SMS -----
 // The iPhone Shortcut sends every Blu SMS to the server (amount, direction, balance, date, time).
 // Each one either joins a record already typed (same direction and amount within 36 hours) or becomes a
@@ -476,6 +487,12 @@ const expected = (s, ts) => (S.settings.expect || []).find(x => x.dir === s.dir 
 function smsGuess(s, ts) {
   const x = expected(s, ts);
   if (x) return { dir: x.dir, desc: x.desc, type: x.type, cat: x.cat || null, ctx: 'personal', cp: '', status: 'ok' };
+  // A deposit the size of a package «زندگی من» is waiting on: name it after that package. The package itself is
+  // answered only by the «رسید» tap, which then finds this record and links it instead of counting it twice.
+  if (s.dir === 'in') {
+    const b = sync.lifeInbox().find(b => Math.abs(b.total - s.amount) < 1000);
+    if (b) return { dir: 'in', desc: billDesc(b), type: 'income_work', cat: null, ctx: 'coaching', cp: b.name, status: 'ok' };
+  }
   const e = blockAt(S.lifeDays, ts), bk = blockKey(e), where = blockLabel(e);
   const res = suggest(S.tpl, s.amount, ts, { dir: s.dir, limit: 6 });
   for (const r of res) r.score += 3 * blockShare(S.blocks, bk, r.t.key);
