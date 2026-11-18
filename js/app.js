@@ -2092,6 +2092,81 @@ function challengeSheet() {
       return `<div class="cell"><span class="grow">${esc(monthLabel(k))}<small class="avg-line">درآمد ${fmtShort(m.work || 0)} از ${fmtShort(h.income)}، سرمایه‌گذاری ${fmtShort(m.asset || 0)} از ${fmtShort(h.invest)}</small></span><b class="${won ? 'green' : 'red'}">${won ? 'برد' : 'باخت'}</b></div>`; }).join('')}</div>` : ''}`);
 }
 
+// ----- «زندگی من» × «حساب من»: work and money read together -----
+// Everything here comes from what «زندگی من» publishes (life_status, month_*) and from this app's own records;
+// every number carries its source. Shown only for the running month.
+const dKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function workLink(T, key) {
+  const st = sync.lifeStatus(), L = sync.lifeMonth(key);
+  if (!st && !L) return null;
+  const ms = monthSummary(T, key), now = new Date();
+  // Income per hour, from the last finished month: (income ÷ hours) for coaching and for gym shifts.
+  const pk = shiftMonth(key, -1), P = sync.lifeMonth(pk);
+  const perH = P ? {
+    month: pk,
+    coach: P.clientMin >= 600 ? (P.earned - (P.shiftEarned || 0)) / (P.clientMin / 60) : null,
+    shift: P.shiftMin >= 600 && P.shiftEarned ? P.shiftEarned / (P.shiftMin / 60) : null,
+  } : null;
+  const renew = (st && st.renew) || [], by = (st && st.byGroup) || [];
+  const tips = [];
+  for (const r of renew.slice(0, 2)) tips.push(`<b>${esc(r.name)}</b>: ${r.left > 0 ? 'یک جلسه مانده' : 'دوره تمام شد'}؛ وقت تمدید${r.next ? `، یعنی ${(fmtShort(r.next))} در راه` : ''}.`);
+  const old = by.filter(x => (now - new Date(x.since)) / 864e5 >= 14).sort((a, b) => a.since.localeCompare(b.since))[0];
+  if (old) tips.push(`طلب <b>${esc(old.name)}</b> از ${esc(dayLabel(new Date(old.since)).replace(/^(امروز|دیروز)، /, ''))} مانده: ${faDigits(old.n)} جلسه، ${(fmtShort(old.amount))}.`);
+  // Client sessions this week (from Saturday) against the average of the 4 weeks before.
+  const D = S.lifeDays || {}, w0 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 1) % 7));
+  const count = (a, b) => { let n = 0; for (let d = new Date(a); d < b; d.setDate(d.getDate() + 1)) n += (D[dKey(d)] || []).filter(e => e.cat === 'client').length; return n; };
+  const wEnd = new Date(w0); wEnd.setDate(wEnd.getDate() + 7);
+  const thisW = count(w0, wEnd), p0 = new Date(w0); p0.setDate(p0.getDate() - 28);
+  const avgW = count(p0, w0) / 4;
+  if (avgW >= 4 && thisW < avgW * 0.75) tips.push(`این هفته ${faDigits(thisW)} جلسه داری؛ میانگین ۴ هفتهٔ قبل ${faDigits(Math.round(avgW))} بود. درآمد کمتری در راه است؛ خرج‌های اختیاری را نگه دار.`);
+  // Food on gym-shift days against other days, last 30 days (daily average of each).
+  const f0 = new Date(now - 30 * 864e5), food = {}, shiftDay = k => (D[k] || []).some(e => e.cat === 'shift');
+  for (const t of T) if (t.type === 'expense' && t.cat === 'food' && new Date(t.ts) >= f0) { const k = dKey(new Date(t.ts)); food[k] = (food[k] || 0) + t.amount; }
+  let a = 0, an = 0, b = 0, bn = 0;
+  for (let d = new Date(f0); d <= now; d.setDate(d.getDate() + 1)) { const k = dKey(d), v = food[k] || 0; if (shiftDay(k)) { a += v; an++; } else { b += v; bn++; } }
+  if (an >= 4 && bn >= 4 && b > 0 && a / an >= 1.4 * (b / bn)) tips.push(`در روزهای شیفت، خرج غذا روزی ${(fmtShort(a / an))} است و در روزهای دیگر ${(fmtShort(b / bn))} (میانگین ۳۰ روز اخیر). همراه بردن غذا در روز شیفت بیشترین صرفه را دارد.`);
+  if (perH && perH.coach && perH.shift) tips.push(`هر ساعت مربیگری ${(fmtShort(perH.coach))} و هر ساعت شیفت ${(fmtShort(perH.shift))} درآمد داشت (${esc(monthName(pk))}: درآمد ÷ ساعت)؛ یعنی ${faDigits((perH.coach / perH.shift).toFixed(1)).replace('.', '٫')} برابر.`);
+  return {
+    open: st ? st.open || 0 : 0, openN: st ? st.openSessions || 0 : 0, by, renew,
+    renewSum: renew.reduce((s, r) => s + (r.next || 0), 0),
+    fc: L ? L.fcValue || 0 : 0, fcPlanned: L ? L.fcPlanned || 0 : 0, fcSessions: L ? L.fcSessions || 0 : 0, sessions: L ? L.sessions || 0 : 0,
+    received: ms.work || 0, perH, tips,
+  };
+}
+function workCard(T, key) {
+  const W = workLink(T, key);
+  if (!W) return '';
+  const tile = (label, v, sub) => `<div class="wk-tile"><span class="b-label">${label}</span><b>${(fmtShort(v))}</b><small>${sub}</small></div>`;
+  return `<button class="goals wk" data-act="work">
+    <div class="goals-head"><span class="b-label"><span class="live-dot"></span>کار و پول، با «زندگی من»</span><span class="sec">جزئیات</span></div>
+    <div class="wk-tiles">
+      ${tile('طلب از مراجع‌ها', W.open, `${faDigits(W.openN)} جلسهٔ انجام‌شده`)}
+      ${tile('درآمد پیش‌بینی ماه', Math.max(W.fc, W.received), `رسیده ${(fmtShort(W.received))}`)}
+      ${W.renew.length ? tile('وقت تمدید', W.renewSum, `${faDigits(W.renew.length)} مراجع`) : W.perH && W.perH.coach ? tile('هر ساعت مربیگری', W.perH.coach, `${esc(monthName(W.perH.month))}`) : ''}
+    </div>
+    ${W.tips.length ? `<p class="wk-tip">${W.tips[0]}</p>` : ''}
+  </button>`;
+}
+function workSheet() {
+  const T = scoped(), key = monthKey(new Date()), W = workLink(T, key);
+  if (!W) return;
+  const row = (l, v, why) => `<div class="cell col"><span class="row-sb"><span>${l}</span><b>${(fmtShort(v))}</b></span>${why ? `<small class="sec why">${why}</small>` : ''}</div>`;
+  openSheet(`<div class="sheet-nav"><span></span><b>کار و پول</b><button class="link" data-close>بستن</button></div>
+    ${W.tips.length ? `<div class="section-title">پیشنهادها</div><div class="group">${W.tips.map(t => `<div class="cell"><span class="wk-tip">${t}</span></div>`).join('')}</div>` : ''}
+    <div class="section-title">${esc(monthName(key))}</div>
+    <div class="group">
+      ${row('درآمد پیش‌بینی ماه', Math.max(W.fc, W.received), `ارزش همهٔ جلسه‌ها و شیفت‌های این ماه در «زندگی من»: ${faDigits(W.sessions)} جلسهٔ انجام‌شده و ${faDigits(W.fcSessions)} جلسهٔ برنامه‌ریزی‌شده (${(fmtShort(W.fcPlanned))}).`)}
+      ${row('رسیده به بلو', W.received, 'جمع دریافت‌های «درآمد» همین ماه در این اپ.')}
+      ${row('طلب از مراجع‌ها', W.open, `${faDigits(W.openN)} جلسهٔ انجام‌شده که پولش هنوز نرسیده (از «زندگی من»).`)}
+    </div>
+    ${W.by.length ? `<div class="section-title">طلب، به تفکیک مراجع</div><div class="group">${W.by.map(x => `<div class="cell"><span class="grow">${esc(x.name)}<small class="avg-line">${faDigits(x.n)} جلسه، از ${esc(dayLabel(new Date(x.since)).replace(/^(امروز|دیروز)، /, ''))}</small></span><b>${(fmtShort(x.amount))}</b></div>`).join('')}</div>` : ''}
+    ${W.renew.length ? `<div class="section-title">وقت تمدید</div><div class="group">${W.renew.map(r => `<div class="cell"><span class="grow">${esc(r.name)}<small class="avg-line">${r.left > 0 ? 'یک جلسه مانده' : 'دوره تمام شد'}، دورهٔ ${faDigits(r.size)} جلسه‌ای</small></span><b>${r.next ? (fmtShort(r.next)) : '—'}</b></div>`).join('')}</div>
+      <p class="foot">مبلغ دورهٔ بعد = تعداد جلسه‌ها × قیمت امروز برای تعداد اعضای گروه.</p>` : ''}
+    ${W.perH ? `<div class="section-title">درآمد هر ساعت، ${esc(monthName(W.perH.month))}</div><div class="group">
+      ${W.perH.coach ? row('مربیگری', W.perH.coach, 'درآمد جلسه‌ها ÷ ساعت جلسه‌ها') : ''}
+      ${W.perH.shift ? row('شیفت باشگاه', W.perH.shift, 'درآمد شیفت‌ها ÷ ساعت شیفت‌ها') : ''}</div>` : ''}`);
+}
+
 function goalsCard(T, key) {
   const R = goalRows(T, key), ok = R.filter(r => r.st === 'g').length;
   return `<button class="goals" data-act="goals">
@@ -2328,6 +2403,7 @@ function viewDash() {
       </div>
     </section>
     ${key === monthKey(new Date()) ? coachInbox() + lifeInbox() + mixInbox() : ''}
+    ${key === monthKey(new Date()) ? workCard(T, key) : ''}
     ${key === monthKey(new Date()) ? goalsCard(T, key) : ''}
     ${key === monthKey(new Date()) ? challengeCard(T, key) : ''}
     ${liveStory(T, key)}
@@ -3123,6 +3199,7 @@ document.addEventListener('click', async e => {
     else if (a === 'month-pick') openMonthPicker();
     else if (a === 'story-more' && S.storyArgs) storyMore();
     else if (a === 'goals') goalsSheet();
+    else if (a === 'work') workSheet();
     else if (a === 'go-assets') { S.view = 'assets'; render(); window.scrollTo(0, 0); }
     else if (a === 'as-add') assetSheet(null);
     else if (a === 'as-edit') assetSheet(b.dataset.v);

@@ -1150,3 +1150,12 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .g-n { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 50%; background: var(--tint); color: #fff; display: inline-grid; place-items: center; font-size: 13px; margin-top: 3px; }
 .guide-step .chip { margin-top: 6px; padding: 4px 12px; }
 .guide-step b { unicode-bidi: isolate; }
+
+/* Work and money, with «زندگی من» */
+.wk-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 4px; }
+.wk-tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wk-tile b { font-size: 17px; font-weight: 700; direction: rtl; white-space: nowrap; }
+.wk-tile small { color: var(--sec); font-size: 12px; }
+.wk-tip { margin: 8px 0 2px; font-size: 14px; line-height: 1.7; color: var(--label); }
+.cell .wk-tip { margin: 0; }
+.row-sb { display: flex; justify-content: space-between; gap: 12px; }
