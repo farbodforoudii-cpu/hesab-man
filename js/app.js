@@ -90,6 +90,7 @@ async function boot() {
   await fixUsd0827();
   await fixUsd2000();
   await fixBlu0902();
+  await fixAzar0902();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -481,6 +482,22 @@ async function fixBlu0902() {
   if (put.length) await putTx(put);
   if (get('mwjm73f6soj2m2')) await delTx('sms-m0825a');
   S.settings.fixBlu0902 = true;
+  await saveSettings();
+}
+
+// Farbod, 2 Azar: the two package payments received in Azar are for Aban's sessions; and of the 300 dollars
+// 100 went back instead of the rest of the money, so 200 dollars for 50,000,000 and nothing more is owed.
+async function fixAzar0902() {
+  if (S.settings.fixAzar0902) return;
+  const put = [];
+  for (const id of ['mwr80mqm6q1wp9', 'sms-d5882d9aae937d9480ba']) { const t = S.tx.find(x => x.id === id); if (t && t.period !== '1405-08') put.push({ ...t, period: '1405-08' }); }
+  const usd = S.tx.find(x => x.sms === 'd9ad765e701f3a5926cc');
+  if (usd) put.push({ ...usd, desc: 'خرید ۲۰۰ دلار، هر دلار ۲۵۰ هزار (۱۰۰ دلار از ۳۰۰ برگشت)' });
+  if (put.length) await putTx(put);
+  S.settings.expect = (S.settings.expect || []).filter(x => x.amount !== 29200000);
+  const it = (S.settings.assets?.items || []).find(x => x.kind === 'usd');
+  if (it && it.qty === 2000) it.qty = 1900;
+  S.settings.fixAzar0902 = true;
   await saveSettings();
 }
 
