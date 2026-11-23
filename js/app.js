@@ -92,6 +92,7 @@ async function boot() {
   await fixBlu0902();
   await fixAzar0902();
   await fixUsdBack();
+  await fixClothes();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -506,6 +507,18 @@ async function fixUsdBack() {
   const it = (S.settings.assets?.items || []).find(x => x.kind === 'usd');
   if (it && it.qty === 1900) it.qty = 2000;
   S.settings.fixUsdBack = true;
+  await saveSettings();
+}
+
+// Farbod: clothes for two seasons, 180,000,000 in three instalments (50 + 50 + 80 million). A large one-off
+// purchase, not living cost: the two paid ones become «خرید بزرگ» and the last one is named when its SMS comes.
+async function fixClothes() {
+  if (S.settings.fixClothes) return;
+  const paid = S.tx.filter(t => t.desc === 'سفارش لباس' && t.amount === 5e7 && t.dir === 'out').sort((a, b) => a.ts.localeCompare(b.ts));
+  if (!paid.length) return;
+  await putTx(paid.map((t, i) => ({ ...t, type: 'big', cat: null, desc: `لباس دو فصل، قسط ${faDigits(i + 1)} از ۳ (کل ۱۸۰ میلیون)` })));
+  S.settings.expect = [...(S.settings.expect || []).filter(x => x.amount !== 8e7), { dir: 'out', amount: 8e7, desc: 'لباس دو فصل، قسط ۳ از ۳ (کل ۱۸۰ میلیون)', type: 'big', until: '2027-03-21T00:00:00.000Z' }];
+  S.settings.fixClothes = true;
   await saveSettings();
 }
 
@@ -1724,7 +1737,7 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
 
   // One card for the month: the flow first, then the few sentences that read it; the numbers fold under it.
   const title = `${name}${running ? '، در جریان' : ''}`, logic = `<ul class="logic">${L.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`;
-  return `${flowCard({ work, fam, inT, outT, exp, asset, loan, net, running, title, extra: logic }) || `<div class="ins-card"><p class="eyebrow-s">${esc(title)}</p>${logic}</div>`}
+  return `${flowCard({ work, fam, inT, outT, exp, big: h.big || 0, asset, loan, net, running, title, extra: logic }) || `<div class="ins-card"><p class="eyebrow-s">${esc(title)}</p>${logic}</div>`}
     <details class="ins-card nt nt-fold${running ? ' run' : ''}"><summary>${running ? 'عددهای تا امروز' : 'عددها، در برابر میانگین'}${ICON.chevL}</summary>
       <div class="nt-row nt-head"><span></span><span>${running ? 'تا امروز' : 'این ماه'}</span>${running ? '' : '<span>میانگین</span><span>تغییر</span>'}</div>
       ${body}
@@ -1735,10 +1748,10 @@ function insightHtml(key, { outs, days, h, inT, outT, net, name, passRe, assetRe
 
 // Money flow: where the month's money came from (right), through the month (centre), to where it went
 // (left). Line thickness is the amount; dots keep moving along the lines so the month reads as a stream.
-function flowCard({ work, fam, inT, outT, exp, asset, loan, net, running, title = 'جریان پول', extra = '' }) {
+function flowCard({ work, fam, inT, outT, exp, big = 0, asset, loan, net, running, title = 'جریان پول', extra = '' }) {
   const pos = v => Math.max(0, v || 0);
   const src = [['درآمد کاری', pos(work)], ['حمایت خانواده', pos(fam)], ['سایر ورودی‌ها', pos(inT - work - fam)]].filter(x => x[1] >= 1e5);
-  const dst = [['هزینهٔ زندگی', pos(exp)], ['سرمایه‌گذاری', pos(asset)], ['اقساط', pos(loan)], ['سایر خروجی‌ها', pos(outT - exp - asset - loan)]].filter(x => x[1] >= 1e5);
+  const dst = [['هزینهٔ زندگی', pos(exp)], ['خرید بزرگ', pos(big)], ['سرمایه‌گذاری', pos(asset)], ['اقساط', pos(loan)], ['سایر خروجی‌ها', pos(outT - exp - big - asset - loan)]].filter(x => x[1] >= 1e5);
   if (!src.length && !dst.length) return '';
   const rows = Math.max(src.length, dst.length, 2), H = rows * 46 + 16, hy = H / 2, mx = Math.max(...src.map(x => x[1]), ...dst.map(x => x[1]), 1);
   const w = v => Math.max(1.5, v / mx * 12), ys = (n, i) => (H - n * 46) / 2 + 23 + i * 46;

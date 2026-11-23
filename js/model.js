@@ -12,6 +12,7 @@ export const TYPES = {
   other_in:    { dir: 'in', label: 'سایر' },
   expense:     { dir: 'out', label: 'خرج' },
   asset:       { dir: 'out', label: 'پس‌انداز' },
+  big:         { dir: 'out', label: 'خرید بزرگ' },
   inventory:   { dir: 'out', label: 'خرید برای فروش' },
   on_behalf:   { dir: 'out', label: 'پرداخت برای دیگران' },
   loan_pay:    { dir: 'out', label: 'قسط' },

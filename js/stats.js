@@ -10,7 +10,7 @@ export function inRange(txs, start, end) {
 export function summarize(txs) {
   const s = {
     work: 0, family: 0, sale: 0, otherIn: 0, reimburse: 0, loanIn: 0, fundOut: 0, transferIn: 0,
-    expense: 0, asset: 0, inventory: 0, onBehalf: 0, loanPay: 0, fundIn: 0, transferOut: 0,
+    expense: 0, big: 0, asset: 0, inventory: 0, onBehalf: 0, loanPay: 0, fundIn: 0, transferOut: 0,
     in: 0, out: 0, count: txs.length, rounds: txs.filter(t => t.src === 'roundup').length, byCat: {}, bySource: {}, byAsset: {}, pending: 0,
   };
   for (const t of txs) {
@@ -27,6 +27,9 @@ export function summarize(txs) {
       case 'fund_payout': s.fundOut += a; break;
       case 'transfer_in': s.transferIn += a; break;
       case 'expense': s.expense += a; add(s.byCat, t.cat || 'other', a); break;
+      // A large one-off purchase (e.g. clothes for two seasons, paid in instalments): money that left,
+      // kept out of living costs so monthly goals and averages stay true.
+      case 'big': s.big += a; break;
       case 'asset': s.asset += a; add(s.byAsset, t.cp || t.desc || 'دارایی', a); break;
       case 'inventory': s.inventory += a; break;
       case 'on_behalf': s.onBehalf += a; break;
@@ -36,7 +39,7 @@ export function summarize(txs) {
     }
   }
   // Money left after living costs, counting supplement trading as operating income.
-  s.surplus = s.work + s.family + s.sale + s.otherIn - s.expense - s.inventory;
+  s.surplus = s.work + s.family + s.sale + s.otherIn - s.expense - s.inventory - s.big;
   s.selfSurplus = s.surplus - s.family;
   s.coverage = s.expense ? s.work / s.expense : null;
   return s;
