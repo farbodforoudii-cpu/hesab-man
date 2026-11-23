@@ -91,6 +91,7 @@ async function boot() {
   await fixUsd2000();
   await fixBlu0902();
   await fixAzar0902();
+  await fixUsdBack();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -495,9 +496,16 @@ async function fixAzar0902() {
   if (usd) put.push({ ...usd, desc: 'خرید ۲۰۰ دلار، هر دلار ۲۵۰ هزار (۱۰۰ دلار از ۳۰۰ برگشت)' });
   if (put.length) await putTx(put);
   S.settings.expect = (S.settings.expect || []).filter(x => x.amount !== 29200000);
-  const it = (S.settings.assets?.items || []).find(x => x.kind === 'usd');
-  if (it && it.qty === 2000) it.qty = 1900;
   S.settings.fixAzar0902 = true;
+  await saveSettings();
+}
+
+// Farbod: the 100 dollars given back were not from the 2,000 held; undo the 1,900 of v92.
+async function fixUsdBack() {
+  if (S.settings.fixUsdBack) return;
+  const it = (S.settings.assets?.items || []).find(x => x.kind === 'usd');
+  if (it && it.qty === 1900) it.qty = 2000;
+  S.settings.fixUsdBack = true;
   await saveSettings();
 }
 
