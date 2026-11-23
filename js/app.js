@@ -89,6 +89,7 @@ async function boot() {
   await fixBlu0827();
   await fixUsd0827();
   await fixUsd2000();
+  await fixBlu0902();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -469,6 +470,20 @@ async function fixUsd2000() {
   await saveSettings();
 }
 
+// Blu statement to 2 Azar 15:39. On 29 Aban the SMS list was processed again from the start: «غذای گربه» got a
+// second record, two card-to-card fees were dropped, and the supermarket of 26 Aban lost its name. Repaired here.
+async function fixBlu0902() {
+  if (S.settings.fixBlu0902 || !S.tx.some(t => t.id === 'sms-m0825a')) return;
+  const get = id => S.tx.find(t => t.id === id), put = [];
+  for (const id of ['sms-738e54e5deb22183e6b8', 'sms-e2f1f8eb7393cb6b7d47']) { const t = get(id); if (t && !t.c2c) put.push({ ...t, c2c: true }); }
+  const sm = get('sms-61c58523b095a8f79f31');
+  if (sm && sm.desc === 'صبحانه') put.push({ ...sm, desc: 'سوپر مارکت', type: 'expense', cat: 'home' });
+  if (put.length) await putTx(put);
+  if (get('mwjm73f6soj2m2')) await delTx('sms-m0825a');
+  S.settings.fixBlu0902 = true;
+  await saveSettings();
+}
+
 // ----- Blu SMS -----
 // The iPhone Shortcut sends every Blu SMS to the server (amount, direction, balance, date, time).
 // Each one either joins a record already typed (same direction and amount within 36 hours) or becomes a
@@ -514,7 +529,10 @@ async function absorbSms() {
   if (!canEdit() || !S.settings.startDate) return;
   refresh(); // the «زندگی من» calendar is ready only after sync has started
   const done = { ...(S.settings.smsDone || {}) }, now = new Date().toISOString();
-  const L = sync.smsList().filter(s => !done[s.id] && s.date && s.time && s.amount > 0);
+  // An SMS already behind a record (its own or one it joined) is never processed again, even if the
+  // «done» list was lost (an older copy of the settings from another device): records are the source of truth.
+  const has = new Set(S.tx.filter(t => t.sms).map(t => t.sms));
+  const L = sync.smsList().filter(s => !done[s.id] && !has.has(s.id) && !S.tx.some(t => t.id === 'sms-' + s.id) && s.date && s.time && s.amount > 0);
   const put = [];
   for (const s of L) {
     const ts = smsTs(s);
