@@ -93,6 +93,7 @@ async function boot() {
   await fixAzar0902();
   await fixUsdBack();
   await fixClothes();
+  await fixBlu0904();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -519,6 +520,27 @@ async function fixClothes() {
   await putTx(paid.map((t, i) => ({ ...t, type: 'big', cat: null, desc: `لباس دو فصل، قسط ${faDigits(i + 1)} از ۳ (کل ۱۸۰ میلیون)` })));
   S.settings.expect = [...(S.settings.expect || []).filter(x => x.amount !== 8e7), { dir: 'out', amount: 8e7, desc: 'لباس دو فصل، قسط ۳ از ۳ (کل ۱۸۰ میلیون)', type: 'big', until: '2027-03-21T00:00:00.000Z' }];
   S.settings.fixClothes = true;
+  await saveSettings();
+}
+
+// Blu statement to 4 Azar 11:32. Maryam's fund (20 months × 4,000,000) paid Farbod's turn, 80,000,000 at 10:25,
+// which went on the clothes' last instalment at 11:24. It had been typed as an 800,000,000 card-to-card payment;
+// that record goes and the deposit comes in. Also the mobile bill (no SMS) and the 11:31 purchase (food).
+async function fixBlu0904() {
+  if (S.settings.fixBlu0904) return;
+  const bad = S.tx.find(t => t.id === 'mwvu51af7qtoyy');
+  if (!bad && !S.tx.some(t => t.id === 'sms-cd210e98de286419f132')) return;
+  const now = new Date().toISOString(), at = (h, m) => fromJalali(1405, 9, 4, h, m).toISOString();
+  const base = { cp: '', cat: null, ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' };
+  if (bad && bad.amount === 8e8) await delTx(bad.id);
+  const add = [
+    { ...base, id: 'blu0904-fund', ts: at(10, 25), dir: 'in', amount: 8e7, desc: 'صندوق مریم، نوبت من (۲۰ ماه × ۴ میلیون)', type: 'fund_payout' },
+    { ...base, id: 'blu0904-bill', ts: at(6, 21), dir: 'out', amount: 175100, desc: 'قبض موبایل', type: 'expense', cat: 'digital' },
+  ].filter(x => !S.tx.some(t => t.id === x.id));
+  const food = S.tx.find(t => t.id === 'sms-cd210e98de286419f132');
+  if (food && food.status === 'pending') add.push({ ...food, desc: 'غذا', type: 'expense', cat: 'food', status: 'ok', smsAuto: false });
+  if (add.length) await putTx(add);
+  S.settings.fixBlu0904 = true;
   await saveSettings();
 }
 
