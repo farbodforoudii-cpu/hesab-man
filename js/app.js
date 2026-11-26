@@ -96,6 +96,7 @@ async function boot() {
   await fixBlu0904();
   await fixBluLoan();
   await fixUsdCash();
+  await fixBuys();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -580,6 +581,17 @@ async function fixUsdCash() {
   }
   S.settings.fixUsdCash = true;
   await saveSettings();
+}
+
+// What the purchases so far bought: the two dollar buys at 250,000 (Farbod), the silver of 3 Aban at that day's price.
+async function fixBuys() {
+  if (S.settings.fixBuys) return;
+  const put = [], set = (pred, buy) => { const t = S.tx.find(pred); if (t && !t.buy) put.push({ ...t, buy }); };
+  set(t => t.sms === 'd9ad765e701f3a5926cc', { kind: 'usd', qty: 200, rate: 250000 });
+  set(t => t.id === 'sms-0cec74ad6e38b2ce6be6' && t.type === 'asset', { kind: 'usd', qty: 100, rate: 250000 });
+  set(t => t.id === 'mvnk4ju8w8rt6y', { kind: 'silver' });
+  if (put.length) await putTx(put);
+  if (S.tx.some(t => t.sms === 'd9ad765e701f3a5926cc')) { S.settings.fixBuys = true; await saveSettings(); }
 }
 
 // ----- Blu SMS -----
@@ -1228,6 +1240,7 @@ function openTxSheet(init) {
     time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
     touched: !!init.id, bank: init.bank || null, more: false, period: init.period || '',
     c2c: !!init.c2c, c2cSet: !!init.id,
+    buy: init.buy ? { ...init.buy } : { kind: buyKindOf(init) },
   };
   F.initTs = init.ts || null; F.initDate = F.date; F.initTime = F.time;
   // Quietly prefill from the best matching pattern instead of showing suggestions.
@@ -1250,6 +1263,7 @@ function txSheetHtml() {
     <div id="f-type">${typeSeg()}</div>
     <div id="f-catbox">${catGrid()}</div>
     <div id="f-c2c">${c2cCell()}</div>
+    <div id="f-buy">${buyBox()}</div>
     <div class="group">
       <div class="cell"><span>تاریخ</span><input class="bare end" id="f-date" value="${faDigits(F.date)}" inputmode="numeric"></div>
       <div class="cell"><span>ساعت</span><input class="bare end" id="f-time" value="${faDigits(F.time)}" inputmode="numeric"></div>
@@ -1257,6 +1271,18 @@ function txSheetHtml() {
     </div>
     <p class="foot" style="margin-bottom:14px">پول دیررسیده را به ماه واقعی‌اش بده.</p>
     ${edit ? '<div class="group"><button class="cell danger" data-f="delete">حذف تراکنش</button></div>' : ''}`;
+}
+
+// For a purchase («پس‌انداز»): what was bought, how much and at what rate. One of quantity or rate is enough.
+function buyBox() {
+  if (F.type !== 'asset') return '';
+  const b = F.buy || {}, k = b.kind, U = k ? ASSET_KINDS[k].unit : '';
+  const ts = F.initTs || new Date().toISOString(), mk = k ? marketOn(k, ts) : null;
+  return `<div class="section-title">چه خریدی؟</div>
+    <div class="group"><div class="cell col"><div class="chips">${BUY_KINDS.map(x => `<button class="chip${k === x ? ' on' : ''}" data-f="bk" data-v="${x}">${ASSET_KINDS[x].label}</button>`).join('')}</div></div>
+    ${k ? `<div class="cell"><span>مقدار (${U})</span><input class="bare end" id="f-bq" inputmode="decimal" value="${b.qty ? faDigits(String(Math.round(b.qty * 100) / 100)) : ''}" placeholder="${mk && F.amount ? qtyFmt(F.amount / mk, k) : ''}"></div>
+    <div class="cell"><span>نرخ هر ${U}</span><input class="bare end" id="f-br" inputmode="numeric" value="${b.rate ? fmt(Math.round(b.rate)) : ''}" placeholder="${mk ? fmt(mk) : ''}"></div>` : ''}</div>
+    ${k ? `<p class="foot">${mk ? `نرخ بازار آن روز ${fmt(mk)} تومان. ` : ''}یکی از مقدار یا نرخ را بنویس؛ دیگری از مبلغ حساب می‌شود.</p>` : ''}`;
 }
 
 const c2cCell = () => F.dir === 'out' ? `<div class="group"><button class="cell" data-f="c2c"><span>کارت‌به‌کارت${F.c2c && F.amount ? `<small class="c2c-fee">کارمزد ${iso(fmt(c2cFee(F.amount)))} خودش ثبت می‌شود</small>` : ''}</span><i class="switch ${F.c2c ? 'on' : ''}"></i></button></div>` : '';
@@ -1290,6 +1316,20 @@ function bindTxSheet(root) {
   });
   amt.addEventListener('blur', () => { if (F.amount) amt.value = fmt(F.amount); });
   root.querySelector('#f-period').addEventListener('change', e => { F.period = e.target.value; });
+  // Quantity or rate of a purchase: the other one follows from the amount.
+  root.addEventListener('input', e => {
+    if (!F.buy || (e.target.id !== 'f-bq' && e.target.id !== 'f-br')) return;
+    if (e.target.id === 'f-bq') {
+      const q = parseFloat(toAscii(e.target.value).replace('٫', '.').replace(/[^0-9.]/g, '')) || 0;
+      F.buy.qty = q || null; F.buy.rate = q && F.amount ? F.amount / q : null;
+      const r = root.querySelector('#f-br'); if (r) r.value = F.buy.rate ? fmt(Math.round(F.buy.rate)) : '';
+    } else {
+      const v = parseAmount(e.target.value);
+      e.target.value = v ? fmt(v) : '';
+      F.buy.rate = v || null; F.buy.qty = v && F.amount ? F.amount / v : null;
+      const q = root.querySelector('#f-bq'); if (q) q.value = F.buy.qty ? faDigits(String(Math.round(F.buy.qty * 100) / 100)) : '';
+    }
+  });
   const desc = root.querySelector('#f-desc');
   desc.addEventListener('input', () => {
     F.desc = desc.value;
@@ -1319,6 +1359,7 @@ function bindTxSheet(root) {
     else if (f === 'more') { F.more = !F.more; if (!F.more && !MAIN_TYPES[F.dir].includes(F.type)) F.type = MAIN_TYPES[F.dir][0]; redraw(root); }
     else if (f === 'cat') { F.cat = v; F.touched = true; redraw(root); }
     else if (f === 'c2c') { F.c2c = !F.c2c; F.c2cSet = true; redraw(root); }
+    else if (f === 'bk') { F.buy = { kind: v }; redraw(root); }
     else if (f === 'ac') {
       const m = S.tpl.find(t => t.key === b.dataset.key);
       Object.assign(F, { desc: m.desc, type: m.type, cat: m.cat, ctx: m.ctx, cp: m.cp, touched: true });
@@ -1345,6 +1386,7 @@ function redraw(root) {
   root.querySelector('#f-type').innerHTML = typeSeg();
   root.querySelector('#f-catbox').innerHTML = catGrid();
   root.querySelector('#f-c2c').innerHTML = c2cCell();
+  root.querySelector('#f-buy').innerHTML = buyBox();
 }
 
 async function saveSheet() {
@@ -1363,6 +1405,8 @@ async function saveSheet() {
     type: F.type, cat: F.type === 'expense' ? F.cat : null, ctx: F.ctx,
   };
   if (F.dir === 'out' && F.c2c) tx.c2c = true; else delete tx.c2c;
+  if (F.type === 'asset' && F.buy && F.buy.kind && (F.buy.qty || F.buy.rate)) { const q = F.buy.qty || F.amount / F.buy.rate; tx.buy = { kind: F.buy.kind, qty: q, rate: F.amount / q }; }
+  else if (F.type === 'asset' && F.buy && F.buy.kind) tx.buy = { kind: F.buy.kind }; else delete tx.buy;
   delete tx.smsAuto;
   if (!F.id) {
     const twin = smsTwin(tx.dir, tx.amount, ts);
@@ -2829,6 +2873,47 @@ const unitsTxt = (k, u) => k === 'usd' || k === 'eur' ? faDigits(Math.round(u).t
 // Assets, in order of use: today's prices and when to buy, what to buy this month, the next six months,
 // then what you own.
 const MK_COL = { usd: '#2e7d4f', eur: '#3d5afe', gold: '#d4a017', silver: '#8a8f98' };
+// ----- What each purchase bought: kind, quantity and the rate paid -----
+// Typed by Farbod on the record (buy: {kind, qty, rate}); otherwise the kind is read from the words and the rate is
+// the market's closing price of that day («تخمینی»), so every buy can be compared with today's price.
+const BUY_KINDS = ['usd', 'eur', 'gold', 'silver', 'coin'];
+const BUY_RE = [[/دلار|usd/i, 'usd'], [/یورو|eur/i, 'eur'], [/سکه|coin/i, 'coin'], [/طلا|gold/i, 'gold'], [/نقره|silver/i, 'silver']];
+function marketOn(kind, ts) {
+  const h = MARKET_KINDS.includes(kind) ? liveHist(S.market, kind) : [];
+  if (!h.length) return null;
+  const d = dKey(new Date(ts));
+  let p = null;
+  for (const [k, v] of h) { if (k <= d) p = v; else break; }
+  return p ?? h[0][1];
+}
+const buyKindOf = t => (t.buy && t.buy.kind) || (BUY_RE.find(([re]) => re.test(`${t.desc || ''} ${t.cp || ''}`)) || [])[1] || null;
+function buyOf(t) {
+  if (t.type !== 'asset' || isRound(t)) return null;
+  const kind = buyKindOf(t), b = t.buy || {};
+  if (!kind) return null;
+  let rate = b.rate || (b.qty ? t.amount / b.qty : null), est = false;
+  if (!rate) { rate = marketOn(kind, t.ts); est = true; }
+  if (!rate) return null;
+  return { id: t.id, kind, rate, qty: b.qty || t.amount / rate, paid: t.amount, ts: t.ts, est };
+}
+const qtyFmt = (q, kind) => faDigits(String(Math.round(q * (kind === 'gold' || kind === 'silver' ? 10 : 1)) / (kind === 'gold' || kind === 'silver' ? 10 : 1)).replace('.', '٫'));
+// «خریدهای من»: per kind, everything bought, the average rate (paid ÷ quantity) and today's price against it.
+function buysCard() {
+  const B = S.tx.map(buyOf).filter(Boolean).sort((a, b) => b.ts.localeCompare(a.ts));
+  if (!B.length) return '';
+  const by = {};
+  for (const b of B) (by[b.kind] ||= []).push(b);
+  const chg = (now, was) => { if (!now || !was) return ''; const d = now / was - 1; return `<span class="by-ch ${d >= 0 ? 'up' : 'dn'}">${d >= 0 ? '▲' : '▼'} ${faDigits(Math.abs(Math.round(d * 1000) / 10)).replace('.', '٫')}٪</span>`; };
+  return `<div class="section-title">خریدهای من</div>
+    ${Object.entries(by).map(([k, L]) => { const qty = L.reduce((a, b) => a + b.qty, 0), paid = L.reduce((a, b) => a + b.paid, 0), avg = paid / qty, now = livePrice(k), U = ASSET_KINDS[k].unit;
+      return `<section class="wk-card by-card">
+        <div class="wk-lb"><span>${ASSET_KINDS[k].label}</span>${chg(now, avg)}</div>
+        <div class="by-top"><div><b>${qtyFmt(qty, k)}</b><small>${U}</small></div><div><b>${fmtShort(avg)}</b><small>میانگین خرید</small></div><div><b>${now ? fmtShort(now) : '—'}</b><small>امروز</small></div></div>
+        <div class="by-list">${L.map(b => `<div class="by-row"><span>${esc(formatJalali(new Date(b.ts)))}</span><span class="by-mid"><span>${qtyFmt(b.qty, k)} ${U} × ${fmtShort(b.rate)}</span>${b.est ? '<i class="by-est">تخمینی</i>' : ''}</span>${chg(now, b.rate)}</div>`).join('')}</div>
+        <p class="wk-why">میانگین = کل پول ÷ کل مقدار (${fmtShort(paid)} ÷ ${qtyFmt(qty, k)} ${U}).${L.some(b => b.est) ? ' «تخمینی» یعنی نرخ را ننوشته‌ای و نرخ بازار همان روز گذاشته شد؛ با زدن روی آن ثبت در «تراکنش‌ها» درستش کن.' : ''}</p>
+      </section>`; }).join('')}`;
+}
+
 function viewAssets() {
   const A = assetsState(), { cash, held } = assetsTotal(), total = cash + held, usd = livePrice('usd');
   const owed = seenzhinOwed(monthKey(new Date()));
@@ -2859,6 +2944,7 @@ function viewAssets() {
       <small>${usd ? `حدود ${faDigits(Math.round(total / usd).toLocaleString('en-US'))} دلار` : ''}${M && Math.abs(eff) > 1e6 ? `؛ تغییر قیمت‌ها در ۳۰ روز: <b class="${eff >= 0 ? 'green' : 'red'}">${sgnShort(eff)}</b>` : ''}</small></div>
     <div class="group">${rows.map(([l, v, sub, id]) => `<${id ? `button data-act="as-edit" data-v="${id}"` : 'div'} class="cell bar-row"><span class="grow">${esc(l)}<small class="avg-line">${esc(sub)}</small></span><b>${fmtShort(v)}</b>${id ? ICON.chevL : ''}<i class="bar in" style="width:${(v / mx * 100).toFixed(1)}%"></i></${id ? 'button' : 'div'}>`).join('')}</div>
     <button class="btn-plain" data-act="as-add">+ افزودن دارایی</button>
+    ${buysCard()}
 
     ${manual.length ? `<div>
         <div class="section-title">قیمت‌های دستی (تومان)</div>
