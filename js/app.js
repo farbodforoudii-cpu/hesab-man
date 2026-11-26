@@ -94,6 +94,7 @@ async function boot() {
   await fixUsdBack();
   await fixClothes();
   await fixBlu0904();
+  await fixBluLoan();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -541,6 +542,26 @@ async function fixBlu0904() {
   if (food && food.status === 'pending') add.push({ ...food, desc: 'غذا', type: 'expense', cat: 'food', status: 'ok', smsAuto: false });
   if (add.length) await putTx(add);
   S.settings.fixBlu0904 = true;
+  await saveSettings();
+}
+
+// 5 Azar: Blu cash loan of 55,000,000 (interest waived), 2,275,000 of fees and tax stamp taken at once;
+// one repayment of 55,000,000 due 5 Dey. The 2,500,000 tip of 4 Azar was card-to-card (Blu's SMS balance).
+async function fixBluLoan() {
+  if (S.settings.fixBluLoan) return;
+  const now = new Date().toISOString(), at = (h, m) => fromJalali(1405, 9, 5, h, m).toISOString();
+  const base = { cp: 'بلو', ctx: 'personal', src: 'manual', created: now, updated: now, status: 'ok' };
+  const add = [
+    { ...base, id: 'bluloan-in', ts: at(7, 26), dir: 'in', amount: 55e6, desc: 'وام نقدی بلو (بازپرداخت ۵ دی)', type: 'loan_in', cat: null },
+    { ...base, id: 'bluloan-fee', ts: at(7, 26), dir: 'out', amount: 2200000, desc: 'کارمزد وام بلو (زیرساخت و اعتبارسنجی)', type: 'expense', cat: 'fees' },
+    { ...base, id: 'bluloan-stamp', ts: at(7, 26), dir: 'out', amount: 75000, desc: 'تمبر مالیاتی وام بلو', type: 'expense', cat: 'fees' },
+  ].filter(x => !S.tx.some(t => t.id === x.id));
+  const tip = S.tx.find(t => t.id === 'sms-792ad5667f486bbff131');
+  if (tip && !tip.c2c) add.push({ ...tip, c2c: true });
+  if (add.length) await putTx(add);
+  S.settings.obligations = [...(S.settings.obligations || []).filter(o => o.label !== 'بازپرداخت وام بلو'), { label: 'بازپرداخت وام بلو', amount: 55e6, until: '1405-10' }];
+  S.settings.expect = [...(S.settings.expect || []).filter(x => x.amount !== 55e6), { dir: 'out', amount: 55e6, desc: 'بازپرداخت وام نقدی بلو', type: 'loan_pay', until: '2027-02-20T00:00:00.000Z' }];
+  S.settings.fixBluLoan = true;
   await saveSettings();
 }
 
