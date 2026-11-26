@@ -95,6 +95,7 @@ async function boot() {
   await fixClothes();
   await fixBlu0904();
   await fixBluLoan();
+  await fixUsdCash();
   await absorbSms();
   if (!S.settings.obligations) { S.settings.obligations = [{ label: 'صندوق مریم', amount: 4e6, until: '1405-11' }]; await saveSettings(); }
   // What «زندگی من» sent earlier (bills, monthly hours) is on this device already; show it before the next pull.
@@ -562,6 +563,22 @@ async function fixBluLoan() {
   S.settings.obligations = [...(S.settings.obligations || []).filter(o => o.label !== 'بازپرداخت وام بلو'), { label: 'بازپرداخت وام بلو', amount: 55e6, until: '1405-10' }];
   S.settings.expect = [...(S.settings.expect || []).filter(x => x.amount !== 55e6), { dir: 'out', amount: 55e6, desc: 'بازپرداخت وام نقدی بلو', type: 'loan_pay', until: '2027-02-20T00:00:00.000Z' }];
   S.settings.fixBluLoan = true;
+  await saveSettings();
+}
+
+// 5 Azar 09:19: 25,000,000 paid for a purchase made for a friend, who gave 100 dollars in cash for it.
+// So the payment is a dollar purchase (250,000 a dollar). Dollars held stay 2,000: 1,900 saved and 100 in hand.
+async function fixUsdCash() {
+  if (S.settings.fixUsdCash) return;
+  const t = S.tx.find(x => x.id === 'sms-0cec74ad6e38b2ce6be6');
+  if (!t) return;
+  await putTx({ ...t, type: 'asset', cat: null, status: 'ok', smsAuto: false, desc: '۱۰۰ دلار نقد، در ازای خریدی برای یک دوست' });
+  const items = S.settings.assets?.items || [], usd = items.filter(x => x.kind === 'usd');
+  if (usd.length === 1 && usd[0].qty === 2000) {
+    usd[0].qty = 1900; usd[0].label = 'دلار، ذخیره';
+    items.push({ id: 'usd-hand', kind: 'usd', qty: 100, label: 'دلار، همراه (نقد)' });
+  }
+  S.settings.fixUsdCash = true;
   await saveSettings();
 }
 
