@@ -5,7 +5,7 @@ import { buildTemplates, suggest, complete, bestTemplateForText, templateKey } f
 import { blockAt, blockKey, blockLabel, buildBlocks, blockShare, buildWords, catFromWords, usuallyC2c, c2cFee, sameText, mixedDescs, descKey, PARTS, PART_HOUR } from './learn.js';
 import { parseStatement, importRows, learnRule, classify } from './bank.js';
 import { monthSummary, balanceAt, bankCheck, balances, txMonth } from './stats.js';
-import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits } from './jalali.js';
+import { toJalali, fromJalali, monthKey, monthLabel, shiftMonth, monthRange, monthLength, formatJalali, dayLabel, faDigits, MONTHS } from './jalali.js';
 import { fmt, fmtShort, iso, tomanWords, esc, norm } from './format.js';
 import { monthsSeries, analyze, compare, kpis } from './analysis.js';
 import { MK, TARGET, MACRO_DAYS, fetchMarket, stats as mstats, signal as msignal, plan as mplan, emaSeries, rsiSeries, liveHist } from './market.js';
@@ -2303,6 +2303,118 @@ function workLink(T, key) {
     received: ms.work || 0, perH, tips, tipCards,
   };
 }
+// ----- The month ahead: money on its way, the balance it gives, and when to buy -----
+// From what «زندگی من» publishes (life_plan): every package that ends this month is paid on the day of its last
+// session (as every bill so far), a client who paid the last package ahead pays the next one on its first session,
+// and Gordan pays a month's students around the 18th of the next month.
+const dOf = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); };
+const jDay = k => { const j = toJalali(dOf(k)); return `${faDigits(j.jd)} ${MONTHS[j.jm - 1]}`; };
+function moneyAhead(T, key) {
+  const P = sync.lifePlan();
+  if (!P || P.month !== key) return null;
+  const all = P.items || [], items = all.filter(x => x.date), undated = all.filter(x => !x.date);
+  return { items, undated, sum: items.reduce((a, x) => a + x.amount, 0), later: P.later || [], perHead: P.perHead || 0 };
+}
+function aheadWhy(x, perHead) {
+  if (x.type === 'gordan') return `${faDigits(x.heads)} شاگرد ${esc(monthName(x.month))} × ${fmtShort(perHead)}${x.counted ? '' : '، بخشی تخمینی'}`;
+  if (x.late) return `دوره تمام شده (${faDigits(x.sessions)} جلسه)؛ پولش هنوز نرسیده`;
+  if (x.type === 'renew' && x.ahead) return `دورهٔ تازهٔ ${faDigits(x.sessions)} جلسه؛ دورهٔ قبل را اول دوره داد`;
+  if (x.type === 'renew') return `دورهٔ بعد، ${faDigits(x.sessions)} جلسه، اگر برنامهٔ هفتگی بماند`;
+  return `پایان دوره؛ ${faDigits(x.left)} جلسه از ${faDigits(x.sessions)} مانده`;
+}
+function aheadCard(A, key) {
+  const { start, end } = monthRange(key), span = end - start, max = Math.max(...A.items.map(x => x.amount), 1);
+  // A strip of the month: one bar per payment, at its day, as tall as its amount; today marked.
+  const pos = d => Math.min(100, Math.max(0, (d - start) / span * 100));
+  const strip = `<div class="ah-strip"><i class="ah-now" style="right:${pos(new Date()).toFixed(1)}%"></i>${A.items.map(x => `<i class="ah-bar${x.type === 'gordan' ? ' g' : ''}" style="right:${pos(dOf(x.date)).toFixed(1)}%;height:${(18 + x.amount / max * 62).toFixed(0)}%"></i>`).join('')}</div>
+    <div class="ah-axis"><span>${faDigits(1)}</span><span>${faDigits(15)}</span><span>${faDigits(monthLength(...key.split('-').map(Number)))}</span></div>`;
+  const rows = A.items.map(x => `<div class="ah-row${x.late ? ' late' : ''}"><span class="ah-d">${x.late ? 'عقب' : jDay(x.date)}</span><span class="grow">${esc(x.name)}<small>${aheadWhy(x, A.perHead)}</small></span><b>${mm(x.amount)}</b></div>`).join('');
+  const later = A.later.map(x => `${esc(x.name)} ${fmtShort(x.amount)} حدود ${jDay(x.date)} (${aheadWhy(x, A.perHead)})`).join('، ');
+  return `<section class="wk-card"><div class="wk-lb"><span><span class="live-dot"></span> پول در راه، ${esc(monthName(key))}</span><span>${faDigits(A.items.length)} پرداخت</span></div>
+    ${`<div class="wk-big">${fmtShort(A.sum).split(' ')[0]}<small>${fmtShort(A.sum).split(' ').slice(1).join(' ')} تا آخر ماه</small></div>`}
+    ${A.items.length ? strip + rows : '<p class="wk-why">تا آخر ماه پرداختی در برنامه نیست.</p>'}
+    ${A.undated.length ? `<p class="wk-why">${A.undated.map(x => `${esc(x.name)} ${fmtShort(x.amount)}`).join('، ')}: روزش معلوم نیست (جلسه‌های دوره هنوز در برنامه نیست).</p>` : ''}
+    <p class="wk-why">روز هر پرداخت: آخرین جلسهٔ دوره (همهٔ صورت‌حساب‌های قبلی همان روز یا فردایش رسیده)؛ پیش‌پرداخت، اولین جلسه؛ گردان، حدود ۱۸ ماه بعد. مبلغ از قیمت مراجع برای تعداد اعضا.${later ? `<br>ماه بعد: ${later}.` : ''}</p></section>`;
+}
+// The balance day by day to the end of the month: today's balance, plus each payment on its day, minus the usual
+// daily spend (forecast living costs still to come ÷ days left).
+function cashPath(A, T, key) {
+  const now = new Date(), { end } = monthRange(key), ms = monthSummary(T, key);
+  const series = monthsSeries(S.history, T, S.settings.startDate), done = series.filter(m => !m.running && (m.expense || m.work)).slice(-3);
+  const avgExp = done.length ? done.reduce((a, m) => a + (m.expense || 0), 0) / done.length : 0;
+  const proj = projectMonth(key, ms.expense || 0, avgExp || null, now) || ms.expense || 0;
+  const days = Math.max(1, Math.ceil((end - now) / 864e5)), daily = Math.max(0, proj - (ms.expense || 0)) / days;
+  const inn = {};
+  for (const x of A.items) inn[x.date] = (inn[x.date] || 0) + x.amount;
+  let b = balanceAt(S.tx, S.settings);
+  const pts = [{ k: dKey(now), v: b }];
+  for (let i = 1; i <= days; i++) { const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i), k = dKey(d); b += (inn[k] || 0) - daily; pts.push({ k, v: b, in: inn[k] || 0 }); }
+  if (inn[pts[0].k]) pts[0].v += inn[pts[0].k];
+  const low = pts.reduce((m, p) => (p.v < m.v ? p : m), pts[0]);
+  return { pts, low, daily, start: pts[0].v, end: pts[pts.length - 1].v, buffer: avgExp / 3 };
+}
+function cashPathCard(A, T, key) {
+  const C = cashPath(A, T, key), W = 320, H = 92, v = C.pts.map(p => p.v), mn = Math.min(...v, 0), mx = Math.max(...v, 1), r = mx - mn || 1;
+  const xy = (p, i) => [W - i / (C.pts.length - 1 || 1) * W, 8 + (1 - (p.v - mn) / r) * (H - 16)];
+  const P = C.pts.map(xy), d = P.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+  const li = C.pts.indexOf(C.low), lp = P[li];
+  const dots = C.pts.map((p, i) => p.in ? `<circle cx="${P[i][0].toFixed(1)}" cy="${P[i][1].toFixed(1)}" r="3.5" class="cp-in"/>` : '').join('');
+  const tight = C.low.v < C.buffer;
+  return `<section class="wk-card"><div class="wk-lb"><span>موجودی تا آخر ماه</span><span>${tight ? 'کم می‌شود' : 'امن'}</span></div>
+    <div class="wk-big">${fmtShort(C.end).split(' ')[0]}<small>${fmtShort(C.end).split(' ').slice(1).join(' ')} آخر ${esc(monthName(key))}</small></div>
+    <svg class="cp-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${d} L0 ${H} L${W} ${H}Z" class="cp-area"/><path d="${d}" class="cp-line"/>${dots}<circle cx="${lp[0].toFixed(1)}" cy="${lp[1].toFixed(1)}" r="4.5" class="cp-low"/></svg>
+    <div class="wk-keys"><span style="--c:var(--sage)">کمترین ${mm(C.low.v)}، ${C.low.k === C.pts[0].k ? 'امروز' : jDay(C.low.k)}</span><span style="--c:var(--mint)">پول در راه</span></div>
+    <p class="wk-why">موجودی امروز ${fmtShort(C.start)} + پول‌های در راه − خرج روزانهٔ ${fmtShort(C.daily)} (خرج پیش‌بینی‌شدهٔ باقی ماه ÷ روزهای مانده). ${tight ? `کمترین نقطه زیر ذخیرهٔ ۱۰ روزه (${fmtShort(C.buffer)}) است؛ تا ${jDay(C.pts.find((p, i) => i > li && p.in)?.k || C.low.k)} خرج اختیاری را نگه دار.` : 'هیچ روزی زیر ذخیرهٔ ۱۰ روزه نمی‌رود.'}</p></section>`;
+}
+// When to buy: what is free today now, and the rest of this month's buying spread over the payments still to
+// come (the same share of each), split between assets as the monthly plan does. Prices ahead are not predicted:
+// each asset shows today's reading and the price zone it says to buy in.
+function investAhead(A) {
+  const cp = currentPlan(), today = dKey(new Date());
+  const now = Math.max(0, Math.min(cp.left, cp.free.free)), rest = Math.max(0, cp.left - now);
+  const fut = A.items.filter(x => x.date > today || (x.date === today && !x.late)), inSum = fut.reduce((a, x) => a + x.amount, 0);
+  const share = inSum ? Math.min(.5, rest / inSum) : 0;
+  const tot = cp.rows.reduce((a, r) => a + r.amt, 0);
+  const mix = cp.rows.map(r => ({ k: r.k, w: tot ? r.amt / tot : r.target * r.sig.tilt, sig: r.sig, price: r.price }));
+  const wSum = mix.reduce((a, m) => a + m.w, 0) || 1;
+  const steps = [];
+  if (now >= 1e6) steps.push({ k: today, amt: now, why: 'پول آزاد امروز' });
+  for (const x of fut) { const a = Math.round(x.amount * share / 5e5) * 5e5; if (a >= 1e6) steps.push({ k: x.date, amt: a, why: `${faDigits(Math.round(share * 100))}٪ پول ${esc(x.name)}` }); }
+  for (const st of steps) st.parts = mix.map(m => ({ k: m.k, amt: Math.round(st.amt * m.w / wSum / 1e5) * 1e5 })).filter(p => p.amt > 0);
+  return { steps, mix, share, now, rest, left: cp.left, target: cp.target };
+}
+const sigWord = s => s.mode === 'now' ? 'همین قیمت' : s.mode === 'in' ? 'داخل محدودهٔ خرید' : s.mode === 'dip' ? `زیر ${fmtShort(s.zone[1])}` : s.mode === 'sup' ? `نزدیک ${fmtShort(s.sup[0] || s.zone[0])}` : 'صبر';
+function investAheadCard(A) {
+  const I = investAhead(A);
+  if (!I.left) return '';
+  const lab = k => MK[k].label.split(' ')[0];
+  return `<section class="wk-card"><div class="wk-lb"><span>خرید با پول در راه</span><span>${mm(I.left)} از ${mm(I.target)} مانده</span></div>
+    ${I.steps.length ? I.steps.map(st => `<div class="ah-row"><span class="ah-d">${st.k === dKey(new Date()) ? 'امروز' : jDay(st.k)}</span><span class="grow">${mm(st.amt)}<small>${st.why}</small></span><span class="ah-mix">${st.parts.map(p => `<i>${lab(p.k)} ${mm(p.amt)}</i>`).join('')}</span></div>`).join('')
+      : '<p class="wk-why">امروز پول آزادی برای خرید نیست و تا آخر ماه پولی در راه نیست.</p>'}
+    <div class="ah-sig">${I.mix.map(m => `<span><b>${lab(m.k)}</b>${esc(m.sig.tag || '—')}<small>${sigWord(m.sig)}</small></span>`).join('')}</div>
+    <p class="wk-why">هدف خرید ماه منهای خریدهای انجام‌شده = ${fmtShort(I.left)}. امروز تا سقف پول آزاد (${fmtShort(I.now)})؛ بقیه از هر پول در راه سهم یکسان ${faDigits(Math.round(I.share * 100))}٪ (حداکثر نصف). تقسیم بین دارایی‌ها مثل برنامهٔ ماه. قیمت روز خرید پیش‌بینی نمی‌شود: زیر هر دارایی سیگنال امروز و محدودهٔ خریدش آمده؛ روز رسیدن پول دوباره نگاه کن.</p></section>`;
+}
+// What an hour of each part of the work brought in, last finished month (value of the sessions or shifts ÷ their
+// hours), against the average of all work; and the hours that bring no money.
+function hourValue(key) {
+  const pick = k => { const m = sync.lifeMonth(k); return m && m.src && m.workMin >= 600 ? m : null; };
+  let k = shiftMonth(key, -1), m = pick(k);
+  if (!m) { k = key; m = pick(key); }
+  if (!m) return null;
+  const rows = Object.entries(m.src).filter(([, x]) => x.min >= 120 && x.unpriced < x.n / 2 && x.value > 0)
+    .map(([name, x]) => ({ name, cat: x.cat, h: x.min / 60, n: x.n, rate: x.value / (x.min / 60) })).sort((a, b) => b.rate - a.rate);
+  if (!rows.length) return null;
+  const val = (m.earned || 0) + (m.shiftEarned || 0), avg = val / (m.workMin / 60);
+  return { k, rows, avg, workH: m.workMin / 60, uniH: (m.uniMin || 0) / 60, perH: (m.personalMin || 0) / 60, running: k === key };
+}
+function hourCard(H) {
+  const mx = Math.max(...H.rows.map(r => r.rate), H.avg), h = v => faDigits(Math.round(v));
+  const best = H.rows[0], low = H.rows[H.rows.length - 1];
+  return `<section class="wk-card"><div class="wk-lb"><span>ارزش هر ساعت، ${esc(monthName(H.k))}${H.running ? ' تا امروز' : ''}</span><span>میانگین ${mm(H.avg)}</span></div>
+    <div class="hv">${H.rows.map(r => `<div class="hv-row"><span class="hv-n">${esc(r.name)}<small>${h(r.h)} ساعت، ${faDigits(r.n)} ${r.cat === 'shift' ? 'شیفت' : 'جلسه'}</small></span><span class="hv-bar"><i style="width:${(r.rate / mx * 100).toFixed(0)}%;background:${r.cat === 'shift' ? 'var(--mint-2)' : 'var(--sage)'}"></i><em style="right:${(H.avg / mx * 100).toFixed(0)}%"></em></span><b>${mm(r.rate)}</b></div>`).join('')}</div>
+    <div class="wk-keys"><span style="--c:var(--sage)">جلسه</span><span style="--c:var(--mint-2)">شیفت</span><span style="--c:transparent;border-right:2px dashed var(--sage);padding-right:4px">میانگین همهٔ کار</span></div>
+    <p class="wk-why">هر ردیف = ارزش جلسه‌ها یا شیفت‌های آن ÷ ساعت‌هایش؛ میانگین = ارزش همهٔ کار ÷ ${h(H.workH)} ساعت کار. ${best !== low ? `یک ساعت ${esc(best.name)} ${faDigits((best.rate / low.rate).toFixed(1)).replace('.', '٫')} برابر ${esc(low.name)} می‌ارزد.` : ''}${H.uniH || H.perH ? ` وقت بی‌درآمد همین ماه: ${H.uniH ? `دانشگاه ${h(H.uniH)} ساعت` : ''}${H.uniH && H.perH ? '، ' : ''}${H.perH ? `شخصی ${h(H.perH)} ساعت` : ''}.` : ''} رفت‌وآمد در این ساعت‌ها نیست.</p></section>`;
+}
 // «کار و پول» in Analysis: each number drawn, sage and mint only, with where it comes from.
 const mm = v => fmtShort(v).replace(' میلیون', ' م').replace(' هزار', ' ه');
 function viewWork() {
@@ -2328,14 +2440,10 @@ function viewWork() {
   if (W.renew.length) out.push(card('وقت تمدید', `${mm(W.renewSum)} در راه`, W.renew.map(r => `<div class="wk-rn"><span class="grow">${esc(r.name)}
       <span class="wk-dots">${[...Array(r.size)].map((_, i) => `<i class="${i < r.size - Math.max(0, r.left) ? '' : 'e'}"></i>`).join('')}</span></span><b class="wk-pill">${r.next ? mm(r.next) : '—'}</b></div>`).join('')
     + '<p class="wk-why">مبلغ دورهٔ بعد = تعداد جلسه‌ها × قیمت امروز برای تعداد اعضا.</p>'));
-  const P = W.perH;
-  if (P && P.coach) {
-    const mx = Math.max(P.coach, P.shift || 0);
-    out.push(card(`ارزش هر ساعت، ${esc(monthName(P.month))}`, P.shift ? `<b class="wk-x">${faDigits((P.coach / P.shift).toFixed(1)).replace('.', '٫')}×</b>` : '',
-      `<div class="wk-hb"><span>مربیگری</span><i style="width:${(P.coach / mx * 100).toFixed(0)}%;background:var(--sage)"></i><b>${mm(P.coach)}</b></div>
-      ${P.shift ? `<div class="wk-hb"><span>شیفت</span><i style="width:${(P.shift / mx * 100).toFixed(0)}%;background:var(--mint-2)"></i><b>${mm(P.shift)}</b></div>` : ''}
-      <p class="wk-why">درآمد ÷ ساعت، جدا برای جلسه‌ها و شیفت‌ها.</p>`));
-  }
+  const A = moneyAhead(T, key);
+  if (A) out.push(aheadCard(A, key), cashPathCard(A, T, key), investAheadCard(A));
+  const H = hourValue(key);
+  if (H) out.push(hourCard(H));
   const tips = W.tipCards || [];
   if (tips.length) out.push(`<div class="section-title">پیشنهادها</div><div class="wk-tips">${tips.map(t => `<div class="wk-tip"><b>${t.h}</b><span>${t.t}</span>${t.chart || ''}</div>`).join('')}</div>`);
   return out.join('');

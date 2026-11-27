@@ -96,7 +96,7 @@ let sms = {}, smsNew = false;
 // Kept on this device apart from transactions; only payment records are ever written to the life side.
 // entries: the calendar blocks (date, start/end minutes, title, cat), kept so a payment's moment can be
 // matched with what Farbod was doing (a morning session, a gym shift, a class).
-let life = { bills: {}, pays: {}, months: {}, money: {}, entries: {}, status: null, cursor: null, out: [] };
+let life = { bills: {}, pays: {}, months: {}, money: {}, entries: {}, status: null, plan: null, cursor: null, out: [] };
 const saveLife = () => raw.set('lifeMirror', life);
 async function pullLife() {
   let changed = false, more = true;
@@ -107,6 +107,7 @@ async function pullLife() {
       else if (d.kind === 'payment' && (!life.pays[d.seriesId] || life.pays[d.seriesId].updatedAt <= d.updatedAt)) { life.pays[d.seriesId] = d; changed = true; }
       else if (d.kind === 'monthsum') { life.months[d.month] = d; changed = true; }
       else if (d.kind === 'lifestatus') { life.status = d; changed = true; }
+      else if (d.kind === 'lifeplan') { life.plan = d; changed = true; }
       else if (d.kind === 'moneysum' && (!life.money[d.month] || life.money[d.month].updatedAt <= d.updatedAt)) life.money[d.month] = d;
       else if (d.kind === 'entry') {
         if (d.deleted || d.status === 'cancelled' || d.status === 'moved' || d.untimed || d.start == null) delete life.entries[d.id];
@@ -292,6 +293,8 @@ export const sync = {
     return D;
   },
   lifeStatus: () => life.status,
+  // Money ahead from «زندگی من»: who is expected to pay, when and how much, to the end of the running month.
+  lifePlan: () => life.plan || null,
   // This app's half of the report: work income per month, sent only when it changed.
   async publishMoney(rows) {
     if (!state.key) return;
