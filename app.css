@@ -1239,17 +1239,18 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .ah-sig b { font-size: 13px; }
 .ah-sig small { font-size: 11px; color: var(--sec); }
 .cp-chart { width: 100%; height: 92px; margin: 8px 0 6px; overflow: visible; }
-.cp-area { fill: var(--mint-3); opacity: .55; }
+.cp-chart path, .cp-chart circle { stroke-linejoin: round; }
+.cp-area { fill: var(--mint-3); opacity: .55; stroke: none; }
 .cp-line { fill: none; stroke: var(--sage); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .cp-in { fill: var(--mint); stroke: var(--bg, #fff); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
 .cp-low { fill: var(--sage); stroke: var(--bg, #fff); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .hv { margin-top: 10px; }
-.hv-row { display: grid; grid-template-columns: minmax(0, 38%) 1fr auto; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; }
+.hv-row { display: grid; grid-template-columns: minmax(0, 36%) 1fr 74px; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; }
 .hv-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hv-n small { display: block; font-size: 11px; color: var(--sec); }
 .hv-bar { position: relative; height: 16px; border-radius: 6px; background: var(--mint-3); }
 .hv-bar i { display: block; height: 100%; border-radius: 6px; transform-origin: right; animation: hv-grow .7s cubic-bezier(.2, .8, .2, 1) both; }
 .hv-bar em { position: absolute; top: -3px; bottom: -3px; border-right: 2px dashed var(--sage); }
-.hv-row b { white-space: nowrap; }
+.hv-row b { white-space: nowrap; text-align: left; font-size: 13px; }
 @keyframes hv-grow { from { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .ah-bar, .hv-bar i { animation: none; } }
