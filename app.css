@@ -1219,3 +1219,49 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .by-ch.dn { color: var(--sec); background: rgba(120, 120, 128, .12); }
 .by-mid { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .by-mid .by-est { margin-right: 0; }
+
+/* «کار و پول»: money ahead, balance path, buying with money ahead, value of an hour */
+.ah-strip { position: relative; height: 54px; margin: 14px 0 4px; border-bottom: 1px solid var(--sep); }
+.ah-bar { position: absolute; bottom: 0; width: 8px; margin-right: -4px; border-radius: 4px 4px 0 0; background: var(--sage); transform-origin: bottom; animation: ah-grow .6s cubic-bezier(.2, .8, .2, 1) both; }
+.ah-bar.g { background: var(--mint-2); }
+.ah-now { position: absolute; top: 0; bottom: 0; width: 0; border-right: 1.5px dashed var(--sec); opacity: .7; }
+.ah-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--sec); margin-bottom: 6px; }
+@keyframes ah-grow { from { transform: scaleY(0); } }
+.ah-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: .5px solid var(--sep); font-size: 15px; }
+.ah-row:first-of-type { border-top: 0; }
+.ah-row .grow { min-width: 0; }
+.ah-row small { display: block; font-size: 12px; color: var(--sec); line-height: 1.6; }
+.ah-row b { white-space: nowrap; }
+.ah-d { flex: none; min-width: 52px; font-size: 12px; font-weight: 700; text-align: center; padding: 5px 8px; border-radius: 10px; background: var(--mint-3); }
+.ah-row.late .ah-d { background: transparent; box-shadow: inset 0 0 0 1px var(--sage); }
+.ah-mix { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-width: 46%; }
+.ah-mix i { font-style: normal; font-size: 11px; padding: 3px 8px; border-radius: 99px; background: var(--mint-3); white-space: nowrap; }
+.ah-sig { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+.ah-sig span { display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 12px; background: var(--mint-3); font-size: 12px; text-align: center; }
+.ah-sig b { font-size: 13px; }
+.ah-sig small { font-size: 11px; color: var(--sec); }
+.cp-chart { width: 100%; height: 92px; margin: 8px 0 6px; overflow: visible; }
+.cp-chart path, .cp-chart circle { stroke-linejoin: round; }
+.cp-area { fill: var(--mint-3); opacity: .55; stroke: none; }
+.cp-line { fill: none; stroke: var(--sage); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.cp-in { fill: var(--mint); stroke: var(--bg, #fff); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.cp-low { fill: var(--sage); stroke: var(--bg, #fff); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.hv { margin-top: 10px; }
+.hv-row { display: grid; grid-template-columns: minmax(0, 36%) 1fr 74px; gap: 10px; align-items: center; padding: 7px 0; font-size: 14px; }
+.hv-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hv-n small { display: block; font-size: 11px; color: var(--sec); }
+.hv-bar { position: relative; height: 16px; border-radius: 6px; background: var(--mint-3); }
+.hv-bar i { display: block; height: 100%; border-radius: 6px; transform-origin: right; animation: hv-grow .7s cubic-bezier(.2, .8, .2, 1) both; }
+.hv-bar em { position: absolute; top: -3px; bottom: -3px; border-right: 2px dashed var(--sage); }
+.hv-row b { white-space: nowrap; text-align: left; font-size: 13px; }
+@keyframes hv-grow { from { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .ah-bar, .hv-bar i { animation: none; } }
+
+.iv-lead { font-size: 14px; margin: 8px 0 4px; line-height: 1.7; }
+.section-sub { font-size: 13px; color: var(--sec); margin: 14px 0 2px; }
+.iv-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: .5px solid var(--sep); font-size: 15px; }
+.iv-row small { display: block; font-size: 12px; color: var(--sec); }
+.iv-n { flex: none; width: 44px; font-weight: 700; }
+.iv-do { flex: none; font-size: 13px; padding: 5px 12px; border-radius: 99px; background: var(--mint-3); white-space: nowrap; }
+.iv-do.go { background: var(--sage); color: #fff; }
+.iv-do.no { background: transparent; box-shadow: inset 0 0 0 1px var(--sep); color: var(--sec); }
