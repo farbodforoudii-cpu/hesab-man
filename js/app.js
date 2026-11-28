@@ -2931,7 +2931,7 @@ function viewAssets() {
     ${M ? `<div class="section-title"><span class="live-dot"></span>قیمت‌ها، ${esc(marketAge())}</div>
     <div class="mk-grid">${MARKET_KINDS.map(k => { const t = ST[k]; if (!t) return ''; const sg = sigOf(t);
       return `<button class="mk ${S.mk.k === k ? 'on' : ''}" data-act="mk-pick" data-v="${k}"><span class="mk-l">${MK[k].label}<small>${MK[k].per}</small></span><b>${fmt(t.last)}</b>
-        <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub">۳۰ روز ${pctS(t.m)}، سال ${pctS(t.y)}</span>${sg.buyW ? `<span class="news-k ${sg.buyW === 'مناسب' ? 'g' : sg.buyW === 'گران' ? 'r' : ''}">خرید: ${sg.buyW}</span>` : ''}</button>`; }).join('')}</div>
+        <span class="mk-ch ${t.day > 0 ? 'green' : t.day < 0 ? 'red' : ''}">امروز ${pctS(t.day)}</span><span class="mk-sub"><span>۳۰ روز ${pctS(t.m)}</span>، <span>سال ${pctS(t.y)}</span></span>${sg.buyW ? `<span class="news-k ${sg.buyW === 'مناسب' ? 'g' : sg.buyW === 'گران' ? 'r' : ''}">خرید: ${sg.buyW}</span>` : ''}</button>`; }).join('')}</div>
     <div class="tv mk-tv" id="mk-chart-box"><div class="tv-frames">${[['3m', '۳ ماه'], ['6m', '۶ ماه'], ['1y', 'یک سال']].map(([f, l]) => `<button data-act="mk-frame" data-v="${f}" class="${S.mk.f === f ? 'on' : ''}">${l}</button>`).join('')}<button data-act="mk-all" class="${S.mk.all ? 'on' : ''}">مقایسه ٪</button></div>
       <div class="tv-legend" id="mk-legend"></div><div class="tv-chart lw mk-tall" id="mk-chart"></div>
       ${S.mk.all ? '<p class="tv-hint">هر خط از اول بازه صفر شروع می‌شود.</p>' : sigCard(ST[S.mk.k], sigOf(ST[S.mk.k]))}</div>${macroCard(M.macro)}` : `<p class="foot">قیمت‌ها هنوز نرسیده؛ با اینترنت خودکار می‌آید.</p>`}
