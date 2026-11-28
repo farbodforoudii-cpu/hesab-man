@@ -2388,21 +2388,44 @@ const sigDo = s => s.mode === 'now' || s.mode === 'in' ? { t: 'بخر', w: 'قی
   : s.mode === 'dip' ? { t: 'صبر کن', w: `بخر وقتی زیر ${fmtShort(s.zone[1])} آمد` }
   : s.mode === 'sup' ? { t: 'کم‌کم بخر', w: `بهتر نزدیک ${fmtShort(s.sup[0] || s.zone[0])}` }
   : { t: 'فعلاً نخر', w: 'روندش پایین است؛ پولش را کنار بگذار، بعداً بخر' };
+// One big purchase per buying day, not a little of everything. Days are pooled until there is at least
+// MIN_BUY (or the month ends), and each purchase goes whole to the one asset worth buying most:
+//   score = how far it is below its share of the long-term mix × how good its moment is (the signal's tilt);
+//   assets whose trend is down («فعلاً نخر») are skipped. After each purchase the mix is updated, so the next
+//   purchase may go to another asset.
+const MIN_BUY = 10e6;
+function buyPlan(I) {
+  const held = { ...heldByKind() }, today = dKey(new Date()), out = [];
+  let pool = null;
+  const flush = () => { if (pool) out.push(pool); pool = null; };
+  I.steps.forEach((st, i) => {
+    pool = pool ? { ...pool, k: st.k, amt: pool.amt + st.amt, who: [...pool.who, st.who].filter(Boolean) } : { k: st.k, amt: st.amt, who: [st.who].filter(Boolean) };
+    if (pool.amt >= MIN_BUY) flush();
+  });
+  // A small remainder at the end joins the last purchase, on the remainder's day.
+  if (pool) { const last = out[out.length - 1]; if (last) Object.assign(last, { k: pool.k, amt: last.amt + pool.amt, who: [...last.who, ...pool.who] }); else out.push(pool); }
+  const ok = I.mix.filter(m => m.sig.mode !== 'wait');
+  for (const b of out) {
+    const V = Object.values(held).reduce((a, x) => a + x, 0) + b.amt;
+    const score = m => Math.max(0, TARGET[m.k] * V - (held[m.k] || 0)) * (m.sig.tilt || 1);
+    const best = [...(ok.length ? ok : I.mix)].sort((x, y) => score(y) - score(x))[0];
+    b.asset = best.k; b.sig = best.sig; b.why = best.sig.mode === 'wait' ? 'همهٔ بازارها پایین‌اند؛ کمترین بد' : (held[best.k] || 0) < TARGET[best.k] * V * .8 ? 'از سهمش در دارایی‌ات عقب‌تر است' : 'وضع بازارش از بقیه بهتر است';
+    held[best.k] = (held[best.k] || 0) + b.amt;
+    b.today = b.k === today;
+  }
+  return out;
+}
 function investAheadCard(A) {
   const I = investAhead(A);
   if (!I.left) return '';
-  const lab = k => ({ gold: 'طلا', silver: 'نقره', usd: 'دلار', eur: 'یورو' })[k] || MK[k].label, today = dKey(new Date());
-  // Same day, one row: «۱۸ آذر: ۱۶ میلیون بخر، وقتی پول شیرین و گردان رسید».
-  const byDay = [];
-  for (const st of I.steps) { const d = byDay.find(x => x.k === st.k); if (d) { d.amt += st.amt; d.who.push(st.who); } else byDay.push({ k: st.k, amt: st.amt, who: [st.who] }); }
-  const sum = byDay.reduce((a, d) => a + d.amt, 0), wSum = I.mix.reduce((a, m) => a + m.w, 0) || 1;
+  const lab = k => ({ gold: 'طلا', silver: 'نقره', usd: 'دلار', eur: 'یورو' })[k] || MK[k].label;
+  const B = buyPlan(I);
   return `<section class="wk-card"><div class="wk-lb"><span>خرید این ماه</span><span>مانده ${mm(I.left)} از ${mm(I.target)}</span></div>
-    <p class="iv-lead">${I.now >= 1e6 ? `امروز ${fmtShort(I.now)} پول آزاد داری.` : 'امروز پول آزاد برای خرید نداری.'}${byDay.some(d => d.k !== today) ? ' این روزها، وقتی پولت رسید، بخر:' : ''}</p>
-    ${byDay.map(d => `<div class="ah-row"><span class="ah-d">${d.k === today ? 'امروز' : jDay(d.k)}</span><span class="grow"><b>${fmtShort(d.amt)}</b> بخر<small>${d.k === today ? 'از پول آزاد امروز' : `وقتی پول ${d.who.map(esc).join(' و ')} رسید`}</small></span></div>`).join('')}
-    <div class="section-sub">چه بخری؟</div>
-    ${I.mix.map(m => { const x = sigDo(m.sig), amt = Math.round(sum * m.w / wSum / 1e5) * 1e5;
-      return `<div class="iv-row"><span class="iv-n">${lab(m.k)}</span><span class="grow">${amt ? fmtShort(amt) : '—'}<small>${x.w}</small></span><b class="iv-do${x.t === 'بخر' ? ' go' : x.t === 'فعلاً نخر' ? ' no' : ''}">${x.t}</b></div>`; }).join('')}
-    <p class="wk-why">از هدف خرید ماه ${fmtShort(I.left)} مانده. ${I.share ? `هر روزی که پول می‌رسد، حدود ${faDigits(Math.round(I.share * 100))}٪ آن برای خرید کنار می‌رود تا هدف پر شود.` : 'همه‌اش را امروز می‌شود خرید.'} «بخر» یا «صبر کن» از وضع امروز بازار است؛ قیمت آینده را کسی نمی‌داند، پس روز خرید یک بار دیگر همین‌جا را نگاه کن.</p></section>`;
+    <p class="iv-lead">${I.now >= 1e6 ? `امروز ${fmtShort(I.now)} پول آزاد داری.` : 'امروز پول آزاد برای خرید نداری.'}${B.length ? ` ${faDigits(B.length)} خرید درشت، هر بار یک دارایی:` : ''}</p>
+    ${B.map(b => { const x = sigDo(b.sig); return `<div class="ah-row"><span class="ah-d">${b.today ? 'امروز' : jDay(b.k)}</span><span class="grow"><b>${fmtShort(b.amt)} ${lab(b.asset)}</b><small>${b.why}${x.t === 'صبر کن' ? `؛ ${x.w}` : ''}${b.today ? '' : `؛ وقتی پول ${b.who.map(esc).join(' و ')} رسید`}</small></span><b class="iv-do${x.t === 'بخر' ? ' go' : ''}">${x.t === 'فعلاً نخر' ? 'بخر' : x.t}</b></div>`; }).join('')}
+    <div class="section-sub">وضع امروز هر بازار</div>
+    <div class="ah-sig">${I.mix.map(m => { const x = sigDo(m.sig); return `<span><b>${lab(m.k)}</b>${x.t}<small>${x.t === 'فعلاً نخر' ? 'روندش پایین است' : x.w}</small></span>`; }).join('')}</div>
+    <p class="wk-why">از هدف خرید ماه ${fmtShort(I.left)} مانده. ${I.share ? `از هر پولی که می‌رسد حدود ${faDigits(Math.round(I.share * 100))}٪ برای خرید کنار می‌رود؛ ` : ''}پول‌های کوچک جمع می‌شوند تا هر خرید دست‌کم ${fmtShort(MIN_BUY)} باشد، و هر بار همه‌اش به یک دارایی می‌رود: آن که از سهمش در دارایی‌ات (طلا ۳۵٪، دلار ۳۰٪، نقره ۲۰٪، یورو ۱۵٪) عقب‌تر است و بازارش بهتر. «بخر» یا «صبر کن» از وضع امروز بازار است؛ قیمت آینده را کسی نمی‌داند، پس روز خرید یک بار دیگر همین‌جا را نگاه کن.</p></section>`;
 }
 // What an hour of each part of the work brought in, last finished month (value of the sessions or shifts ÷ their
 // hours), against the average of all work; and the hours that bring no money.
