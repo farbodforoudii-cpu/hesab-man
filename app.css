@@ -1254,3 +1254,12 @@ small.by-why { display: block; font-size: 13px; color: var(--sec); line-height: 
 .hv-row b { white-space: nowrap; text-align: left; font-size: 13px; }
 @keyframes hv-grow { from { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .ah-bar, .hv-bar i { animation: none; } }
+
+.iv-lead { font-size: 14px; margin: 8px 0 4px; line-height: 1.7; }
+.section-sub { font-size: 13px; color: var(--sec); margin: 14px 0 2px; }
+.iv-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: .5px solid var(--sep); font-size: 15px; }
+.iv-row small { display: block; font-size: 12px; color: var(--sec); }
+.iv-n { flex: none; width: 44px; font-weight: 700; }
+.iv-do { flex: none; font-size: 13px; padding: 5px 12px; border-radius: 99px; background: var(--mint-3); white-space: nowrap; }
+.iv-do.go { background: var(--sage); color: #fff; }
+.iv-do.no { background: transparent; box-shadow: inset 0 0 0 1px var(--sep); color: var(--sec); }

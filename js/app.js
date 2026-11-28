@@ -2378,21 +2378,31 @@ function investAhead(A) {
   const mix = cp.rows.map(r => ({ k: r.k, w: tot ? r.amt / tot : r.target * r.sig.tilt, sig: r.sig, price: r.price }));
   const wSum = mix.reduce((a, m) => a + m.w, 0) || 1;
   const steps = [];
-  if (now >= 1e6) steps.push({ k: today, amt: now, why: 'پول آزاد امروز' });
-  for (const x of fut) { const a = Math.round(x.amount * share / 5e5) * 5e5; if (a >= 1e6) steps.push({ k: x.date, amt: a, why: `${faDigits(Math.round(share * 100))}٪ پول ${esc(x.name)}` }); }
+  if (now >= 1e6) steps.push({ k: today, amt: now, who: '' });
+  for (const x of fut) { const a = Math.round(x.amount * share / 5e5) * 5e5; if (a >= 1e6) steps.push({ k: x.date, amt: a, who: x.name }); }
   for (const st of steps) st.parts = mix.map(m => ({ k: m.k, amt: Math.round(st.amt * m.w / wSum / 1e5) * 1e5 })).filter(p => p.amt > 0);
   return { steps, mix, share, now, rest, left: cp.left, target: cp.target };
 }
-const sigWord = s => s.mode === 'now' ? 'همین قیمت' : s.mode === 'in' ? 'داخل محدودهٔ خرید' : s.mode === 'dip' ? `زیر ${fmtShort(s.zone[1])}` : s.mode === 'sup' ? `نزدیک ${fmtShort(s.sup[0] || s.zone[0])}` : 'صبر';
+// Each asset's reading in one plain instruction.
+const sigDo = s => s.mode === 'now' || s.mode === 'in' ? { t: 'بخر', w: 'قیمت امروز مناسب است' }
+  : s.mode === 'dip' ? { t: 'صبر کن', w: `بخر وقتی زیر ${fmtShort(s.zone[1])} آمد` }
+  : s.mode === 'sup' ? { t: 'کم‌کم بخر', w: `بهتر نزدیک ${fmtShort(s.sup[0] || s.zone[0])}` }
+  : { t: 'فعلاً نخر', w: 'روندش پایین است؛ پولش را کنار بگذار، بعداً بخر' };
 function investAheadCard(A) {
   const I = investAhead(A);
   if (!I.left) return '';
-  const lab = k => ({ gold: 'طلا', silver: 'نقره', usd: 'دلار', eur: 'یورو' })[k] || MK[k].label;
-  return `<section class="wk-card"><div class="wk-lb"><span>خرید با پول در راه</span><span>مانده ${mm(I.left)} از ${mm(I.target)}</span></div>
-    ${I.steps.length ? I.steps.map(st => `<div class="ah-row"><span class="ah-d">${st.k === dKey(new Date()) ? 'امروز' : jDay(st.k)}</span><span class="grow">${mm(st.amt)}<small>${st.why}</small></span><span class="ah-mix">${st.parts.map(p => `<i>${lab(p.k)} ${mm(p.amt)}</i>`).join('')}</span></div>`).join('')
-      : '<p class="wk-why">امروز پول آزادی برای خرید نیست و تا آخر ماه پولی در راه نیست.</p>'}
-    <div class="ah-sig">${I.mix.map(m => `<span><b>${lab(m.k)}</b>${esc(m.sig.tag || '—')}<small>${sigWord(m.sig)}</small></span>`).join('')}</div>
-    <p class="wk-why">هدف خرید ماه منهای خریدهای انجام‌شده = ${fmtShort(I.left)}. امروز تا سقف پول آزاد (${fmtShort(I.now)})؛ ${I.rest ? `بقیه از هر پول در راه سهم یکسان ${faDigits(Math.round(I.share * 100))}٪ (حداکثر نصف).` : 'همه‌اش امروز آزاد است؛ پول‌های در راه برای خرج و ماه بعد می‌ماند.'} تقسیم بین دارایی‌ها مثل برنامهٔ ماه. قیمت روز خرید پیش‌بینی نمی‌شود: زیر هر دارایی سیگنال امروز و محدودهٔ خریدش آمده؛ روز رسیدن پول دوباره نگاه کن.</p></section>`;
+  const lab = k => ({ gold: 'طلا', silver: 'نقره', usd: 'دلار', eur: 'یورو' })[k] || MK[k].label, today = dKey(new Date());
+  // Same day, one row: «۱۸ آذر: ۱۶ میلیون بخر، وقتی پول شیرین و گردان رسید».
+  const byDay = [];
+  for (const st of I.steps) { const d = byDay.find(x => x.k === st.k); if (d) { d.amt += st.amt; d.who.push(st.who); } else byDay.push({ k: st.k, amt: st.amt, who: [st.who] }); }
+  const sum = byDay.reduce((a, d) => a + d.amt, 0), wSum = I.mix.reduce((a, m) => a + m.w, 0) || 1;
+  return `<section class="wk-card"><div class="wk-lb"><span>خرید این ماه</span><span>مانده ${mm(I.left)} از ${mm(I.target)}</span></div>
+    <p class="iv-lead">${I.now >= 1e6 ? `امروز ${fmtShort(I.now)} پول آزاد داری.` : 'امروز پول آزاد برای خرید نداری.'}${byDay.some(d => d.k !== today) ? ' این روزها، وقتی پولت رسید، بخر:' : ''}</p>
+    ${byDay.map(d => `<div class="ah-row"><span class="ah-d">${d.k === today ? 'امروز' : jDay(d.k)}</span><span class="grow"><b>${fmtShort(d.amt)}</b> بخر<small>${d.k === today ? 'از پول آزاد امروز' : `وقتی پول ${d.who.map(esc).join(' و ')} رسید`}</small></span></div>`).join('')}
+    <div class="section-sub">چه بخری؟</div>
+    ${I.mix.map(m => { const x = sigDo(m.sig), amt = Math.round(sum * m.w / wSum / 1e5) * 1e5;
+      return `<div class="iv-row"><span class="iv-n">${lab(m.k)}</span><span class="grow">${amt ? fmtShort(amt) : '—'}<small>${x.w}</small></span><b class="iv-do${x.t === 'بخر' ? ' go' : x.t === 'فعلاً نخر' ? ' no' : ''}">${x.t}</b></div>`; }).join('')}
+    <p class="wk-why">از هدف خرید ماه ${fmtShort(I.left)} مانده. ${I.share ? `هر روزی که پول می‌رسد، حدود ${faDigits(Math.round(I.share * 100))}٪ آن برای خرید کنار می‌رود تا هدف پر شود.` : 'همه‌اش را امروز می‌شود خرید.'} «بخر» یا «صبر کن» از وضع امروز بازار است؛ قیمت آینده را کسی نمی‌داند، پس روز خرید یک بار دیگر همین‌جا را نگاه کن.</p></section>`;
 }
 // What an hour of each part of the work brought in, last finished month (value of the sessions or shifts ÷ their
 // hours), against the average of all work; and the hours that bring no money.
@@ -2420,28 +2430,19 @@ const mm = v => fmtShort(v).replace(' میلیون', ' م');
 function viewWork() {
   const T = scoped(), key = monthKey(new Date()), W = workLink(T, key);
   if (!W) return '<p class="empty">هنوز از «زندگی من» چیزی نرسیده؛ همگام‌سازی را در هر دو اپ روشن کن.</p>';
-  const now = new Date(), days = d => Math.max(0, Math.round((now - new Date(d)) / 864e5));
-  const shades = ['var(--sage)', 'var(--mint)', 'var(--mint-2)', 'var(--mint-3)'];
-  const by = W.by.slice(0, 4), rest = W.by.slice(4).reduce((s, x) => s + x.amount, 0);
-  const segs = [...by.map((x, i) => ({ v: x.amount, c: shades[i] })), ...(rest ? [{ v: rest, c: 'var(--mint-3)' }] : [])];
+  const now = new Date();
   const fc = Math.max(W.fc, W.received), recv = Math.min(W.received, fc), owed = Math.min(W.open, fc - recv), plan = Math.max(0, fc - recv - owed);
   const left = Math.max(0, Math.ceil((monthRange(key).end - now) / 864e5));
   const card = (lbl, side, body) => `<section class="wk-card"><div class="wk-lb"><span>${lbl}</span><span>${side}</span></div>${body}</section>`;
   const big = (v, unit) => `<div class="wk-big">${fmtShort(v).split(' ')[0]}<small>${unit ?? fmtShort(v).split(' ').slice(1).join(' ')}</small></div>`;
   const out = [];
-  out.push(card('<span class="live-dot"></span> طلب از مراجع‌ها', `${faDigits(W.openN)} جلسه`, `${big(W.open)}
-    ${segs.length ? `<div class="wk-stack">${segs.map(x => `<i style="flex:${x.v};background:${x.c}"></i>`).join('')}</div>` : ''}
-    <div class="wk-lg">${by.map((x, i) => `<i class="wk-dt" style="background:${shades[i]}"></i><span>${esc(x.name)}<small>${faDigits(x.n)} جلسه</small></span><span class="wk-age${days(x.since) >= 14 ? ' old' : ''}">${faDigits(days(x.since))} روز</span><b>${mm(x.amount)}</b>`).join('')}</div>
-    <p class="wk-why">جلسه‌های انجام‌شده در «زندگی من» که پولشان هنوز نرسیده؛ «روز» از قدیمی‌ترین جلسه.</p>`));
-  out.push(card(`درآمد ${esc(monthName(key))}`, `${faDigits(left)} روز مانده`, `${big(fc, fmtShort(fc).split(' ').slice(1).join(' ') + ' پیش‌بینی')}
-    <div class="wk-prog"><i style="width:${(recv / fc * 100).toFixed(1)}%;background:var(--sage)"></i><i class="wk-stripe" style="width:${(owed / fc * 100).toFixed(1)}%"></i><i style="width:${(plan / fc * 100).toFixed(1)}%;background:var(--mint-3)"></i></div>
-    <div class="wk-keys"><span style="--c:var(--sage)">رسیده ${mm(recv)}</span><span style="--c:var(--mint)">طلب ${mm(owed)}</span><span style="--c:var(--mint-3)">جلسه‌های مانده ${mm(plan)}</span></div>
-    <p class="wk-why">پیش‌بینی = ارزش همهٔ جلسه‌ها و شیفت‌های ${esc(monthName(key))} در «زندگی من» (${faDigits(W.sessions)} انجام‌شده، ${faDigits(W.fcSessions)} مانده).</p>`));
-  if (W.renew.length) out.push(card('وقت تمدید', `${mm(W.renewSum)} در راه`, W.renew.map(r => `<div class="wk-rn"><span class="grow">${esc(r.name)}
-      <span class="wk-dots">${[...Array(r.size)].map((_, i) => `<i class="${i < r.size - Math.max(0, r.left) ? '' : 'e'}"></i>`).join('')}</span></span><b class="wk-pill">${r.next ? mm(r.next) : '—'}</b></div>`).join('')
-    + '<p class="wk-why">مبلغ دورهٔ بعد = تعداد جلسه‌ها × قیمت امروز برای تعداد اعضا.</p>'));
   const A = moneyAhead(T, key);
-  if (A) out.push(aheadCard(A, key), cashPathCard(A, T, key), investAheadCard(A));
+  if (A) out.push(aheadCard(A, key));
+  out.push(card(`ارزش کار ${esc(monthName(key))}`, `${faDigits(left)} روز مانده`, `${big(fc, fmtShort(fc).split(' ').slice(1).join(' ') + ' پیش‌بینی')}
+    <div class="wk-prog"><i style="width:${(recv / fc * 100).toFixed(1)}%;background:var(--sage)"></i><i class="wk-stripe" style="width:${(owed / fc * 100).toFixed(1)}%"></i><i style="width:${(plan / fc * 100).toFixed(1)}%;background:var(--mint-3)"></i></div>
+    <div class="wk-keys"><span style="--c:var(--sage)">رسیده ${mm(recv)}</span><span style="--c:var(--mint)">کار شده، پولش نیامده ${mm(owed)}</span><span style="--c:var(--mint-3)">کار مانده ${mm(plan)}</span></div>
+    <p class="wk-why">ارزش کار ${esc(monthName(key))}، نه پولی که این ماه می‌رسد: همهٔ جلسه‌ها و شیفت‌های این ماه در «زندگی من» (${faDigits(W.sessions)} انجام‌شده، ${faDigits(W.fcSessions)} مانده). پولی که واقعاً می‌رسد در «پول در راه» است.</p>`));
+  if (A) out.push(cashPathCard(A, T, key), investAheadCard(A));
   const H = hourValue(key);
   if (H) out.push(hourCard(H));
   const tips = W.tipCards || [];
