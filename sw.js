@@ -1,5 +1,6 @@
 // Offline-first service worker: app shell is cached; bump VERSION on every release.
-const VERSION = 'v98';
+// Every app on this site shares one Cache Storage: each app only ever touches caches with its own prefix.
+const PREFIX = 'hesab-', VERSION = PREFIX + 'v99', LEGACY = ['v98'];
 const SHELL = [
   './', 'index.html', 'app.css', 'glass.css', 'manifest.webmanifest',
   'js/app.js', 'js/market.js', 'js/sync.js', 'js/config.js', 'js/db.js', 'js/model.js', 'js/suggest.js', 'js/learn.js', 'js/bank.js', 'js/stats.js', 'js/jalali.js', 'js/format.js', 'js/analysis.js',
@@ -13,7 +14,7 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
+  e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== VERSION && (k.startsWith(PREFIX) || LEGACY.includes(k))).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
